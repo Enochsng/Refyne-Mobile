@@ -221,22 +221,6 @@ export default function ExploreSportsScreen({ navigation }) {
       {/* Main Content */}
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <View style={styles.mainContent}>
-          {/* Section Header */}
-          <Animated.View 
-            style={[
-              styles.sectionHeader,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }]
-              }
-            ]}
-          >
-            <Text style={styles.sectionTitle}>Get started with a sport</Text>
-            <Text style={styles.sectionSubtitle}>
-              Select your sport to find specialized coaches and get targeted feedback
-            </Text>
-          </Animated.View>
-
           {/* Loading State */}
           {loading ? (
             <View style={styles.loadingContainer}>

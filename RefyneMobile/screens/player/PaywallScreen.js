@@ -11,6 +11,8 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
+  SafeAreaView,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,6 +36,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 5 clips per package',
           'Coaching session open for 3 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: false,
         gradient: ['#6B7280', '#4B5563'],
@@ -46,6 +49,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 7 clips per package',
           'Coaching session open for 5 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: true,
         gradient: ['#0C295C', '#1A4A7A'],
@@ -58,6 +62,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 10 clips per package',
           'Coaching session open for 7 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: false,
         gradient: ['#059669', '#047857'],
@@ -74,6 +79,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 5 clips per package',
           'Coaching session open for 3 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: false,
         gradient: ['#6B7280', '#4B5563'],
@@ -86,6 +92,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 7 clips per package',
           'Coaching session open for 5 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: true,
         gradient: ['#0C295C', '#1A4A7A'],
@@ -98,6 +105,7 @@ const getCoachingPackages = (sport) => {
           'Upload up to 10 clips per package',
           'Coaching session open for 7 days',
           'Get quality and personalized feedback',
+          'Send up to 5 messages per day',
         ],
         popular: false,
         gradient: ['#059669', '#047857'],
@@ -564,270 +572,276 @@ export default function PaywallScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <Animated.View 
-        style={[
-          styles.headerContainer,
-          {
-            opacity: fadeAnim,
-            transform: [
-              { translateY: slideAnim },
-              { scale: scaleAnim }
-            ]
-          }
-        ]}
-      >
-        <LinearGradient
-          colors={['#0C295C', '#1A4A7A', '#2D5A8A']}
-          style={styles.header}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        {/* Header */}
+        <Animated.View 
+          style={[
+            styles.headerContainer,
+            {
+              opacity: fadeAnim,
+              transform: [
+                { translateY: slideAnim },
+                { scale: scaleAnim }
+              ]
+            }
+          ]}
         >
-          <View style={styles.headerInner}>
-            <TouchableOpacity 
-              style={styles.backButton}
-              onPress={() => navigation.goBack()}
-            >
-              <Ionicons name="arrow-back" size={20} color="white" />
-            </TouchableOpacity>
-            
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle}>Choose Your Package</Text>
-              <Text style={styles.headerSubtitle}>
-                Select a coaching package to start your journey with {coach.name}
+          <View style={styles.header}>
+            <View style={styles.headerInner}>
+              <TouchableOpacity 
+                style={styles.backButton}
+                onPress={() => navigation.goBack()}
+              >
+                <Ionicons name="arrow-back" size={24} color="#0C295C" />
+              </TouchableOpacity>
+              
+              <View style={styles.headerContent}>
+                <Text style={styles.headerTitle}>Choose Your Package</Text>
+                <Text style={styles.headerSubtitle}>
+                  Select a coaching package to start your journey with {coach.name}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Animated.View>
+
+        {/* Coach Info Section */}
+        <Animated.View 
+          style={[
+            styles.coachInfoContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
+        >
+          <View style={styles.coachInfoCard}>
+            <View style={styles.coachAvatar}>
+              {coach.profilePicture ? (
+                <Image 
+                  source={{ uri: coach.profilePicture }} 
+                  style={styles.coachProfileImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={styles.coachInitial}>{coach.name.charAt(0)}</Text>
+              )}
+            </View>
+            <View style={styles.coachDetails}>
+              <Text style={styles.coachName}>{coach.name}</Text>
+              <Text style={styles.coachSport}>{sport} Coach</Text>
+              <Text style={styles.coachExperience}>
+                {coach.experience} years of experience
               </Text>
             </View>
           </View>
-        </LinearGradient>
-      </Animated.View>
+        </Animated.View>
 
-      {/* Coach Info Section */}
-      <Animated.View 
-        style={[
-          styles.coachInfoContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
-        <View style={styles.coachInfoCard}>
-          <View style={styles.coachAvatar}>
-            {coach.profilePicture ? (
-              <Image 
-                source={{ uri: coach.profilePicture }} 
-                style={styles.coachProfileImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <Text style={styles.coachInitial}>{coach.name.charAt(0)}</Text>
-            )}
-          </View>
-          <View style={styles.coachDetails}>
-            <Text style={styles.coachName}>{coach.name}</Text>
-            <Text style={styles.coachSport}>{sport} Coach</Text>
-            <Text style={styles.coachExperience}>
-              {coach.experience} years of experience
-            </Text>
-          </View>
-        </View>
-      </Animated.View>
-
-      {/* Main Content */}
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.mainContent}>
-          {/* Packages Section */}
-          <View style={styles.packagesContainer}>
-            <Text style={styles.sectionTitle}>Available Packages</Text>
-            <Text style={styles.sectionSubtitle}>
-              Choose the package that best fits your training needs
-            </Text>
-            
-            {coachingPackages.map((pkg, index) => (
+        {/* Main Content */}
+        <ScrollView 
+          style={styles.scrollView} 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.mainContent}>
+            {/* Packages Section */}
+            <View style={styles.packagesContainer}>
+              <Text style={styles.sectionTitle}>Available Packages</Text>
+              <Text style={styles.sectionSubtitle}>
+                Choose the package that best fits your training needs
+              </Text>
+              
+              {coachingPackages.map((pkg, index) => (
+                <Animated.View
+                  key={pkg.id}
+                  style={[
+                    styles.packageCardContainer,
+                    {
+                      opacity: packageAnimations[index].entranceOpacity,
+                      transform: [
+                        { translateY: packageAnimations[index].entranceTranslateY },
+                        { scale: packageAnimations[index].entranceScale },
+                        { scale: packageAnimations[index].pressScale },
+                        { translateY: packageAnimations[index].pressTranslateY },
+                      ],
+                    }
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.packageCard,
+                      selectedPackage === pkg.id && styles.selectedPackageCard,
+                      pkg.popular && styles.popularPackageCard,
+                    ]}
+                    onPress={() => handlePackageSelect(pkg.id)}
+                    onPressIn={() => handleCardPressIn(index)}
+                    onPressOut={() => handleCardPressOut(index)}
+                    activeOpacity={1}
+                  >
+                    {pkg.popular && (
+                      <View style={styles.popularBadge}>
+                        <Text style={styles.popularBadgeText}>MOST POPULAR</Text>
+                      </View>
+                    )}
+                    
+                    <View style={[styles.packageHeader, pkg.popular && styles.packageHeaderPopular]}>
+                      <View style={styles.packageTitleRow}>
+                        <Text style={styles.packageName}>{pkg.name}</Text>
+                        {selectedPackage === pkg.id && (
+                          <View style={styles.selectedIndicatorInline}>
+                            <Ionicons name="checkmark-circle" size={24} color="#0C295C" />
+                          </View>
+                        )}
+                      </View>
+                      <View style={styles.priceContainer}>
+                        <Text style={styles.packagePrice}>{pkg.price}</Text>
+                      </View>
+                    </View>
+                    
+                    <View style={styles.featuresContainer}>
+                      {pkg.features.map((feature, featureIndex) => (
+                        <View key={featureIndex} style={styles.featureItem}>
+                          <Ionicons name="checkmark-circle" size={18} color="#059669" />
+                          <Text style={styles.featureText}>{feature}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </TouchableOpacity>
+                </Animated.View>
+              ))}
+              
+              {/* Subscription Card */}
               <Animated.View
-                key={pkg.id}
                 style={[
-                  styles.packageCardContainer,
+                  styles.subscriptionCardContainer,
                   {
-                    opacity: packageAnimations[index].entranceOpacity,
+                    opacity: subscriptionAnimations.entranceOpacity,
                     transform: [
-                      { translateY: packageAnimations[index].entranceTranslateY },
-                      { scale: packageAnimations[index].entranceScale },
-                      { scale: packageAnimations[index].pressScale },
-                      { translateY: packageAnimations[index].pressTranslateY },
+                      { translateY: subscriptionAnimations.entranceTranslateY },
+                      { scale: subscriptionAnimations.entranceScale },
+                      { scale: subscriptionAnimations.pressScale },
+                      { translateY: subscriptionAnimations.pressTranslateY },
                     ],
                   }
                 ]}
               >
                 <TouchableOpacity
                   style={[
-                    styles.packageCard,
-                    selectedPackage === pkg.id && styles.selectedPackageCard,
-                    pkg.popular && styles.popularPackageCard,
+                    styles.subscriptionCard,
+                    selectedSubscription && styles.selectedSubscriptionCard,
                   ]}
-                  onPress={() => handlePackageSelect(pkg.id)}
-                  onPressIn={() => handleCardPressIn(index)}
-                  onPressOut={() => handleCardPressOut(index)}
+                  onPress={handleSubscriptionSelect}
+                  onPressIn={handleSubscriptionPressIn}
+                  onPressOut={handleSubscriptionPressOut}
                   activeOpacity={1}
                 >
-                  {pkg.popular && (
-                    <View style={styles.popularBadge}>
-                      <Text style={styles.popularBadgeText}>MOST POPULAR</Text>
-                    </View>
-                  )}
-                  
-                  <View style={styles.packageHeader}>
-                    <Text style={styles.packageName}>{pkg.name}</Text>
-                    <View style={styles.priceContainer}>
-                      <Text style={styles.packagePrice}>{pkg.price}</Text>
-                      <Text style={styles.packageDuration}>{pkg.duration}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.featuresContainer}>
-                    {pkg.features.map((feature, featureIndex) => (
-                      <View key={featureIndex} style={styles.featureItem}>
-                        <Ionicons name="checkmark-circle" size={16} color="#059669" />
-                        <Text style={styles.featureText}>{feature}</Text>
+                  <View style={styles.subscriptionHeader}>
+                    <View style={styles.subscriptionTitleRow}>
+                      <View style={styles.subscriptionIconTitle}>
+                        <Ionicons name="infinite" size={24} color="white" />
+                        <Text style={styles.subscriptionTitle}>Monthly Subscription</Text>
                       </View>
-                    ))}
+                      {selectedSubscription && (
+                        <View style={styles.subscriptionSelectedIndicator}>
+                          <Ionicons name="checkmark-circle" size={24} color="white" />
+                        </View>
+                      )}
+                    </View>
                   </View>
                   
-                  {selectedPackage === pkg.id && (
-                    <View style={styles.selectedIndicator}>
-                      <Ionicons name="checkmark-circle" size={24} color="#0C295C" />
+                  <View style={styles.subscriptionContent}>
+                    <Text style={styles.subscriptionDescription}>
+                      Send your coach up to 50 clips every month and have no session limit!
+                    </Text>
+                    
+                    <View style={styles.subscriptionPriceContainer}>
+                      <Text style={styles.subscriptionPrice}>
+                        {sport.toLowerCase() === 'golf' ? '$75' : '$70'}
+                      </Text>
+                      <Text style={styles.subscriptionPricePeriod}>/month</Text>
                     </View>
-                  )}
+                  </View>
                 </TouchableOpacity>
               </Animated.View>
-            ))}
-            
-            {/* Subscription Card */}
-            <Animated.View
-              style={[
-                styles.subscriptionCardContainer,
-                {
-                  opacity: subscriptionAnimations.entranceOpacity,
-                  transform: [
-                    { translateY: subscriptionAnimations.entranceTranslateY },
-                    { scale: subscriptionAnimations.entranceScale },
-                    { scale: subscriptionAnimations.pressScale },
-                    { translateY: subscriptionAnimations.pressTranslateY },
-                  ],
-                }
-              ]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.subscriptionCard,
-                  selectedSubscription && styles.selectedSubscriptionCard,
-                ]}
-                onPress={handleSubscriptionSelect}
-                onPressIn={handleSubscriptionPressIn}
-                onPressOut={handleSubscriptionPressOut}
-                activeOpacity={1}
-              >
-                <View style={styles.subscriptionHeader}>
-                  <Ionicons name="infinite" size={24} color="white" />
-                  <Text style={styles.subscriptionTitle}>Monthly Subscription</Text>
-                </View>
-                
-                <View style={styles.subscriptionContent}>
-                  <Text style={styles.subscriptionDescription}>
-                    Send your coach up to 50 clips every month and have no session limit!
-                  </Text>
-                  
-                  <View style={styles.subscriptionPriceContainer}>
-                    <Text style={styles.subscriptionPrice}>
-                      {sport.toLowerCase() === 'golf' ? '$75' : '$70'}
-                    </Text>
-                    <Text style={styles.subscriptionPricePeriod}>/month</Text>
-                  </View>
-                </View>
-                
-                {selectedSubscription && (
-                  <View style={styles.subscriptionSelectedIndicator}>
-                    <Ionicons name="checkmark-circle" size={24} color="white" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
+            </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
 
-      {/* Purchase Button */}
-      <Animated.View 
-        style={[
-          styles.purchaseContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
-        <TouchableOpacity 
-          style={[styles.purchaseButton, loading && styles.purchaseButtonDisabled]} 
-          onPress={handlePurchase}
-          disabled={loading || !paymentSheetEnabled}
+        {/* Purchase Button */}
+        <Animated.View 
+          style={[
+            styles.purchaseContainer,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }]
+            }
+          ]}
         >
-          <LinearGradient
-            colors={loading ? ['#94A3B8', '#64748B'] : ['#0C295C', '#1A4A7A', '#2D5A8A']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.purchaseButtonGradient}
+          <TouchableOpacity 
+            style={[styles.purchaseButton, loading && styles.purchaseButtonDisabled]} 
+            onPress={handlePurchase}
+            disabled={loading || !paymentSheetEnabled}
           >
-            {/* Subtle shimmer overlay */}
-            <View style={styles.shimmerOverlay} />
-            
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="small" color="white" />
-                <Text style={styles.purchaseButtonText}>Processing...</Text>
-              </View>
-            ) : (
-              <View style={styles.purchaseButtonContent}>
-                <View style={styles.purchaseButtonLeft}>
-                  <Ionicons name="card" size={16} color="rgba(255, 255, 255, 0.9)" />
-                  <Text style={styles.purchaseButtonText}>
+            <LinearGradient
+              colors={loading ? ['#94A3B8', '#64748B'] : ['#0C295C', '#1A4A7A', '#2D5A8A']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.purchaseButtonGradient}
+            >
+              {/* Subtle shimmer overlay */}
+              <View style={styles.shimmerOverlay} />
+              
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="small" color="white" />
+                  <Text style={styles.purchaseButtonText}>Processing...</Text>
+                </View>
+              ) : (
+                <View style={styles.purchaseButtonContent}>
+                  <View style={styles.purchaseButtonLeft}>
+                    <Ionicons name="card" size={18} color="rgba(255, 255, 255, 0.95)" />
+                    <Text style={styles.purchaseButtonText} numberOfLines={1}>
+                      {selectedSubscription 
+                        ? `Purchase Monthly Subscription with ${coach.name}`
+                        : `Purchase ${coachingPackages.find(pkg => pkg.id === selectedPackage)?.name || ''} with ${coach.name}`
+                      }
+                    </Text>
+                  </View>
+                  <Text style={styles.purchaseButtonPrice}>
                     {selectedSubscription 
-                      ? 'Subscribe with Stripe' 
-                      : `Pay with Stripe - ${coachingPackages.find(pkg => pkg.id === selectedPackage)?.name}`
+                      ? (sport.toLowerCase() === 'golf' ? '$75' : '$70')
+                      : coachingPackages.find(pkg => pkg.id === selectedPackage)?.price || '$0'
                     }
                   </Text>
                 </View>
-                <Text style={styles.purchaseButtonPrice}>
-                  {selectedSubscription 
-                    ? (sport.toLowerCase() === 'golf' ? '$75' : '$70')
-                    : coachingPackages.find(pkg => pkg.id === selectedPackage)?.price
-                  }
-                </Text>
-              </View>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
-    </View>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F8FAFF',
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8FAFF',
   },
   headerContainer: {
     marginBottom: 8,
+    backgroundColor: '#F8FAFF',
   },
   header: {
-    paddingTop: 60,
-    paddingBottom: 30,
-    paddingHorizontal: 24,
-    position: 'relative',
-    overflow: 'hidden',
-    borderBottomLeftRadius: 15,
-    borderBottomRightRadius: 15,
+    paddingTop: Platform.OS === 'ios' ? 16 : 24,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    backgroundColor: '#F8FAFF',
   },
   headerInner: {
     flexDirection: 'row',
@@ -844,21 +858,19 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: width * 0.065,
     fontFamily: 'Rubik-Bold',
-    color: 'white',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    color: '#0C295C',
+    marginBottom: 6,
   },
   headerSubtitle: {
-    fontSize: width * 0.04,
+    fontSize: width * 0.038,
     fontFamily: 'Manrope-Regular',
-    color: 'rgba(255, 255, 255, 0.95)',
-    lineHeight: 22,
+    color: '#64748B',
+    lineHeight: 20,
   },
   coachInfoContainer: {
     paddingHorizontal: 24,
-    marginBottom: 20,
+    marginTop: 8,
+    marginBottom: 24,
   },
   coachInfoCard: {
     flexDirection: 'row',
@@ -917,6 +929,9 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 120, // Extra padding to account for fixed purchase button
+  },
   mainContent: {
     padding: 24,
     paddingTop: 0,
@@ -940,12 +955,13 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   packageCardContainer: {
-    marginBottom: 20,
+    marginBottom: 16,
   },
   packageCard: {
     backgroundColor: 'white',
     borderRadius: 20,
     padding: 24,
+    paddingTop: 28,
     borderWidth: 2,
     borderColor: '#E2E8F0',
     position: 'relative',
@@ -957,6 +973,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    overflow: 'visible',
   },
   selectedPackageCard: {
     borderColor: '#0C295C',
@@ -972,15 +989,22 @@ const styles = StyleSheet.create({
   },
   popularBadge: {
     position: 'absolute',
-    top: -1,
-    left: 20,
-    right: 20,
+    top: -12,
+    alignSelf: 'center',
     backgroundColor: '#0C295C',
     paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     borderRadius: 12,
     alignItems: 'center',
-    zIndex: 1,
+    zIndex: 10,
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   popularBadgeText: {
     fontSize: width * 0.032,
@@ -992,11 +1016,23 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingTop: 8,
   },
+  packageHeaderPopular: {
+    paddingTop: 20,
+  },
+  packageTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
   packageName: {
     fontSize: width * 0.055,
     fontFamily: 'Rubik-Bold',
     color: '#0C295C',
-    marginBottom: 8,
+    flex: 1,
+  },
+  selectedIndicatorInline: {
+    marginLeft: 12,
   },
   priceContainer: {
     flexDirection: 'row',
@@ -1014,19 +1050,20 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   featuresContainer: {
-    marginBottom: 16,
+    marginTop: 4,
   },
   featureItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   featureText: {
-    fontSize: width * 0.04,
+    fontSize: width * 0.038,
     fontFamily: 'Manrope-Medium',
     color: '#374151',
-    marginLeft: 12,
+    marginLeft: 10,
     flex: 1,
+    lineHeight: 20,
   },
   selectedIndicator: {
     position: 'absolute',
@@ -1034,20 +1071,22 @@ const styles = StyleSheet.create({
     right: 20,
   },
   purchaseContainer: {
-    padding: 20,
-    paddingBottom: 30,
-    backgroundColor: 'rgba(248, 250, 255, 0.95)',
-    borderTopWidth: 0,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+    backgroundColor: 'rgba(248, 250, 255, 0.98)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(12, 41, 92, 0.1)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
-      height: -6,
+      height: -4,
     },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.1,
     shadowRadius: 12,
-    elevation: 6,
+    elevation: 8,
   },
   purchaseButton: {
     borderRadius: 16,
@@ -1092,17 +1131,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 12,
   },
   purchaseButtonText: {
-    fontSize: width * 0.042,
+    fontSize: width * 0.038,
     fontFamily: 'Rubik-Bold',
     color: 'white',
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
     marginLeft: 10,
+    flex: 1,
   },
   purchaseButtonPrice: {
     fontSize: width * 0.048,
@@ -1132,7 +1173,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   subscriptionCardContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
+    marginTop: 8,
   },
   subscriptionCard: {
     backgroundColor: '#0C295C',
@@ -1157,14 +1199,20 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   subscriptionSelectedIndicator: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
+    marginLeft: 12,
   },
   subscriptionHeader: {
+    marginBottom: 16,
+  },
+  subscriptionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+  },
+  subscriptionIconTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
   subscriptionTitle: {
     fontSize: width * 0.055,
