@@ -768,6 +768,64 @@ async function getRemainingClipsForConversation(conversationId) {
 }
 
 /**
+ * Check if chat is expired based on session created_at and package days
+ * Returns { isExpired: boolean, expiresAt: Date, daysRemaining: number }
+ */
+async function checkChatExpiry(conversationId) {
+  try {
+    // Get the conversation to find the session_id
+    const conversation = await getConversation(conversationId);
+    if (!conversation || !conversation.session_id) {
+      // If no session, chat is not expired (for backwards compatibility)
+      return { isExpired: false, expiresAt: null, daysRemaining: null };
+    }
+
+    // Get the coaching session
+    const session = await getCoachingSession(conversation.session_id);
+    if (!session) {
+      // If no session found, chat is not expired (for backwards compatibility)
+      return { isExpired: false, expiresAt: null, daysRemaining: null };
+    }
+
+    // Get package info to determine chat duration
+    const { getPackageInfo } = require('../config/stripe');
+    let chatDurationDays = null;
+    
+    try {
+      const packageInfo = getPackageInfo(session.sport, session.package_type, session.package_id);
+      chatDurationDays = packageInfo.days;
+    } catch (pkgError) {
+      console.error('Error getting package info for chat expiry:', pkgError);
+      // Default to 3 days if package info not found
+      chatDurationDays = 3;
+    }
+
+    // Calculate chat expiry based on session created_at + chat duration
+    const sessionCreatedAt = new Date(session.created_at);
+    const chatExpiresAt = new Date(sessionCreatedAt);
+    chatExpiresAt.setHours(chatExpiresAt.getHours() + (chatDurationDays * 24)); // Add days in hours
+
+    const now = new Date();
+    const isExpired = now > chatExpiresAt;
+    
+    // Calculate days remaining (can be negative if expired)
+    const msRemaining = chatExpiresAt - now;
+    const daysRemaining = Math.ceil(msRemaining / (1000 * 60 * 60 * 24));
+
+    return {
+      isExpired,
+      expiresAt: chatExpiresAt.toISOString(),
+      daysRemaining: isExpired ? 0 : daysRemaining,
+      chatDurationDays
+    };
+  } catch (err) {
+    console.error('Database error in checkChatExpiry:', err);
+    // On error, assume chat is not expired to avoid blocking users
+    return { isExpired: false, expiresAt: null, daysRemaining: null, error: err.message };
+  }
+}
+
+/**
  * Decrement clips remaining when a video is sent
  */
 async function decrementClipsForConversation(conversationId) {
@@ -1478,6 +1536,7 @@ module.exports = {
   updateCoachingSession,
   getRemainingClipsForConversation,
   decrementClipsForConversation,
+  checkChatExpiry,
   saveTransfer,
   updateTransferStatus,
   getCoachTransfers,

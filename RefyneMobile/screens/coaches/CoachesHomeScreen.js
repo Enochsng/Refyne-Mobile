@@ -352,63 +352,75 @@ export default function CoachesHomeScreen({ navigation }) {
               </View>
             </View>
             
-            <View style={styles.activityCard}>
-              {recentActivity.length > 0 ? (
-                recentActivity.map((activity, index) => (
-                  <TouchableOpacity
-                    key={activity.id}
-                    style={styles.activityItem}
-                    onPress={() => handleActivityPress(activity)}
-                  >
-                    <View style={styles.activityContent}>
-                      <View style={styles.activityAvatar}>
-                        {activity.avatar ? (
-                          <Image 
-                            source={{ uri: activity.avatar }} 
-                            style={styles.avatarImage}
-                            resizeMode="cover"
-                            onError={() => {
-                              console.log('Failed to load profile image for:', activity.studentName);
-                            }}
-                          />
-                        ) : (
+            {recentActivity.length > 0 ? (
+              recentActivity.map((activity, index) => (
+                <TouchableOpacity
+                  key={activity.id}
+                  style={[
+                    styles.activityCard,
+                    index < recentActivity.length - 1 && styles.activityCardWithMargin
+                  ]}
+                  onPress={() => handleActivityPress(activity)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.activityContent}>
+                    <View style={styles.activityAvatar}>
+                      {activity.avatar ? (
+                        <Image 
+                          source={{ uri: activity.avatar }} 
+                          style={styles.avatarImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log('Failed to load profile image for:', activity.studentName);
+                          }}
+                        />
+                      ) : (
+                        <LinearGradient
+                          colors={['#0C295C', '#1A4A7A']}
+                          style={styles.avatarGradient}
+                        >
                           <Text style={styles.avatarText}>{activity.studentInitial}</Text>
-                        )}
-                      </View>
-                      
-                      <View style={styles.activityInfo}>
-                        <Text style={styles.studentName}>{activity.studentName}</Text>
-                        <Text style={styles.packageInfo}>{activity.package}</Text>
-                        <View style={styles.activityStatus}>
-                          <View style={styles.statusDot} />
-                          <Text style={styles.statusText}>{activity.message}</Text>
-                        </View>
-                      </View>
-                      
-                      <View style={styles.activityRight}>
-                        <View style={styles.activeBadge}>
-                          <Text style={styles.activeBadgeText}>{activity.status}</Text>
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+                        </LinearGradient>
+                      )}
+                    </View>
+                    
+                    <View style={styles.activityInfo}>
+                      <Text style={styles.studentName}>{activity.studentName}</Text>
+                      <Text style={styles.packageInfo}>{activity.package}</Text>
+                      <View style={styles.activityStatus}>
+                        <View style={styles.statusDot} />
+                        <Text style={styles.statusText}>{activity.message}</Text>
                       </View>
                     </View>
-                  </TouchableOpacity>
-                ))
-              ) : (
-                <View style={styles.emptyStateContainer}>
-                  <LinearGradient
-                    colors={['#FFFFFF', '#F8FAFF']}
-                    style={styles.emptyStateGradient}
-                  >
-                    <Ionicons name="time-outline" size={48} color="#CBD5E1" />
-                    <Text style={styles.emptyStateTitle}>No Recent Activity</Text>
-                    <Text style={styles.emptyStateText}>
-                      When players book your coaching services, their activity will appear here.
-                    </Text>
-                  </LinearGradient>
-                </View>
-              )}
-            </View>
+                    
+                    <View style={styles.activityRight}>
+                      <View style={[
+                        styles.activeBadge,
+                        activity.status === 'Active' && styles.activeBadgeActive,
+                        activity.status === 'Completed' && styles.activeBadgeCompleted,
+                        activity.status === 'Expired' && styles.activeBadgeExpired
+                      ]}>
+                        <Text style={styles.activeBadgeText}>{activity.status}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <View style={styles.emptyStateContainer}>
+                <LinearGradient
+                  colors={['#FFFFFF', '#F8FAFF']}
+                  style={styles.emptyStateGradient}
+                >
+                  <Ionicons name="time-outline" size={48} color="#CBD5E1" />
+                  <Text style={styles.emptyStateTitle}>No Recent Activity</Text>
+                  <Text style={styles.emptyStateText}>
+                    When players book your coaching services, their activity will appear here.
+                  </Text>
+                </LinearGradient>
+              </View>
+            )}
           </Animated.View>
         </View>
       </ScrollView>
@@ -590,41 +602,56 @@ const styles = StyleSheet.create({
   activityCard: {
     backgroundColor: 'white',
     borderRadius: 16,
+    padding: 18,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
-      height: 6,
+      height: 4,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 6,
     borderWidth: 1,
-    borderColor: 'rgba(12, 41, 92, 0.08)',
+    borderColor: 'rgba(12, 41, 92, 0.06)',
   },
-  activityItem: {
-    padding: 20,
+  activityCardWithMargin: {
+    marginBottom: 12,
   },
   activityContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   activityAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#0C295C',
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
     overflow: 'hidden',
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  avatarGradient: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   avatarImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
   },
   avatarText: {
-    fontSize: 18,
+    fontSize: 20,
     fontFamily: 'Rubik-SemiBold',
     color: 'white',
   },
@@ -632,16 +659,18 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   studentName: {
-    fontSize: width * 0.045,
+    fontSize: width * 0.046,
     fontFamily: 'Rubik-SemiBold',
     color: '#0C295C',
     marginBottom: 4,
+    letterSpacing: 0.2,
   },
   packageInfo: {
-    fontSize: width * 0.035,
+    fontSize: width * 0.036,
     fontFamily: 'Manrope-Regular',
     color: '#64748B',
     marginBottom: 8,
+    letterSpacing: 0.1,
   },
   activityStatus: {
     flexDirection: 'row',
@@ -653,26 +682,52 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: '#4CAF50',
     marginRight: 8,
+    shadowColor: '#4CAF50',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.5,
+    shadowRadius: 2,
+    elevation: 2,
   },
   statusText: {
-    fontSize: width * 0.035,
+    fontSize: width * 0.034,
     fontFamily: 'Manrope-Regular',
     color: '#64748B',
   },
   activityRight: {
-    alignItems: 'center',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   activeBadge: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  activeBadgeActive: {
+    backgroundColor: '#4CAF50',
+  },
+  activeBadgeCompleted: {
+    backgroundColor: '#2196F3',
+  },
+  activeBadgeExpired: {
+    backgroundColor: '#9E9E9E',
   },
   activeBadgeText: {
-    fontSize: width * 0.035,
+    fontSize: width * 0.033,
     fontFamily: 'Rubik-Medium',
     color: 'white',
+    letterSpacing: 0.3,
   },
   emptyStateContainer: {
     padding: 20,

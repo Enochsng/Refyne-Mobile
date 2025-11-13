@@ -264,13 +264,14 @@ export default function AuthScreen({ navigation }) {
                           animateCardPress();
                           setUserType('Player');
                         }}
+                        activeOpacity={0.8}
                       >
                         {userType === 'Player' ? (
                           <LinearGradient
-                            colors={['#0C295C', '#1A4A7A']}
+                            colors={['#0C295C', '#1A4A7A', '#2D5A8A']}
                             style={styles.userTypeButtonGradient}
                             start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
+                            end={{ x: 1, y: 1 }}
                           >
                             <Text style={styles.userTypeButtonTextActive}>
                               Player
@@ -291,13 +292,14 @@ export default function AuthScreen({ navigation }) {
                           animateCardPress();
                           setUserType('Coach');
                         }}
+                        activeOpacity={0.8}
                       >
                         {userType === 'Coach' ? (
                           <LinearGradient
-                            colors={['#0C295C', '#1A4A7A']}
+                            colors={['#0C295C', '#1A4A7A', '#2D5A8A']}
                             style={styles.userTypeButtonGradient}
                             start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
+                            end={{ x: 1, y: 1 }}
                           >
                             <Text style={styles.userTypeButtonTextActive}>
                               Coach
@@ -516,49 +518,56 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 2,
     borderColor: 'rgba(12, 41, 92, 0.15)',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    minHeight: 48,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+    minHeight: 52,
+    overflow: 'hidden',
   },
   userTypeButtonActive: {
     borderColor: 'transparent',
     shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 14,
+    elevation: 10,
+    backgroundColor: 'transparent',
   },
   userTypeButtonGradient: {
     paddingVertical: 14,
     paddingHorizontal: 20,
-    borderRadius: 14,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    minHeight: 48,
+    minHeight: 52,
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
   },
   userTypeButtonText: {
-    fontSize: width * 0.042,
+    fontSize: width * 0.043,
     fontFamily: 'Rubik-SemiBold',
     color: '#64748B',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   userTypeButtonTextActive: {
     color: 'white',
-    fontSize: width * 0.042,
+    fontSize: width * 0.043,
     fontFamily: 'Rubik-SemiBold',
-    letterSpacing: 0.5,
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
+    letterSpacing: 0.6,
+    textShadowColor: 'rgba(0, 0, 0, 0.25)',
     textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowRadius: 3,
   },
 });

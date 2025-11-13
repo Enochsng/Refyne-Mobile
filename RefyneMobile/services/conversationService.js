@@ -590,12 +590,13 @@ export const getRemainingClips = async (conversationId) => {
     console.log(`📊 [getRemainingClips] Full API response:`, JSON.stringify(data, null, 2));
     console.log(`📊 [getRemainingClips] Retrieved clip info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
-    // The backend returns { success: true, remaining, total, used }
+    // The backend returns { success: true, remaining, total, used, chatExpiry }
     const clipInfo = {
       remaining: data.remaining || 0,
       total: data.total || 0,
       used: data.used || 0,
-      error: data.error || null
+      error: data.error || null,
+      chatExpiry: data.chatExpiry || null
     };
     
     console.log(`📊 [getRemainingClips] Returning clip info:`, clipInfo);

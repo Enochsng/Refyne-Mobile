@@ -14,12 +14,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getConversations, formatConversationForDisplay } from '../../services/conversationService';
 import { supabase } from '../../supabaseClient';
 import { Video, ResizeMode } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,6 +35,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const [messageText, setMessageText] = useState('');
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [showTutorialModal, setShowTutorialModal] = useState(false);
+  const [tutorials, setTutorials] = useState([]);
+  const [loadingTutorials, setLoadingTutorials] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -359,6 +364,123 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     setSelectedVideo(null);
   };
 
+  // Load tutorials from AsyncStorage
+  const loadTutorials = async () => {
+    try {
+      setLoadingTutorials(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const savedTutorials = await AsyncStorage.getItem(`tutorials_${user.id}`);
+        if (savedTutorials) {
+          const tutorialsData = JSON.parse(savedTutorials);
+          setTutorials(tutorialsData);
+          console.log('Tutorials loaded for coach:', user.id, tutorialsData.length, 'tutorials');
+        } else {
+          setTutorials([]);
+          console.log('No tutorials found for coach:', user.id);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading tutorials:', error);
+      setTutorials([]);
+    } finally {
+      setLoadingTutorials(false);
+    }
+  };
+
+  // Open tutorial selection modal
+  const handleOpenTutorialModal = async () => {
+    await loadTutorials();
+    setShowTutorialModal(true);
+  };
+
+  // Close tutorial selection modal
+  const handleCloseTutorialModal = () => {
+    setShowTutorialModal(false);
+  };
+
+  // Send selected tutorial as video message
+  const sendTutorial = async (tutorial) => {
+    if (!selectedConversation || !tutorial || !tutorial.videoUri) {
+      Alert.alert('Error', 'Unable to send tutorial. Please try again.');
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Authentication Error', 'Please sign in to send tutorials.');
+        return;
+      }
+
+      const coachId = user.id;
+      console.log('Sending tutorial as coach:', coachId, 'Tutorial:', tutorial.title);
+
+      // Import the sendMessage function from conversation service
+      const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
+      
+      // Create message content with tutorial title
+      const messageContent = `🎥 Tutorial: ${tutorial.title}`;
+      
+      // Send video message
+      const response = await sendMessageToConversation(
+        selectedConversation.id,
+        coachId,
+        'coach',
+        messageContent,
+        'video',
+        tutorial.videoUri
+      );
+
+      // Add the video message to local state for immediate display
+      const newMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        text: messageContent,
+        isFromPlayer: false,
+        timestamp: new Date().toLocaleTimeString([], { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        messageType: 'video',
+        videoUri: tutorial.videoUri,
+        createdAt: Date.now()
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
+      // Update conversation list with new last message
+      setConversations(prev => 
+        prev.map(conv => 
+          conv.id === selectedConversation.id 
+            ? { 
+                ...conv, 
+                lastMessage: messageContent, 
+                lastMessageAt: new Date().toISOString(),
+                unreadCount: 0
+              }
+            : conv
+        )
+      );
+
+      // Close tutorial modal
+      setShowTutorialModal(false);
+
+      // Dismiss keyboard
+      Keyboard.dismiss();
+
+      // Auto-scroll to bottom
+      setTimeout(() => {
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollToEnd({ animated: true });
+        }
+      }, 100);
+
+    } catch (error) {
+      console.error('Error sending tutorial:', error);
+      Alert.alert('Error', 'Failed to send tutorial. Please try again.');
+    }
+  };
+
   const renderVideoMessage = (message) => {
     return (
       <TouchableOpacity 
@@ -548,6 +670,13 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               onChangeText={setMessageText}
               multiline
             />
+            <TouchableOpacity 
+              style={styles.tutorialButton} 
+              onPress={handleOpenTutorialModal}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="videocam" size={20} color="#0C295C" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
               <Ionicons name="send" size={20} color="white" />
             </TouchableOpacity>
@@ -575,6 +704,90 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             </View>
           </View>
         )}
+
+        {/* Tutorial Selection Modal */}
+        <Modal
+          visible={showTutorialModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={handleCloseTutorialModal}
+        >
+          <View style={styles.tutorialModalOverlay}>
+            <View style={styles.tutorialModalContent}>
+              <View style={styles.tutorialModalHeader}>
+                <Text style={styles.tutorialModalTitle}>Select Tutorial</Text>
+                <TouchableOpacity 
+                  onPress={handleCloseTutorialModal} 
+                  style={styles.tutorialModalCloseButton}
+                >
+                  <Ionicons name="close" size={24} color="#0C295C" />
+                </TouchableOpacity>
+              </View>
+              
+              <View style={styles.tutorialModalBody}>
+                {loadingTutorials ? (
+                  <View style={styles.tutorialLoadingContainer}>
+                    <ActivityIndicator size="large" color="#0C295C" />
+                    <Text style={styles.tutorialLoadingText}>Loading tutorials...</Text>
+                  </View>
+                ) : tutorials.length === 0 ? (
+                  <View style={styles.tutorialEmptyContainer}>
+                    <Ionicons name="videocam-outline" size={64} color="#A9C3DD" />
+                    <Text style={styles.tutorialEmptyTitle}>No Tutorials Available</Text>
+                    <Text style={styles.tutorialEmptySubtitle}>
+                      Upload tutorials from the Tutorials page to send them to players.
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView 
+                    style={styles.tutorialList}
+                    contentContainerStyle={styles.tutorialListContent}
+                    showsVerticalScrollIndicator={true}
+                    nestedScrollEnabled={true}
+                  >
+                    {tutorials.map((tutorial) => (
+                      <TouchableOpacity
+                        key={tutorial.id}
+                        style={styles.tutorialItem}
+                        onPress={() => sendTutorial(tutorial)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.tutorialItemThumbnail}>
+                          <Video
+                            source={{ uri: tutorial.videoUri }}
+                            style={styles.tutorialThumbnailVideo}
+                            resizeMode={ResizeMode.COVER}
+                            shouldPlay={false}
+                            isLooping={false}
+                            isMuted={true}
+                            usePoster={false}
+                          />
+                          <View style={styles.tutorialPlayOverlay}>
+                            <Ionicons name="play-circle" size={32} color="rgba(255,255,255,0.9)" />
+                          </View>
+                        </View>
+                        <View style={styles.tutorialItemInfo}>
+                          <Text style={styles.tutorialItemTitle} numberOfLines={2}>
+                            {tutorial.title}
+                          </Text>
+                          <Text style={styles.tutorialItemDescription} numberOfLines={2}>
+                            {tutorial.description}
+                          </Text>
+                          {tutorial.duration && (
+                            <Text style={styles.tutorialItemDuration}>
+                              Duration: {tutorial.duration}
+                            </Text>
+                          )}
+                        </View>
+                        <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            </View>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     );
   }
@@ -650,7 +863,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       {/* Conversations List */}
       <ScrollView 
         style={styles.conversationsList}
+        contentContainerStyle={styles.conversationsListContent}
         showsVerticalScrollIndicator={false}
+        bounces={true}
+        alwaysBounceVertical={false}
       >
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -829,11 +1045,19 @@ const styles = StyleSheet.create({
   },
   unreadBadge: {
     backgroundColor: '#FF6B35',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    minWidth: 24,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    minWidth: 28,
     alignItems: 'center',
+    shadowColor: '#FF6B35',
+    shadowOffset: {
+      width: 0,
+      height: 3,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 5,
   },
   unreadBadgeText: {
     fontSize: width * 0.035,
@@ -848,25 +1072,26 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     paddingHorizontal: 24,
-    marginBottom: 16,
+    marginBottom: 20,
+    marginTop: 4,
   },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'white',
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
-      height: 4,
+      height: 6,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(12, 41, 92, 0.08)',
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(12, 41, 92, 0.1)',
   },
   searchInput: {
     flex: 1,
@@ -878,19 +1103,23 @@ const styles = StyleSheet.create({
   },
   conversationsList: {
     flex: 1,
+  },
+  conversationsListContent: {
     paddingHorizontal: 24,
+    paddingTop: 4,
+    paddingBottom: 100,
   },
   conversationCard: {
     borderRadius: 20,
-    marginBottom: 16,
+    marginBottom: 14,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
-      height: 8,
+      height: 4,
     },
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    elevation: 8,
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 6,
     overflow: 'hidden',
   },
   conversationTouchable: {
@@ -898,9 +1127,9 @@ const styles = StyleSheet.create({
   },
   cardGradient: {
     borderRadius: 20,
-    padding: 18,
-    borderWidth: 1.5,
-    borderColor: 'rgba(12, 41, 92, 0.08)',
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(12, 41, 92, 0.06)',
   },
   conversationContent: {
     flexDirection: 'row',
@@ -908,33 +1137,33 @@ const styles = StyleSheet.create({
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginRight: 18,
   },
   avatarGradient: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     padding: 3,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
-      height: 6,
+      height: 4,
     },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 6,
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: '#0C295C',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
   },
   avatarText: {
-    fontSize: 22,
+    fontSize: 24,
     fontFamily: 'Rubik-Bold',
     color: 'white',
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
@@ -986,15 +1215,15 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   studentName: {
-    fontSize: width * 0.048,
-    fontFamily: 'Rubik-Bold',
+    fontSize: width * 0.05,
+    fontFamily: 'Rubik-SemiBold',
     color: '#0C295C',
     marginRight: 8,
-    letterSpacing: 0.2,
+    letterSpacing: 0.3,
   },
   timestamp: {
-    fontSize: width * 0.033,
-    fontFamily: 'Manrope-SemiBold',
+    fontSize: width * 0.032,
+    fontFamily: 'Manrope-Medium',
     color: '#90A4AE',
     marginTop: 2,
   },
@@ -1019,17 +1248,18 @@ const styles = StyleSheet.create({
   },
   lastMessage: {
     flex: 1,
-    fontSize: width * 0.038,
+    fontSize: width * 0.039,
     fontFamily: 'Manrope-Regular',
     color: '#64748B',
     flexWrap: 'wrap',
     marginRight: 8,
-    lineHeight: 20,
+    lineHeight: 21,
+    letterSpacing: 0.1,
   },
   unreadMessage: {
-    fontFamily: 'Manrope-Bold',
+    fontFamily: 'Manrope-SemiBold',
     color: '#0C295C',
-    fontSize: width * 0.04,
+    fontSize: width * 0.041,
   },
   conversationRight: {
     alignItems: 'flex-end',
@@ -1049,20 +1279,21 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   unreadCount: {
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    minWidth: 28,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    minWidth: 30,
     alignItems: 'center',
     justifyContent: 'center',
   },
   unreadCountText: {
-    fontSize: width * 0.033,
+    fontSize: width * 0.034,
     fontFamily: 'Rubik-Bold',
     color: 'white',
     textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+    letterSpacing: 0.3,
   },
   chevronContainer: {
     padding: 4,
@@ -1164,9 +1395,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   avatarImage: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
   },
   // Chat view styles
   chatHeader: {
@@ -1174,14 +1405,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 15,
+    paddingBottom: 18,
     backgroundColor: 'white',
     shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
     zIndex: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(12, 41, 92, 0.06)',
   },
   backButton: {
     marginRight: 15,
@@ -1197,14 +1430,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   coachAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#0C295C',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 14,
     overflow: 'hidden',
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   coachAvatarInitial: {
     fontSize: 16,
@@ -1212,14 +1450,16 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   coachName: {
-    fontSize: 16,
+    fontSize: 17,
     fontFamily: 'Rubik-SemiBold',
     color: '#0C295C',
+    letterSpacing: 0.2,
   },
   coachSport: {
-    fontSize: 12,
-    fontFamily: 'Manrope-Regular',
+    fontSize: 13,
+    fontFamily: 'Manrope-Medium',
     color: '#90A4AE',
+    marginTop: 2,
   },
   moreButton: {
     padding: 5,
@@ -1241,24 +1481,30 @@ const styles = StyleSheet.create({
   },
   messageBubble: {
     maxWidth: '85%',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 22,
     minWidth: 60,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   playerBubble: {
     backgroundColor: '#E3F2FD',
-    borderBottomLeftRadius: 5,
+    borderBottomLeftRadius: 6,
   },
   coachBubble: {
     backgroundColor: '#0C295C',
-    borderBottomRightRadius: 5,
+    borderBottomRightRadius: 6,
   },
   messageText: {
-    fontSize: 14,
+    fontSize: 15,
     fontFamily: 'Manrope-Regular',
-    lineHeight: 20,
+    lineHeight: 21,
     flexWrap: 'wrap',
+    letterSpacing: 0.1,
   },
   playerText: {
     color: '#0C295C',
@@ -1267,9 +1513,10 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   messageTime: {
-    fontSize: 10,
-    fontFamily: 'Manrope-Regular',
-    marginTop: 5,
+    fontSize: 11,
+    fontFamily: 'Manrope-Medium',
+    marginTop: 6,
+    letterSpacing: 0.2,
   },
   playerTime: {
     color: '#90A4AE',
@@ -1278,38 +1525,60 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
   },
   inputContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: 'white',
     borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
-    maxHeight: 120,
+    borderTopColor: 'rgba(12, 41, 92, 0.08)',
+    maxHeight: 100,
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 4,
   },
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    backgroundColor: '#F5F5F5',
-    borderRadius: 25,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#F8FAFF',
+    borderRadius: 24,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    borderColor: 'rgba(12, 41, 92, 0.1)',
   },
   messageInput: {
     flex: 1,
     fontSize: 14,
     fontFamily: 'Manrope-Regular',
     color: '#0C295C',
-    maxHeight: 80,
+    maxHeight: 60,
     minHeight: 20,
-    paddingVertical: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginRight: 8,
+  },
+  tutorialButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(12, 41, 92, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
   },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#0C295C',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 10,
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   // Video message styles
   videoMessageContainer: {
@@ -1384,8 +1653,148 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   coachAvatarImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  // Tutorial modal styles
+  tutorialModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  tutorialModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: height * 0.85,
+    height: height * 0.85,
+  },
+  tutorialModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(12, 41, 92, 0.1)',
+  },
+  tutorialModalTitle: {
+    fontSize: width * 0.06,
+    fontFamily: 'Rubik-Bold',
+    color: '#0C295C',
+  },
+  tutorialModalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(12, 41, 92, 0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tutorialModalBody: {
+    flex: 1,
+    minHeight: 0,
+  },
+  tutorialLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  tutorialLoadingText: {
+    fontSize: width * 0.04,
+    fontFamily: 'Manrope-Medium',
+    color: '#64748B',
+    marginTop: 16,
+  },
+  tutorialEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  tutorialEmptyTitle: {
+    fontSize: width * 0.05,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#0C295C',
+    marginTop: 20,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  tutorialEmptySubtitle: {
+    fontSize: width * 0.04,
+    fontFamily: 'Manrope-Regular',
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  tutorialList: {
+    flex: 1,
+  },
+  tutorialListContent: {
+    padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+  },
+  tutorialItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFF',
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(12, 41, 92, 0.08)',
+  },
+  tutorialItemThumbnail: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#F8FAFF',
+    marginRight: 12,
+    position: 'relative',
+  },
+  tutorialThumbnailVideo: {
+    width: '100%',
+    height: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  tutorialPlayOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  tutorialItemInfo: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  tutorialItemTitle: {
+    fontSize: width * 0.045,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#0C295C',
+    marginBottom: 4,
+  },
+  tutorialItemDescription: {
+    fontSize: width * 0.035,
+    fontFamily: 'Manrope-Regular',
+    color: '#64748B',
+    marginBottom: 4,
+  },
+  tutorialItemDuration: {
+    fontSize: width * 0.032,
+    fontFamily: 'Manrope-Medium',
+    color: '#90A4AE',
   },
 });

@@ -748,12 +748,17 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
     // Sort by creation date (newest first)
     uniqueTransfers.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     
-    // Calculate earnings summary
-    const totalEarnings = uniqueTransfers
+    // Filter out transfers with "requires_payment_method" status - only show paid or failed payments
+    const filteredTransfers = uniqueTransfers.filter(transfer => {
+      return transfer.status !== 'requires_payment_method';
+    });
+    
+    // Calculate earnings summary using filtered transfers
+    const totalEarnings = filteredTransfers
       .filter(t => t.status === 'paid' || t.status === 'succeeded')
       .reduce((sum, t) => sum + t.amount, 0);
     
-    const pendingEarnings = uniqueTransfers
+    const pendingEarnings = filteredTransfers
       .filter(t => t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0);
     
@@ -837,7 +842,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
     
     res.json({
       success: true,
-      transfers: uniqueTransfers.map(transfer => ({
+      transfers: filteredTransfers.map(transfer => ({
         id: transfer.id,
         transfer_id: transfer.transfer_id,
         amount: transfer.amount,
@@ -851,7 +856,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
         totalEarnings,
         pendingEarnings,
         totalCustomers: uniqueCustomers,
-        totalTransfers: uniqueTransfers.length
+        totalTransfers: filteredTransfers.length
       }
     });
     

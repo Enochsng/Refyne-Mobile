@@ -37,6 +37,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [remainingClips, setRemainingClips] = useState({ remaining: 0, total: 0, used: 0 });
   const [loadingClips, setLoadingClips] = useState(false);
+  const [chatExpiry, setChatExpiry] = useState(null);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -140,14 +141,15 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   // Handle route params when screen comes into focus (for tab navigator)
   useFocusEffect(
     React.useCallback(() => {
-      // If we have a conversationId in route params, ensure conversations are loaded and select it
-      if (route?.params?.conversationId) {
+      // Only auto-select conversation if we have a conversationId in route params AND no conversation is currently selected
+      // This prevents re-selection when navigating back to the list view
+      if (route?.params?.conversationId && !selectedConversation) {
         if (conversations.length > 0) {
           // Conversations already loaded, find and select the target conversation
           const targetConversation = conversations.find(
             conv => conv.id === route.params.conversationId
           );
-          if (targetConversation && (!selectedConversation || selectedConversation.id !== targetConversation.id)) {
+          if (targetConversation) {
             setSelectedConversation(targetConversation);
             loadMessages(targetConversation.id);
           }
@@ -158,6 +160,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       }
       
       // Refresh clip counter when screen comes into focus (e.g., after returning from purchase)
+      // Only if we have a selected conversation
       if (selectedConversation?.id) {
         loadRemainingClips(selectedConversation.id);
       }
@@ -170,6 +173,18 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       loadRemainingClips(selectedConversation.id);
     }
   }, [selectedConversation?.id]);
+
+  // Clear chat state when selectedConversation becomes null
+  useEffect(() => {
+    if (!selectedConversation) {
+      setMessages([]);
+      setMessageText('');
+      setSelectedVideo(null);
+      setShowVideoModal(false);
+      setRemainingClips({ remaining: 0, total: 0, used: 0 });
+      setChatExpiry(null);
+    }
+  }, [selectedConversation]);
 
   // Load messages when a conversation is selected via route params
   // Note: Manual selection from list calls loadMessages directly, so we don't need a useEffect for that
@@ -284,6 +299,15 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       console.log(`✅ [CoachFeedbackScreen] Clip info received:`, JSON.stringify(clipInfo, null, 2));
       console.log(`✅ [CoachFeedbackScreen] Setting remaining clips to: ${clipInfo.remaining}`);
       setRemainingClips(clipInfo);
+      
+      // Also get chat expiry info if available
+      if (clipInfo.chatExpiry) {
+        console.log(`✅ [CoachFeedbackScreen] Chat expiry info:`, JSON.stringify(clipInfo.chatExpiry, null, 2));
+        setChatExpiry(clipInfo.chatExpiry);
+      } else {
+        setChatExpiry(null);
+      }
+      
       console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${clipInfo.remaining}, total: ${clipInfo.total}, used: ${clipInfo.used}`);
     } catch (error) {
       console.error('❌ [CoachFeedbackScreen] Error loading remaining clips:', error.message);
@@ -291,6 +315,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       console.error('❌ [CoachFeedbackScreen] Error stack:', error.stack);
       // Set default values on error
       setRemainingClips({ remaining: 0, total: 0, used: 0 });
+      setChatExpiry(null);
     } finally {
       setLoadingClips(false);
     }
@@ -299,6 +324,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
       try {
+        // Check if chat is expired
+        if (chatExpiry && chatExpiry.isExpired) {
+          Alert.alert(
+            'Chat Expired',
+            'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
         // Get the authenticated user
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
@@ -351,13 +386,37 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         if (__DEV__) {
           console.log('Error details:', error);
         }
-        Alert.alert('Error', 'Failed to send message. Please try again.');
+        
+        // Check if error is due to chat expiry
+        if (error.message && error.message.includes('expired')) {
+          Alert.alert(
+            'Chat Expired',
+            'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+            [{ text: 'OK' }]
+          );
+          // Reload chat expiry info
+          if (selectedConversation) {
+            loadRemainingClips(selectedConversation.id);
+          }
+        } else {
+          Alert.alert('Error', error.message || 'Failed to send message. Please try again.');
+        }
       }
     }
   };
 
   const pickVideo = async () => {
     try {
+      // Check if chat is expired
+      if (chatExpiry && chatExpiry.isExpired) {
+        Alert.alert(
+          'Chat Expired',
+          'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       // Check if player has remaining clips
       if (remainingClips.remaining <= 0) {
         Alert.alert(
@@ -570,7 +629,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => {
+              // Clear all chat-related state when going back
               setSelectedConversation(null);
+              setMessages([]);
+              setMessageText('');
+              setSelectedVideo(null);
+              setShowVideoModal(false);
+              setRemainingClips({ remaining: 0, total: 0, used: 0 });
+              setChatExpiry(null);
               // Clear route params to prevent auto-selection when navigating back
               navigation.setParams({ conversationId: undefined });
             }}
@@ -666,36 +732,57 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
         {/* Message Input */}
         <View style={styles.inputContainer}>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.messageInput}
-              placeholder="Type a message..."
-              placeholderTextColor="#90A4AE"
-              value={messageText}
-              onChangeText={setMessageText}
-              multiline
-              maxLength={1000}
-            />
-            <View style={styles.actionButtons}>
-              <TouchableOpacity 
-                style={[
-                  styles.uploadButton, 
-                  remainingClips.remaining <= 0 && styles.uploadButtonDisabled
-                ]} 
-                onPress={pickVideo}
-                disabled={remainingClips.remaining <= 0}
-              >
-                <Ionicons 
-                  name="videocam" 
-                  size={20} 
-                  color={remainingClips.remaining <= 0 ? "#90A4AE" : "#0C295C"} 
-                />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-                <Ionicons name="send" size={20} color="white" />
-              </TouchableOpacity>
+          {chatExpiry && chatExpiry.isExpired ? (
+            <View style={styles.readOnlyBanner}>
+              <Ionicons name="lock-closed" size={16} color="#90A4AE" />
+              <Text style={styles.readOnlyText}>
+                This chat has expired and is now read-only. Purchase a new package to continue messaging.
+              </Text>
             </View>
-          </View>
+          ) : (
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.messageInput}
+                placeholder="Type a message..."
+                placeholderTextColor="#90A4AE"
+                value={messageText}
+                onChangeText={setMessageText}
+                multiline
+                maxLength={1000}
+                editable={!(chatExpiry && chatExpiry.isExpired)}
+              />
+              <View style={styles.actionButtons}>
+                <TouchableOpacity 
+                  style={[
+                    styles.uploadButton, 
+                    (remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)) && styles.uploadButtonDisabled
+                  ]} 
+                  onPress={pickVideo}
+                  disabled={remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)}
+                >
+                  <Ionicons 
+                    name="videocam" 
+                    size={20} 
+                    color={(remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)) ? "#90A4AE" : "#0C295C"} 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[
+                    styles.sendButton,
+                    (chatExpiry && chatExpiry.isExpired) && styles.sendButtonDisabled
+                  ]} 
+                  onPress={sendMessage}
+                  disabled={chatExpiry && chatExpiry.isExpired}
+                >
+                  <Ionicons 
+                    name="send" 
+                    size={20} 
+                    color={(chatExpiry && chatExpiry.isExpired) ? "#90A4AE" : "white"} 
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Video Modal */}
@@ -1194,6 +1281,27 @@ const styles = StyleSheet.create({
     height: 40,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#E0E0E0',
+  },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+  },
+  readOnlyText: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: width * 0.035,
+    fontFamily: 'Manrope-Regular',
+    color: '#E65100',
+    lineHeight: 18,
   },
   // Search Bar Styles
   searchContainer: {

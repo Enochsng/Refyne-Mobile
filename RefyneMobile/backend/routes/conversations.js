@@ -8,7 +8,8 @@ const {
   markConversationAsRead,
   createConversation,
   getRemainingClipsForConversation,
-  decrementClipsForConversation
+  decrementClipsForConversation,
+  checkChatExpiry
 } = require('../services/database');
 
 const router = express.Router();
@@ -121,6 +122,14 @@ router.get('/:conversationId/clips', async (req, res) => {
 
     const clipInfo = await getRemainingClipsForConversation(conversationId);
     
+    // Also get chat expiry info
+    let chatExpiry = null;
+    try {
+      chatExpiry = await checkChatExpiry(conversationId);
+    } catch (expiryError) {
+      console.error('Error getting chat expiry:', expiryError);
+    }
+    
     console.log(`\n🔵 [CLIPS ENDPOINT] ==========================================`);
     console.log(`🔵 [CLIPS ENDPOINT] Returning clip info:`, JSON.stringify(clipInfo, null, 2));
     console.log(`🔵 [CLIPS ENDPOINT] Response summary:`);
@@ -128,11 +137,13 @@ router.get('/:conversationId/clips', async (req, res) => {
     console.log(`🔵 [CLIPS ENDPOINT]   - total: ${clipInfo.total}`);
     console.log(`🔵 [CLIPS ENDPOINT]   - used: ${clipInfo.used}`);
     console.log(`🔵 [CLIPS ENDPOINT]   - error: ${clipInfo.error || 'none'}`);
+    console.log(`🔵 [CLIPS ENDPOINT]   - chatExpired: ${chatExpiry?.isExpired || false}`);
     console.log(`🔵 [CLIPS ENDPOINT] ==========================================\n`);
 
     res.json({
       success: true,
-      ...clipInfo
+      ...clipInfo,
+      chatExpiry
     });
 
   } catch (err) {
@@ -205,9 +216,21 @@ router.get('/:conversationId', async (req, res) => {
       });
     }
 
+    // Get chat expiry info
+    let chatExpiry = null;
+    try {
+      chatExpiry = await checkChatExpiry(conversationId);
+    } catch (expiryError) {
+      console.error('Error getting chat expiry:', expiryError);
+      // Continue without expiry info if there's an error
+    }
+
     res.json({
       success: true,
-      conversation
+      conversation: {
+        ...conversation,
+        chatExpiry
+      }
     });
 
   } catch (err) {
@@ -238,6 +261,25 @@ router.post('/:conversationId/messages', async (req, res) => {
     }
 
     const { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
+
+    // Check if chat is expired for players (coaches can always send messages)
+    if (senderType === 'player') {
+      try {
+        const chatExpiry = await checkChatExpiry(conversationId);
+        
+        if (chatExpiry.isExpired) {
+          return res.status(403).json({
+            error: 'Chat expired',
+            message: 'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+            chatExpired: true,
+            expiresAt: chatExpiry.expiresAt
+          });
+        }
+      } catch (expiryError) {
+        console.error('Error checking chat expiry:', expiryError);
+        // Don't block message if expiry check fails (fail open)
+      }
+    }
 
     // If this is a video message from a player, check clip limits
     if (messageType === 'video' && senderType === 'player') {
