@@ -66,8 +66,17 @@ router.post('/create-intent', async (req, res) => {
 
     const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName, playerId, playerName } = value;
 
+    console.log(`\n📦 [create-intent] Package selection received:`);
+    console.log(`   - packageId: ${packageId}`);
+    console.log(`   - packageType: ${packageType}`);
+    console.log(`   - sport: ${sport}`);
+    
     // Get package information
     const packageInfo = getPackageInfo(sport, packageType, packageId);
+    
+    console.log(`   - packageInfo.clips: ${packageInfo.clips}`);
+    console.log(`   - packageInfo.price: ${packageInfo.price}`);
+    console.log(`   - packageInfo.days: ${packageInfo.days}`);
     
     // Create or retrieve customer
     let customer;
@@ -212,17 +221,70 @@ router.post('/confirm', async (req, res) => {
     const sessionExpiry = new Date();
     sessionExpiry.setDate(sessionExpiry.getDate() + parseInt(paymentIntent.metadata.days));
 
-    const coachingSession = {
+    // IMPORTANT: Use payment intent metadata as the source of truth, not sessionData
+    // The payment intent was created with specific package info, so we should use that
+    const metadataPackageId = paymentIntent.metadata.packageId;
+    const metadataSport = paymentIntent.metadata.sport || sessionData.sport;
+    const metadataPackageType = paymentIntent.metadata.packageType || sessionData.packageType;
+    
+    // Get clips from payment intent metadata
+    const clipsFromMetadata = paymentIntent.metadata.clips;
+    let clipsRemaining = parseInt(clipsFromMetadata);
+    
+    console.log(`\n📦 [confirm] Package information:`);
+    console.log(`   - packageId from sessionData (frontend): ${sessionData.packageId}`);
+    console.log(`   - packageId from paymentIntent.metadata (source of truth): ${metadataPackageId}`);
+    console.log(`   - packageType: ${metadataPackageType}`);
+    console.log(`   - sport: ${metadataSport}`);
+    console.log(`   - clips from paymentIntent.metadata.clips: "${clipsFromMetadata}"`);
+    console.log(`   - clipsRemaining (parsed): ${clipsRemaining}`);
+    console.log(`   - paymentIntent.metadata:`, JSON.stringify(paymentIntent.metadata, null, 2));
+    
+    // Warn if there's a mismatch between frontend and payment intent
+    if (sessionData.packageId && sessionData.packageId.toString() !== metadataPackageId) {
+      console.warn(`⚠️ [confirm] WARNING: Package ID mismatch!`);
+      console.warn(`   Frontend sent packageId: ${sessionData.packageId}`);
+      console.warn(`   Payment intent has packageId: ${metadataPackageId}`);
+      console.warn(`   Using payment intent metadata as source of truth (packageId: ${metadataPackageId}, clips: ${clipsRemaining})`);
+    }
+    
+    // Verify clips value makes sense
+    if (isNaN(clipsRemaining) || clipsRemaining <= 0) {
+      console.error(`❌ [confirm] Invalid clips value: ${clipsRemaining} from metadata "${clipsFromMetadata}"`);
+      // Try to get clips from package info as fallback using metadata packageId
+      const { getPackageInfo } = require('../config/stripe');
+      try {
+        const packageInfo = getPackageInfo(metadataSport, metadataPackageType, metadataPackageId);
+        console.log(`   Using fallback: Getting clips from packageInfo for packageId ${metadataPackageId}: ${packageInfo.clips}`);
+        clipsRemaining = packageInfo.clips;
+      } catch (pkgError) {
+        console.error(`   Fallback also failed:`, pkgError);
+        // Last resort: try with sessionData packageId
+        try {
+          const packageInfo = getPackageInfo(sessionData.sport, sessionData.packageType, sessionData.packageId);
+          console.log(`   Using sessionData fallback: Getting clips from packageInfo for packageId ${sessionData.packageId}: ${packageInfo.clips}`);
+          clipsRemaining = packageInfo.clips;
+        } catch (finalError) {
+          console.error(`   All fallbacks failed:`, finalError);
+          throw new Error(`Invalid clips value: ${clipsFromMetadata}. Could not determine package clips.`);
+        }
+      }
+    }
+    
+    console.log(`   ✅ Final clipsRemaining value: ${clipsRemaining}`);
+
+    // Use metadata values as source of truth for package info
+    const coachingSessionData = {
       id: sessionId,
       paymentIntentId,
-      coachId: sessionData.coachId,
-      coachName: sessionData.coachName,
-      sport: sessionData.sport,
-      packageType: sessionData.packageType,
-      packageId: sessionData.packageId,
+      coachId: paymentIntent.metadata.coachId || sessionData.coachId,
+      coachName: paymentIntent.metadata.coachName || sessionData.coachName,
+      sport: metadataSport,
+      packageType: metadataPackageType,
+      packageId: metadataPackageId, // Use metadata packageId, not sessionData
       amount: paymentIntent.amount,
       currency: paymentIntent.currency,
-      clipsRemaining: parseInt(paymentIntent.metadata.clips),
+      clipsRemaining: clipsRemaining,
       clipsUploaded: 0,
       sessionExpiry: sessionExpiry.toISOString(),
       status: 'active',
@@ -230,15 +292,52 @@ router.post('/confirm', async (req, res) => {
       messages: []
     };
 
-    // In a real app, you would save this to your database
-    // For now, we'll just return the session data
-    console.log(`Coaching session created: ${sessionId} for ${sessionData.coachName}`);
-
-    res.json({
-      success: true,
-      session: coachingSession,
-      message: 'Payment confirmed and coaching session created'
-    });
+    // Save coaching session to database
+    console.log(`\n💾 [confirm] ==========================================`);
+    console.log(`💾 [confirm] Attempting to save coaching session: ${sessionId} for ${sessionData.coachName}`);
+    console.log(`💾 [confirm] Session data:`, JSON.stringify(coachingSessionData, null, 2));
+    console.log(`💾 [confirm] ==========================================\n`);
+    
+    try {
+      const savedSession = await saveCoachingSession(coachingSessionData);
+      console.log(`\n✅ [confirm] ==========================================`);
+      console.log(`✅ [confirm] Coaching session saved to database: ${sessionId}`);
+      console.log(`✅ [confirm] Saved session ID: ${savedSession.id}`);
+      console.log(`✅ [confirm] ==========================================\n`);
+      
+      // Verify the session was actually saved by trying to retrieve it
+      try {
+        const { getCoachingSession } = require('../services/database');
+        const verifySession = await getCoachingSession(sessionId);
+        if (verifySession) {
+          console.log(`✅ [confirm] Verified: Session exists in database with ${verifySession.clips_remaining} clips remaining`);
+        } else {
+          console.error(`❌ [confirm] WARNING: Session was saved but cannot be retrieved!`);
+        }
+      } catch (verifyError) {
+        console.error(`❌ [confirm] Error verifying session:`, verifyError);
+      }
+      
+      res.json({
+        success: true,
+        session: savedSession,
+        message: 'Payment confirmed and coaching session created'
+      });
+    } catch (saveError) {
+      console.error('\n❌ [confirm] ==========================================');
+      console.error('❌ [confirm] FAILED to save coaching session:', saveError);
+      console.error('❌ [confirm] Error message:', saveError.message);
+      console.error('❌ [confirm] Error stack:', saveError.stack);
+      console.error('❌ [confirm] ==========================================\n');
+      
+      // Return error response so frontend knows the save failed
+      res.status(500).json({
+        success: false,
+        error: 'Failed to save coaching session to database',
+        message: saveError.message,
+        session: coachingSessionData // Still return session data for reference
+      });
+    }
 
   } catch (err) {
     console.error('Error confirming payment:', err);
@@ -342,8 +441,17 @@ router.post('/create-destination-charge', async (req, res) => {
 
     const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName, playerId, playerName } = value;
 
+    console.log(`\n📦 [create-destination-charge] Package selection received:`);
+    console.log(`   - packageId: ${packageId} (type: ${typeof packageId})`);
+    console.log(`   - packageType: ${packageType}`);
+    console.log(`   - sport: ${sport}`);
+    
     // Get package information
     const packageInfo = getPackageInfo(sport, packageType, packageId);
+    
+    console.log(`   - packageInfo.clips: ${packageInfo.clips}`);
+    console.log(`   - packageInfo.price: ${packageInfo.price}`);
+    console.log(`   - packageInfo.days: ${packageInfo.days}`);
     
     // Get coach's Connect account ID
     console.log(`Looking up Connect account for coachId: ${coachId}`);
@@ -410,7 +518,7 @@ router.post('/create-destination-charge', async (req, res) => {
           packageType,
           packageId: packageId?.toString() || 'subscription',
           packagePrice: packageInfo.price.toString(),
-          clips: packageInfo.clips.toString(),
+          clips: packageInfo.clips.toString(), // Use clips from packageInfo, not from metadata
           days: packageInfo.days.toString(),
           platformFee: platformFee.toString(),
           coachAmount: coachAmount.toString(),

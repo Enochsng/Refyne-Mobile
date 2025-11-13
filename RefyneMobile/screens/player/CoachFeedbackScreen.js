@@ -17,7 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getConversations, formatConversationForDisplay, manualConnectionTest } from '../../services/conversationService';
+import { getConversations, formatConversationForDisplay, manualConnectionTest, getRemainingClips } from '../../services/conversationService';
 import { supabase } from '../../supabaseClient';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
@@ -35,6 +35,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const [connectionError, setConnectionError] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
+  const [remainingClips, setRemainingClips] = useState({ remaining: 0, total: 0, used: 0 });
+  const [loadingClips, setLoadingClips] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -154,8 +156,20 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           loadConversations();
         }
       }
+      
+      // Refresh clip counter when screen comes into focus (e.g., after returning from purchase)
+      if (selectedConversation?.id) {
+        loadRemainingClips(selectedConversation.id);
+      }
     }, [route?.params?.conversationId, conversations, selectedConversation])
   );
+
+  // Refresh clip counter when selected conversation changes
+  useEffect(() => {
+    if (selectedConversation?.id) {
+      loadRemainingClips(selectedConversation.id);
+    }
+  }, [selectedConversation?.id]);
 
   // Load messages when a conversation is selected via route params
   // Note: Manual selection from list calls loadMessages directly, so we don't need a useEffect for that
@@ -250,12 +264,35 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
       }, 1000); // Longer delay to ensure user has time to see the messages
       
+      // Load remaining clips for this conversation
+      loadRemainingClips(conversationId);
+      
     } catch (error) {
       console.warn('⚠️ Error loading messages:', error.message);
       if (__DEV__) {
         console.log('Error details:', error);
       }
       setMessages([]);
+    }
+  };
+
+  const loadRemainingClips = async (conversationId) => {
+    try {
+      setLoadingClips(true);
+      console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining clips for conversation: ${conversationId}`);
+      const clipInfo = await getRemainingClips(conversationId);
+      console.log(`✅ [CoachFeedbackScreen] Clip info received:`, JSON.stringify(clipInfo, null, 2));
+      console.log(`✅ [CoachFeedbackScreen] Setting remaining clips to: ${clipInfo.remaining}`);
+      setRemainingClips(clipInfo);
+      console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${clipInfo.remaining}, total: ${clipInfo.total}, used: ${clipInfo.used}`);
+    } catch (error) {
+      console.error('❌ [CoachFeedbackScreen] Error loading remaining clips:', error.message);
+      console.error('❌ [CoachFeedbackScreen] Error details:', error);
+      console.error('❌ [CoachFeedbackScreen] Error stack:', error.stack);
+      // Set default values on error
+      setRemainingClips({ remaining: 0, total: 0, used: 0 });
+    } finally {
+      setLoadingClips(false);
     }
   };
 
@@ -275,12 +312,15 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         // Import the sendMessage function from conversation service
         const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
         
-        await sendMessageToConversation(
+        const response = await sendMessageToConversation(
           selectedConversation.id,
           playerId,
           'player',
           messageText.trim()
         );
+        
+        // Handle response (for text messages, response.message contains the message)
+        const message = response?.message || response;
 
         // Add the message to local state for immediate display
         const newMessage = {
@@ -318,6 +358,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   const pickVideo = async () => {
     try {
+      // Check if player has remaining clips
+      if (remainingClips.remaining <= 0) {
+        Alert.alert(
+          'No Clips Remaining',
+          'You have used all your video clips for this coaching session. Please purchase more clips to continue.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
       // Request permissions
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -402,40 +452,63 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         const displayDuration = videoDuration > 0 ? `${Math.round(videoDuration)}s` : 'Video';
         
         // Send video message
-        await sendMessageToConversation(
-          selectedConversation.id,
-          playerId,
-          'player',
-          `📹 Video (${displayDuration})`, // Display duration in message
-          'video',
-          video.uri // Pass the video URI
-        );
+        try {
+          const response = await sendMessageToConversation(
+            selectedConversation.id,
+            playerId,
+            'player',
+            `📹 Video (${displayDuration})`, // Display duration in message
+            'video',
+            video.uri // Pass the video URI
+          );
 
-        // Add the video message to local state for immediate display
-        const newMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          text: `📹 Video (${displayDuration})`,
-          isFromPlayer: true,
-          timestamp: new Date().toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          }),
-          messageType: 'video',
-          videoUri: video.uri
-        };
+          // Add the video message to local state for immediate display
+          const newMessage = {
+            id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            text: `📹 Video (${displayDuration})`,
+            isFromPlayer: true,
+            timestamp: new Date().toLocaleTimeString([], { 
+              hour: '2-digit', 
+              minute: '2-digit' 
+            }),
+            messageType: 'video',
+            videoUri: video.uri
+          };
 
-        setMessages(prev => [...prev, newMessage]);
+          setMessages(prev => [...prev, newMessage]);
 
-        // Update conversation list with new last message
-        setConversations(prev => 
-          prev.map(conv => 
-            conv.id === selectedConversation.id 
-              ? { ...conv, lastMessage: `📹 Video (${displayDuration})`, lastMessageAt: new Date().toISOString() }
-              : conv
-          )
-        );
+          // Update conversation list with new last message
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.id === selectedConversation.id 
+                ? { ...conv, lastMessage: `📹 Video (${displayDuration})`, lastMessageAt: new Date().toISOString() }
+                : conv
+            )
+          );
 
-        Alert.alert('Success', `Video (${displayDuration}) sent successfully!`);
+          // Update clip counter immediately if available from response, then refresh to ensure accuracy
+          if (response?.clipsRemaining !== undefined) {
+            setRemainingClips(prev => ({ ...prev, remaining: response.clipsRemaining }));
+          }
+          
+          // Reload remaining clips after sending video to ensure we have the latest data
+          await loadRemainingClips(selectedConversation.id);
+
+          Alert.alert('Success', `Video (${displayDuration}) sent successfully!`);
+        } catch (sendError) {
+          // Handle clip limit errors specifically
+          if (sendError.message && sendError.message.includes('No clips remaining')) {
+            Alert.alert(
+              'No Clips Remaining',
+              'You have used all your video clips for this coaching session. Please purchase more clips to continue.',
+              [{ text: 'OK' }]
+            );
+            // Reload clips to update the UI
+            await loadRemainingClips(selectedConversation.id);
+          } else {
+            throw sendError; // Re-throw other errors
+          }
+        }
       }
     } catch (error) {
       console.warn('⚠️ Error picking video:', error.message);
@@ -526,9 +599,15 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               <Text style={styles.coachSport}>{selectedConversation.sport} Coach</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.moreButton}>
-            <Ionicons name="ellipsis-vertical" size={24} color="#0C295C" />
-          </TouchableOpacity>
+          {/* Clip Tracker */}
+          <View style={styles.clipTrackerContainer}>
+            <View style={styles.clipTracker}>
+              <Ionicons name="videocam" size={16} color="#0C295C" />
+              <Text style={styles.clipTrackerText}>
+                {loadingClips ? '...' : remainingClips.remaining}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Messages */}
@@ -598,8 +677,19 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               maxLength={1000}
             />
             <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.uploadButton} onPress={pickVideo}>
-                <Ionicons name="videocam" size={20} color="#0C295C" />
+              <TouchableOpacity 
+                style={[
+                  styles.uploadButton, 
+                  remainingClips.remaining <= 0 && styles.uploadButtonDisabled
+                ]} 
+                onPress={pickVideo}
+                disabled={remainingClips.remaining <= 0}
+              >
+                <Ionicons 
+                  name="videocam" 
+                  size={20} 
+                  color={remainingClips.remaining <= 0 ? "#90A4AE" : "#0C295C"} 
+                />
               </TouchableOpacity>
               <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
                 <Ionicons name="send" size={20} color="white" />
@@ -969,8 +1059,27 @@ const styles = StyleSheet.create({
     color: '#0C295C',
     opacity: 0.7,
   },
+  clipTrackerContainer: {
+    marginRight: 10,
+  },
+  clipTracker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F4F8',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8F2FF',
+  },
+  clipTrackerText: {
+    fontSize: 14,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#0C295C',
+    marginLeft: 6,
+  },
   moreButton: {
-    marginLeft: 15,
+    marginLeft: 5,
   },
   messagesContainer: {
     flex: 1,
@@ -1073,6 +1182,10 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderWidth: 1,
     borderColor: '#0C295C',
+  },
+  uploadButtonDisabled: {
+    borderColor: '#90A4AE',
+    opacity: 0.5,
   },
   sendButton: {
     backgroundColor: '#0C295C',

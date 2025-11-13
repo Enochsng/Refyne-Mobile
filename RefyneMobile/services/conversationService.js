@@ -492,7 +492,10 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
 
     const data = await response.json();
     console.log('Message sent successfully');
-    return data.message;
+    return {
+      message: data.message,
+      clipsRemaining: data.clipsRemaining
+    };
   } catch (error) {
     console.error('Error sending message:', error);
     console.error('Error type:', error.constructor?.name || 'Unknown');
@@ -546,6 +549,63 @@ export const markConversationAsRead = async (conversationId, userType) => {
     console.error('Error type:', error.constructor?.name || 'Unknown');
     console.error('Error message:', error.message || 'Unknown error');
     throw new Error(error.message || 'Failed to mark conversation as read');
+  }
+};
+
+/**
+ * Get remaining clips for a conversation
+ */
+export const getRemainingClips = async (conversationId) => {
+  try {
+    // Test connection and get working URL
+    const workingUrl = await testBackendConnection();
+    if (!workingUrl) {
+      throw new Error('No working backend URL found');
+    }
+
+    console.log(`Getting remaining clips for conversation: ${conversationId}`);
+    console.log(`Using working URL: ${workingUrl}`);
+    
+    const fullUrl = `${workingUrl}/api/conversations/${conversationId}/clips`;
+    console.log(`Full URL: ${fullUrl}`);
+    
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    console.log(`Response status: ${response.status}`);
+    console.log(`Response ok: ${response.ok}`);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('API Error Response:', errorData);
+      // Return default values if there's an error (e.g., no session found)
+      return { remaining: 0, total: 0, used: 0, error: errorData.message || 'Failed to get clips' };
+    }
+
+    const data = await response.json();
+    console.log(`📊 [getRemainingClips] Full API response:`, JSON.stringify(data, null, 2));
+    console.log(`📊 [getRemainingClips] Retrieved clip info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
+    
+    // The backend returns { success: true, remaining, total, used }
+    const clipInfo = {
+      remaining: data.remaining || 0,
+      total: data.total || 0,
+      used: data.used || 0,
+      error: data.error || null
+    };
+    
+    console.log(`📊 [getRemainingClips] Returning clip info:`, clipInfo);
+    return clipInfo;
+  } catch (error) {
+    console.error('Error getting remaining clips:', error);
+    console.error('Error type:', error.constructor?.name || 'Unknown');
+    console.error('Error message:', error.message || 'Unknown error');
+    // Return default values on error
+    return { remaining: 0, total: 0, used: 0, error: error.message || 'Failed to get clips' };
   }
 };
 

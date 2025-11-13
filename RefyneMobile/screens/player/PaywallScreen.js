@@ -33,10 +33,10 @@ const getCoachingPackages = (sport) => {
         name: '5 Clips Package',
         price: '$40',
         features: [
-          'Upload up to 5 clips per package',
+          'Send up to 5 clips per package',
           'Coaching session open for 3 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: false,
         gradient: ['#6B7280', '#4B5563'],
@@ -46,10 +46,10 @@ const getCoachingPackages = (sport) => {
         name: '7 Clips Package',
         price: '$45',
         features: [
-          'Upload up to 7 clips per package',
+          'Send up to 7 clips per package',
           'Coaching session open for 5 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: true,
         gradient: ['#0C295C', '#1A4A7A'],
@@ -59,10 +59,10 @@ const getCoachingPackages = (sport) => {
         name: '10 Clips Package',
         price: '$50',
         features: [
-          'Upload up to 10 clips per package',
+          'Send up to 10 clips per package',
           'Coaching session open for 7 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: false,
         gradient: ['#059669', '#047857'],
@@ -76,10 +76,10 @@ const getCoachingPackages = (sport) => {
         name: '5 Clips Package',
         price: '$35',
         features: [
-          'Upload up to 5 clips per package',
+          'Send up to 5 clips per package',
           'Coaching session open for 3 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: false,
         gradient: ['#6B7280', '#4B5563'],
@@ -89,10 +89,10 @@ const getCoachingPackages = (sport) => {
         name: '7 Clips Package',
         price: '$40',
         features: [
-          'Upload up to 7 clips per package',
+          'Send up to 7 clips per package',
           'Coaching session open for 5 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: true,
         gradient: ['#0C295C', '#1A4A7A'],
@@ -102,10 +102,10 @@ const getCoachingPackages = (sport) => {
         name: '10 Clips Package',
         price: '$45',
         features: [
-          'Upload up to 10 clips per package',
+          'Send up to 10 clips per package',
           'Coaching session open for 7 days',
-          'Get quality and personalized feedback',
           'Send up to 5 messages per day',
+          'Get quality and personalized feedback',
         ],
         popular: false,
         gradient: ['#059669', '#047857'],
@@ -133,10 +133,13 @@ export default function PaywallScreen({ route, navigation }) {
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   
-  // Initialize payment sheet when component mounts
+  // Initialize payment sheet when component mounts OR when package selection changes
   useEffect(() => {
-    initializePaymentSheet();
-  }, []);
+    // Only initialize if a package or subscription is selected
+    if (selectedPackage || selectedSubscription) {
+      initializePaymentSheet();
+    }
+  }, [selectedPackage, selectedSubscription]);
 
   // Calculate pricing
   const getPackagePrice = () => {
@@ -171,6 +174,8 @@ export default function PaywallScreen({ route, navigation }) {
       };
 
       console.log('Initializing payment sheet with data:', paymentData);
+      console.log('  - selectedPackage:', selectedPackage);
+      console.log('  - selectedSubscription:', selectedSubscription);
 
       let paymentResult;
       try {
@@ -293,17 +298,24 @@ export default function PaywallScreen({ route, navigation }) {
           
           console.log('Player name for conversation:', playerName);
           
+          // Use the session ID from the backend if available, otherwise use local session ID
+          const sessionIdToUse = confirmedSession?.session?.id || newSession.id;
+          console.log('Using session ID for conversation:', sessionIdToUse);
+          console.log('  - Backend session ID:', confirmedSession?.session?.id || 'not available');
+          console.log('  - Local session ID:', newSession.id);
+          
           const conversationData = {
             playerId: playerId,
             playerName: playerName,
             coachId: coach.id,
             coachName: coach.name,
             sport: sport,
-            sessionId: newSession.id
+            sessionId: sessionIdToUse
           };
 
           conversation = await createConversation(conversationData);
           console.log('Conversation created successfully:', conversation.id);
+          console.log('  - Conversation linked to session:', sessionIdToUse);
 
           // Note: Welcome message removed as requested
         } else {

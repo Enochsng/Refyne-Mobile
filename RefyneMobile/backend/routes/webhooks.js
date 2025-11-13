@@ -126,6 +126,35 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
     const sessionExpiry = new Date();
     sessionExpiry.setDate(sessionExpiry.getDate() + parseInt(paymentIntent.metadata.days));
 
+    // Get clips from payment intent metadata
+    const clipsFromMetadata = paymentIntent.metadata.clips;
+    let clipsRemaining = parseInt(clipsFromMetadata);
+    
+    console.log(`\n📦 [webhook] Package information:`);
+    console.log(`   - packageId from metadata: ${packageId}`);
+    console.log(`   - packageType: ${packageType}`);
+    console.log(`   - sport: ${sport}`);
+    console.log(`   - clips from paymentIntent.metadata.clips: "${clipsFromMetadata}"`);
+    console.log(`   - clipsRemaining (parsed): ${clipsRemaining}`);
+    console.log(`   - paymentIntent.metadata:`, JSON.stringify(paymentIntent.metadata, null, 2));
+    
+    // Verify clips value makes sense
+    if (isNaN(clipsRemaining) || clipsRemaining <= 0) {
+      console.error(`❌ [webhook] Invalid clips value: ${clipsRemaining} from metadata "${clipsFromMetadata}"`);
+      // Try to get clips from package info as fallback
+      const { getPackageInfo } = require('../config/stripe');
+      try {
+        const packageInfo = getPackageInfo(sport, packageType, packageId);
+        console.log(`   Using fallback: Getting clips from packageInfo: ${packageInfo.clips}`);
+        clipsRemaining = packageInfo.clips;
+      } catch (pkgError) {
+        console.error(`   Fallback also failed:`, pkgError);
+        throw new Error(`Invalid clips value: ${clipsFromMetadata}. Could not determine package clips.`);
+      }
+    }
+    
+    console.log(`   ✅ Final clipsRemaining value: ${clipsRemaining}`);
+
     // Create coaching session data
     const sessionData = {
       id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -137,7 +166,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       packageId,
       amount: paymentIntent.amount,
       currency: paymentIntent.currency,
-      clipsRemaining: parseInt(paymentIntent.metadata.clips),
+      clipsRemaining: clipsRemaining,
       clipsUploaded: 0,
       sessionExpiry: sessionExpiry.toISOString(),
       status: 'active',
@@ -146,8 +175,21 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
     };
 
     // Save coaching session to database
-    await saveCoachingSession(sessionData);
-    console.log('Coaching session saved to database:', sessionData.id);
+    try {
+      await saveCoachingSession(sessionData);
+      console.log('✅ Coaching session saved to database:', sessionData.id);
+      console.log('   Session details:', {
+        id: sessionData.id,
+        coachId: sessionData.coachId,
+        clipsRemaining: sessionData.clipsRemaining,
+        status: sessionData.status,
+        sessionExpiry: sessionData.sessionExpiry
+      });
+    } catch (saveError) {
+      console.error('❌ ERROR: Failed to save coaching session to database:', saveError);
+      console.error('   Session data that failed to save:', sessionData);
+      throw saveError; // Re-throw to prevent conversation creation if session save fails
+    }
 
     // Create DM conversation between player and coach
     try {

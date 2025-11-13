@@ -260,37 +260,61 @@ async function updateCoachAccountStatus(coachId, updates) {
  */
 async function saveCoachingSession(sessionData) {
   try {
+    console.log(`\n💾 [saveCoachingSession] Attempting to save session: ${sessionData.id}`);
+    console.log(`   - coach_id: ${sessionData.coachId}`);
+    console.log(`   - clips_remaining: ${sessionData.clipsRemaining}`);
+    console.log(`   - status: ${sessionData.status}`);
+    console.log(`   - session_expiry: ${sessionData.sessionExpiry}`);
+    console.log(`   - isSupabaseConfigured: ${isSupabaseConfigured}`);
+    console.log(`   - supabase client: ${supabase ? 'exists' : 'null'}`);
+    
+    if (!isSupabaseConfigured || !supabase) {
+      const errorMsg = 'Supabase is not configured. Cannot save coaching session to database.';
+      console.error(`❌ [saveCoachingSession] ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    
+    const insertData = {
+      id: sessionData.id,
+      payment_intent_id: sessionData.paymentIntentId,
+      coach_id: sessionData.coachId,
+      coach_name: sessionData.coachName,
+      sport: sessionData.sport,
+      package_type: sessionData.packageType,
+      package_id: sessionData.packageId,
+      amount: sessionData.amount,
+      currency: sessionData.currency,
+      clips_remaining: sessionData.clipsRemaining,
+      clips_uploaded: sessionData.clipsUploaded || 0,
+      session_expiry: sessionData.sessionExpiry,
+      status: sessionData.status,
+      created_at: sessionData.createdAt,
+      messages: sessionData.messages || []
+    };
+    
+    console.log(`   Inserting data:`, JSON.stringify(insertData, null, 2));
+    
     const { data, error } = await supabase
       .from('coaching_sessions')
-      .insert({
-        id: sessionData.id,
-        payment_intent_id: sessionData.paymentIntentId,
-        coach_id: sessionData.coachId,
-        coach_name: sessionData.coachName,
-        sport: sessionData.sport,
-        package_type: sessionData.packageType,
-        package_id: sessionData.packageId,
-        amount: sessionData.amount,
-        currency: sessionData.currency,
-        clips_remaining: sessionData.clipsRemaining,
-        clips_uploaded: sessionData.clipsUploaded || 0,
-        session_expiry: sessionData.sessionExpiry,
-        status: sessionData.status,
-        created_at: sessionData.createdAt,
-        messages: sessionData.messages || []
-      })
+      .insert(insertData)
       .select()
       .single();
 
     if (error) {
-      console.error('Error saving coaching session:', error);
+      console.error('❌ [saveCoachingSession] Error saving coaching session:', error);
+      console.error('   Error code:', error.code);
+      console.error('   Error message:', error.message);
+      console.error('   Error details:', error.details);
+      console.error('   Error hint:', error.hint);
       throw error;
     }
 
-    console.log(`Coaching session saved: ${sessionData.id}`);
+    console.log(`✅ [saveCoachingSession] Coaching session saved successfully: ${sessionData.id}`);
+    console.log(`   Saved data:`, JSON.stringify(data, null, 2));
     return data;
   } catch (err) {
-    console.error('Database error in saveCoachingSession:', err);
+    console.error('❌ [saveCoachingSession] Database error:', err);
+    console.error('   Error stack:', err.stack);
     throw err;
   }
 }
@@ -342,6 +366,472 @@ async function updateCoachingSession(sessionId, updates) {
     return data;
   } catch (err) {
     console.error('Database error in updateCoachingSession:', err);
+    throw err;
+  }
+}
+
+/**
+ * Get active coaching sessions for a player-coach pair
+ */
+async function getActiveSessionsForPlayerCoach(playerId, coachId) {
+  try {
+    if (!isSupabaseConfigured) {
+      console.log('⚠️ Supabase not configured, returning empty sessions');
+      return [];
+    }
+
+    console.log(`🔍 [getActiveSessionsForPlayerCoach] Looking for sessions: player=${playerId}, coach=${coachId}`);
+
+    // First, get all conversations for this player-coach pair to find session_ids
+    const { data: conversations, error: convError } = await supabase
+      .from('conversations')
+      .select('session_id, id')
+      .eq('player_id', playerId)
+      .eq('coach_id', coachId)
+      .eq('status', 'active');
+
+    if (convError) {
+      console.error('❌ [getActiveSessionsForPlayerCoach] Error getting conversations:', convError);
+      return [];
+    }
+
+    console.log(`📋 [getActiveSessionsForPlayerCoach] Found ${conversations?.length || 0} conversations for player-coach pair`);
+    if (conversations && conversations.length > 0) {
+      conversations.forEach(conv => {
+        console.log(`   Conversation ${conv.id}: session_id=${conv.session_id || 'NULL'}`);
+      });
+    }
+
+    // Extract session_ids from conversations
+    const sessionIds = conversations
+      .map(conv => conv.session_id)
+      .filter(Boolean);
+    
+    let sessions = [];
+    
+    if (sessionIds.length > 0) {
+      console.log(`🔑 [getActiveSessionsForPlayerCoach] Found ${sessionIds.length} session_ids:`, sessionIds);
+
+      // Now get the coaching sessions for these session_ids
+      const { data, error } = await supabase
+        .from('coaching_sessions')
+        .select('*')
+        .in('id', sessionIds)
+        .eq('status', 'active')
+        .gte('session_expiry', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('❌ [getActiveSessionsForPlayerCoach] Error getting active sessions:', error);
+      } else {
+        sessions = data || [];
+        console.log(`✅ [getActiveSessionsForPlayerCoach] Found ${sessions.length} active sessions from conversation session_ids`);
+        if (sessions.length > 0) {
+          sessions.forEach(session => {
+            console.log(`   📦 Session ${session.id}: clips_remaining=${session.clips_remaining}, clips_uploaded=${session.clips_uploaded}, expiry=${session.session_expiry}`);
+          });
+        }
+      }
+    } else {
+      console.log('⚠️ [getActiveSessionsForPlayerCoach] No session_ids found in conversations');
+    }
+    
+    // If no sessions found from conversation session_ids, try to find recent active sessions for this coach
+    // This handles the case where a session was created but not linked to a conversation
+    if (sessions.length === 0) {
+      console.log('🔍 [getActiveSessionsForPlayerCoach] No sessions from conversation IDs, trying to find recent sessions for coach');
+      const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+      
+      const { data: recentSessions, error: recentError } = await supabase
+        .from('coaching_sessions')
+        .select('*')
+        .eq('coach_id', coachId)
+        .eq('status', 'active')
+        .gte('session_expiry', new Date().toISOString())
+        .gte('created_at', fourHoursAgo.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(5);
+      
+      if (!recentError && recentSessions && recentSessions.length > 0) {
+        console.log(`✅ [getActiveSessionsForPlayerCoach] Found ${recentSessions.length} recent active sessions for coach`);
+        // Check if any of these sessions aren't already linked to another player's conversation
+        for (const session of recentSessions) {
+          const { data: linkedConversations } = await supabase
+            .from('conversations')
+            .select('player_id')
+            .eq('session_id', session.id)
+            .neq('player_id', playerId)
+            .limit(1);
+          
+          // If this session isn't linked to another player, include it
+          if (!linkedConversations || linkedConversations.length === 0) {
+            sessions.push(session);
+            console.log(`   📦 Including session ${session.id}: clips_remaining=${session.clips_remaining}`);
+          }
+        }
+      }
+    }
+
+    return sessions;
+  } catch (err) {
+    console.error('❌ [getActiveSessionsForPlayerCoach] Database error:', err);
+    return [];
+  }
+}
+
+/**
+ * Get remaining clips for a player in a conversation
+ */
+async function getRemainingClipsForConversation(conversationId) {
+  try {
+    console.log(`\n🎬 [getRemainingClipsForConversation] Starting for conversation: ${conversationId}`);
+    
+    // First, get the conversation to find the session_id
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      console.log('❌ [getRemainingClipsForConversation] Conversation not found');
+      return { remaining: 0, total: 0, used: 0, error: 'Conversation not found' };
+    }
+
+    console.log(`✅ [getRemainingClipsForConversation] Conversation found:`);
+    console.log(`   - player_id: ${conversation.player_id}`);
+    console.log(`   - coach_id: ${conversation.coach_id}`);
+    console.log(`   - session_id: ${conversation.session_id || 'NULL'}`);
+    console.log(`   - sport: ${conversation.sport || 'N/A'}`);
+
+    let totalRemaining = 0;
+    let totalUsed = 0;
+    let totalClips = 0;
+
+    // First, try to get the session directly from conversation.session_id if it exists
+    if (conversation.session_id) {
+      console.log(`🔍 Trying to get session directly: ${conversation.session_id}`);
+      const session = await getCoachingSession(conversation.session_id);
+      if (session) {
+        console.log(`✅ Session found in database: status=${session.status}, clips_remaining=${session.clips_remaining}, clips_uploaded=${session.clips_uploaded}`);
+        console.log(`   Session details: expiry=${session.session_expiry}, created_at=${session.created_at}`);
+        
+        // Check if session is expired or inactive
+        if (session.status === 'active') {
+          const sessionExpiry = new Date(session.session_expiry);
+          const now = new Date();
+          console.log(`   Session expiry: ${sessionExpiry.toISOString()}, now: ${now.toISOString()}`);
+          if (sessionExpiry >= now) {
+            totalRemaining = session.clips_remaining || 0;
+            totalUsed = session.clips_uploaded || 0;
+            totalClips = totalRemaining + totalUsed;
+            console.log(`✅ Using direct session: remaining=${totalRemaining}, used=${totalUsed}, total=${totalClips}`);
+            return {
+              remaining: totalRemaining,
+              total: totalClips,
+              used: totalUsed
+            };
+          } else {
+            console.log('⚠️ Session has expired');
+          }
+        } else {
+          console.log(`⚠️ Session is not active (status: ${session.status})`);
+        }
+      } else {
+        console.log(`❌ Session not found by ID: ${conversation.session_id}`);
+        console.log(`   This means the session doesn't exist in the database.`);
+        console.log(`   Possible reasons:`);
+        console.log(`   1. The webhook didn't create the session`);
+        console.log(`   2. The session was created with a different ID`);
+        console.log(`   3. The session was deleted`);
+        
+        // Check if there are any sessions in the database at all for this coach
+        if (isSupabaseConfigured) {
+          const { data: anySessions, error: anyError } = await supabase
+            .from('coaching_sessions')
+            .select('id, status, clips_remaining, created_at, session_expiry')
+            .eq('coach_id', conversation.coach_id)
+            .order('created_at', { ascending: false })
+            .limit(5);
+          
+          if (!anyError && anySessions) {
+            console.log(`   Found ${anySessions.length} total sessions for this coach (any status):`);
+            anySessions.forEach(s => {
+              console.log(`     - ${s.id}: status=${s.status}, clips=${s.clips_remaining}, created=${s.created_at}`);
+            });
+          }
+        }
+      }
+    } else {
+      console.log('⚠️ Conversation does not have a session_id');
+    }
+
+    // If no clips found from direct session lookup, get all active sessions for this player-coach pair
+    console.log('🔍 No clips from direct session, trying to get all active sessions for player-coach pair');
+    const activeSessions = await getActiveSessionsForPlayerCoach(
+      conversation.player_id,
+      conversation.coach_id
+    );
+
+    console.log(`Found ${activeSessions.length} active sessions for player-coach pair`);
+
+    // Sum up clips from all active sessions
+    for (const session of activeSessions) {
+      if (session.status === 'active') {
+        const sessionExpiry = new Date(session.session_expiry);
+        if (sessionExpiry >= new Date()) {
+          const sessionRemaining = session.clips_remaining || 0;
+          const sessionUsed = session.clips_uploaded || 0;
+          totalRemaining += sessionRemaining;
+          totalUsed += sessionUsed;
+          console.log(`➕ Adding session ${session.id}: remaining=${sessionRemaining}, used=${sessionUsed}`);
+        }
+      }
+    }
+    totalClips = totalRemaining + totalUsed;
+    
+    // If we found clips from active sessions, update the conversation to link to the most recent session
+    if (totalRemaining > 0 && activeSessions.length > 0 && (!conversation.session_id || conversation.session_id !== activeSessions[0].id)) {
+      const mostRecentSession = activeSessions[0];
+      console.log(`🔗 Updating conversation ${conversationId} to link to session ${mostRecentSession.id}`);
+      try {
+        await supabase
+          .from('conversations')
+          .update({ session_id: mostRecentSession.id })
+          .eq('id', conversationId);
+      } catch (updateError) {
+        console.error('Error updating conversation session_id:', updateError);
+      }
+    }
+
+    // If still no clips found, try a more aggressive fallback:
+    // Query all active sessions for this coach and check if any conversation exists for this player-coach pair
+    if (totalRemaining === 0 && totalUsed === 0) {
+      console.log('🔍 Still no clips found, trying aggressive fallback: querying all active sessions for coach');
+      if (isSupabaseConfigured) {
+        // First, check ALL sessions (not just active) to see what exists
+        const { data: allSessionsAnyStatus, error: allStatusError } = await supabase
+          .from('coaching_sessions')
+          .select('id, status, clips_remaining, created_at, session_expiry')
+          .eq('coach_id', conversation.coach_id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+        
+        if (!allStatusError && allSessionsAnyStatus) {
+          console.log(`   Found ${allSessionsAnyStatus.length} total sessions for coach (any status):`);
+          allSessionsAnyStatus.forEach(s => {
+            console.log(`     - ${s.id}: status=${s.status}, clips=${s.clips_remaining}, created=${s.created_at}, expiry=${s.session_expiry}`);
+          });
+        }
+        
+        // Get all active sessions for this coach
+        const { data: allCoachSessions, error: allSessionsError } = await supabase
+          .from('coaching_sessions')
+          .select('*')
+          .eq('coach_id', conversation.coach_id)
+          .eq('status', 'active')
+          .gte('session_expiry', new Date().toISOString())
+          .order('created_at', { ascending: false })
+          .limit(20); // Increase limit to check more sessions
+
+        console.log(`   Querying active sessions: coach_id=${conversation.coach_id}, status=active, expiry>=${new Date().toISOString()}`);
+
+        if (!allSessionsError && allCoachSessions && allCoachSessions.length > 0) {
+          console.log(`   ✅ Found ${allCoachSessions.length} active sessions for coach`);
+          console.log(`Found ${allCoachSessions.length} active sessions for coach (aggressive fallback)`);
+          
+          // Get all conversations for this player-coach pair (regardless of session_id)
+          const { data: playerConversations, error: playerConvError } = await supabase
+            .from('conversations')
+            .select('session_id, id')
+            .eq('player_id', conversation.player_id)
+            .eq('coach_id', conversation.coach_id)
+            .eq('status', 'active');
+
+          if (!playerConvError && playerConversations) {
+            console.log(`Found ${playerConversations.length} conversations for player-coach pair`);
+            
+            // Extract session_ids from conversations
+            const playerSessionIds = playerConversations
+              .map(conv => conv.session_id)
+              .filter(Boolean);
+            
+            console.log(`Player has ${playerSessionIds.length} session_ids in conversations:`, playerSessionIds);
+            
+            // Check if any of the coach's sessions match the player's session_ids
+            for (const session of allCoachSessions) {
+              if (playerSessionIds.includes(session.id)) {
+                const sessionRemaining = session.clips_remaining || 0;
+                const sessionUsed = session.clips_uploaded || 0;
+                totalRemaining += sessionRemaining;
+                totalUsed += sessionUsed;
+                console.log(`➕ Found matching session ${session.id}: remaining=${sessionRemaining}, used=${sessionUsed}`);
+              }
+            }
+            
+            // If still no clips and we have conversations but no session_ids, 
+            // try to match sessions with conversations more intelligently
+            // (This handles the case where a session was created but conversation wasn't linked)
+            if (totalRemaining === 0 && totalUsed === 0 && playerConversations.length > 0) {
+              console.log('🔍 No session_ids in conversations, trying intelligent matching');
+              
+              // Strategy 1: If there's exactly one active session for this coach and one conversation for this player-coach pair,
+              // assume they're linked (common case after a purchase)
+              if (allCoachSessions.length === 1 && playerConversations.length >= 1) {
+                const session = allCoachSessions[0];
+                // Find the conversation that matches the current conversationId, or use the first one
+                const conversationToLink = playerConversations.find(conv => conv.id === conversationId) || playerConversations[0];
+                
+                console.log(`🔗 Found single session ${session.id} and conversation ${conversationToLink.id}, assuming they're linked`);
+                const sessionRemaining = session.clips_remaining || 0;
+                const sessionUsed = session.clips_uploaded || 0;
+                totalRemaining += sessionRemaining;
+                totalUsed += sessionUsed;
+                console.log(`➕ Using single session: remaining=${sessionRemaining}, used=${sessionUsed}`);
+                
+                // Update the conversation to link it to this session
+                if (!conversationToLink.session_id || conversationToLink.session_id !== session.id) {
+                  console.log(`🔗 Updating conversation ${conversationToLink.id} to link to session ${session.id}`);
+                  try {
+                    await supabase
+                      .from('conversations')
+                      .update({ session_id: session.id })
+                      .eq('id', conversationToLink.id);
+                  } catch (updateError) {
+                    console.error('Error updating conversation session_id:', updateError);
+                  }
+                }
+              } else if (allCoachSessions.length > 0) {
+                // Strategy 2: Check if any recent sessions (within last 4 hours) might belong to this player
+                // Use a longer window to catch sessions created by webhooks
+                const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+                
+                // Find the conversation that matches the current conversationId, or use one without a session_id
+                const conversationToLink = playerConversations.find(conv => conv.id === conversationId) || 
+                                         playerConversations.find(conv => !conv.session_id) || 
+                                         playerConversations[0];
+                
+                for (const session of allCoachSessions) {
+                  const sessionCreated = new Date(session.created_at);
+                  
+                  if (sessionCreated >= fourHoursAgo) {
+                    console.log(`🔗 Found recent session ${session.id} created ${sessionCreated.toISOString()}, checking if it belongs to this player`);
+                    
+                    // Check if this session isn't already linked to another conversation for a different player
+                    const { data: otherConversations } = await supabase
+                      .from('conversations')
+                      .select('player_id')
+                      .eq('session_id', session.id)
+                      .neq('player_id', conversation.player_id)
+                      .limit(1);
+                    
+                    // If no other player has this session, or if the conversation doesn't have a session_id, link them
+                    if ((!otherConversations || otherConversations.length === 0) && 
+                        (!conversationToLink.session_id || conversationToLink.session_id !== session.id)) {
+                      console.log(`🔗 Linking recent session ${session.id} to conversation ${conversationToLink.id}`);
+                      const sessionRemaining = session.clips_remaining || 0;
+                      const sessionUsed = session.clips_uploaded || 0;
+                      totalRemaining += sessionRemaining;
+                      totalUsed += sessionUsed;
+                      console.log(`➕ Using recent session: remaining=${sessionRemaining}, used=${sessionUsed}`);
+                      
+                      // Update the conversation to link it to this session
+                      try {
+                        await supabase
+                          .from('conversations')
+                          .update({ session_id: session.id })
+                          .eq('id', conversationToLink.id);
+                      } catch (updateError) {
+                        console.error('Error updating conversation session_id:', updateError);
+                      }
+                      
+                      // Only use the first matching session to avoid double-counting
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            
+            totalClips = totalRemaining + totalUsed;
+          }
+        }
+      }
+    }
+
+    console.log(`📊 Final clip count: remaining=${totalRemaining}, used=${totalUsed}, total=${totalClips}`);
+
+    return {
+      remaining: totalRemaining,
+      total: totalClips,
+      used: totalUsed
+    };
+  } catch (err) {
+    console.error('❌ Database error in getRemainingClipsForConversation:', err);
+    throw err;
+  }
+}
+
+/**
+ * Decrement clips remaining when a video is sent
+ */
+async function decrementClipsForConversation(conversationId) {
+  try {
+    // Get the conversation to find the session_id
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      throw new Error('Conversation not found');
+    }
+
+    let sessionToUpdate = null;
+
+    // If conversation has a session_id, try to use that session
+    if (conversation.session_id) {
+      const session = await getCoachingSession(conversation.session_id);
+      if (session && session.status === 'active') {
+        const sessionExpiry = new Date(session.session_expiry);
+        if (sessionExpiry >= new Date() && (session.clips_remaining || 0) > 0) {
+          sessionToUpdate = session;
+        }
+      }
+    }
+
+    // If no valid session found, find the most recent active session with clips
+    if (!sessionToUpdate) {
+      const activeSessions = await getActiveSessionsForPlayerCoach(
+        conversation.player_id,
+        conversation.coach_id
+      );
+
+      // Find the first session with clips remaining
+      for (const session of activeSessions) {
+        if (session.status === 'active') {
+          const sessionExpiry = new Date(session.session_expiry);
+          if (sessionExpiry >= new Date() && (session.clips_remaining || 0) > 0) {
+            sessionToUpdate = session;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!sessionToUpdate) {
+      throw new Error('No active session with clips remaining found');
+    }
+
+    // Check if there are clips remaining
+    if (sessionToUpdate.clips_remaining <= 0) {
+      throw new Error('No clips remaining');
+    }
+
+    // Decrement clips_remaining and increment clips_uploaded
+    const updatedSession = await updateCoachingSession(sessionToUpdate.id, {
+      clips_remaining: sessionToUpdate.clips_remaining - 1,
+      clips_uploaded: (sessionToUpdate.clips_uploaded || 0) + 1
+    });
+
+    return {
+      remaining: updatedSession.clips_remaining,
+      total: updatedSession.clips_remaining + updatedSession.clips_uploaded,
+      used: updatedSession.clips_uploaded
+    };
+  } catch (err) {
+    console.error('Database error in decrementClipsForConversation:', err);
     throw err;
   }
 }
@@ -609,12 +1099,15 @@ async function getConversations(userId, userType) {
  */
 async function getConversation(conversationId) {
   try {
+    console.log(`🔍 [getConversation] Looking up conversation: ${conversationId}`);
+    
     // Check if Supabase is properly configured
     if (!supabaseServiceKey || supabaseServiceKey.includes('YourServiceKeyHere')) {
-      console.log('Using in-memory storage for conversation lookup (Supabase not configured)');
+      console.log('⚠️ Using in-memory storage for conversation lookup (Supabase not configured)');
       
       // Return conversation from in-memory storage
       const conversation = conversations.find(conv => conv.id === conversationId);
+      console.log(`🔍 [getConversation] In-memory result:`, conversation ? 'Found' : 'Not found');
       return conversation || null;
     }
 
@@ -625,16 +1118,22 @@ async function getConversation(conversationId) {
       .single();
 
     if (error && error.code !== 'PGRST116') {
-      console.error('Error getting conversation:', error);
+      console.error('❌ [getConversation] Error getting conversation:', error);
       throw error;
+    }
+
+    if (data) {
+      console.log(`✅ [getConversation] Found conversation: player_id=${data.player_id}, coach_id=${data.coach_id}, session_id=${data.session_id || 'NULL'}`);
+    } else {
+      console.log(`⚠️ [getConversation] Conversation not found in database`);
     }
 
     return data;
   } catch (err) {
-    console.error('Database error in getConversation:', err);
+    console.error('❌ [getConversation] Database error:', err);
     
     // Fallback to in-memory storage if Supabase fails
-    console.log('Falling back to in-memory storage for conversation lookup');
+    console.log('⚠️ [getConversation] Falling back to in-memory storage');
     const conversation = conversations.find(conv => conv.id === conversationId);
     return conversation || null;
   }
@@ -977,6 +1476,8 @@ module.exports = {
   saveCoachingSession,
   getCoachingSession,
   updateCoachingSession,
+  getRemainingClipsForConversation,
+  decrementClipsForConversation,
   saveTransfer,
   updateTransferStatus,
   getCoachTransfers,

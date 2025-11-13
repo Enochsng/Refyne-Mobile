@@ -300,12 +300,15 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         // Import the sendMessage function from conversation service
         const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
         
-        await sendMessageToConversation(
+        const response = await sendMessageToConversation(
           selectedConversation.id,
           coachId,
           'coach',
           messageText.trim()
         );
+        
+        // Handle response (coaches don't consume clips, so clipsRemaining will be undefined)
+        const message = response?.message || response;
 
         // Add the message to local state for immediate display
         const newMessage = {
@@ -467,9 +470,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               <Text style={styles.coachSport}>{selectedConversation.sport} Student</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.moreButton}>
-            <Ionicons name="ellipsis-vertical" size={24} color="#0C295C" />
-          </TouchableOpacity>
         </View>
 
         {/* Messages */}

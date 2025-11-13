@@ -6,7 +6,9 @@ const {
   addMessageToConversation, 
   getConversationMessages,
   markConversationAsRead,
-  createConversation
+  createConversation,
+  getRemainingClipsForConversation,
+  decrementClipsForConversation
 } = require('../services/database');
 
 const router = express.Router();
@@ -92,6 +94,55 @@ router.get('/:conversationId/messages', async (req, res) => {
     console.error('Error getting messages:', err);
     res.status(500).json({
       error: 'Failed to get messages',
+      message: err.message
+    });
+  }
+});
+
+/**
+ * GET /api/conversations/:conversationId/clips
+ * Get remaining clips for a conversation
+ */
+router.get('/:conversationId/clips', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    
+    console.log(`\n🔵 [CLIPS ENDPOINT] ==========================================`);
+    console.log(`🔵 [CLIPS ENDPOINT] Request received for conversation: ${conversationId}`);
+    console.log(`🔵 [CLIPS ENDPOINT] Timestamp: ${new Date().toISOString()}`);
+    console.log(`🔵 [CLIPS ENDPOINT] ==========================================\n`);
+    
+    if (!conversationId) {
+      console.error('❌ [CLIPS ENDPOINT] No conversation ID provided');
+      return res.status(400).json({
+        error: 'Conversation ID is required'
+      });
+    }
+
+    const clipInfo = await getRemainingClipsForConversation(conversationId);
+    
+    console.log(`\n🔵 [CLIPS ENDPOINT] ==========================================`);
+    console.log(`🔵 [CLIPS ENDPOINT] Returning clip info:`, JSON.stringify(clipInfo, null, 2));
+    console.log(`🔵 [CLIPS ENDPOINT] Response summary:`);
+    console.log(`🔵 [CLIPS ENDPOINT]   - remaining: ${clipInfo.remaining}`);
+    console.log(`🔵 [CLIPS ENDPOINT]   - total: ${clipInfo.total}`);
+    console.log(`🔵 [CLIPS ENDPOINT]   - used: ${clipInfo.used}`);
+    console.log(`🔵 [CLIPS ENDPOINT]   - error: ${clipInfo.error || 'none'}`);
+    console.log(`🔵 [CLIPS ENDPOINT] ==========================================\n`);
+
+    res.json({
+      success: true,
+      ...clipInfo
+    });
+
+  } catch (err) {
+    console.error('\n❌ [CLIPS ENDPOINT] ==========================================');
+    console.error('❌ [CLIPS ENDPOINT] Error getting clips:', err);
+    console.error('❌ [CLIPS ENDPOINT] Error message:', err.message);
+    console.error('❌ [CLIPS ENDPOINT] Error stack:', err.stack);
+    console.error('❌ [CLIPS ENDPOINT] ==========================================\n');
+    res.status(500).json({
+      error: 'Failed to get clips',
       message: err.message
     });
   }
@@ -188,6 +239,39 @@ router.post('/:conversationId/messages', async (req, res) => {
 
     const { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
 
+    // If this is a video message from a player, check clip limits
+    if (messageType === 'video' && senderType === 'player') {
+      try {
+        // Check remaining clips
+        const clipInfo = await getRemainingClipsForConversation(conversationId);
+        
+        if (clipInfo.error) {
+          return res.status(400).json({
+            error: 'Clip limit error',
+            message: clipInfo.error
+          });
+        }
+
+        if (clipInfo.remaining <= 0) {
+          return res.status(403).json({
+            error: 'No clips remaining',
+            message: 'You have used all your video clips for this coaching session. Please purchase more clips to continue.',
+            remaining: 0,
+            total: clipInfo.total
+          });
+        }
+
+        // Decrement clips before sending the message
+        await decrementClipsForConversation(conversationId);
+      } catch (clipError) {
+        console.error('Error checking clip limits:', clipError);
+        return res.status(500).json({
+          error: 'Failed to check clip limits',
+          message: clipError.message
+        });
+      }
+    }
+
     const messageData = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       conversationId,
@@ -200,9 +284,21 @@ router.post('/:conversationId/messages', async (req, res) => {
 
     const message = await addMessageToConversation(messageData);
 
+    // Get updated clip info to return with the response
+    let clipInfo = null;
+    if (messageType === 'video' && senderType === 'player') {
+      try {
+        clipInfo = await getRemainingClipsForConversation(conversationId);
+      } catch (err) {
+        // Don't fail the message send if we can't get clip info
+        console.error('Error getting updated clip info:', err);
+      }
+    }
+
     res.json({
       success: true,
-      message
+      message,
+      clipsRemaining: clipInfo ? clipInfo.remaining : undefined
     });
 
   } catch (err) {
