@@ -895,6 +895,112 @@ async function decrementClipsForConversation(conversationId) {
 }
 
 /**
+ * Daily Message Count Management
+ * Tracks how many text messages a player has sent per day (limit: 5 per day)
+ */
+
+/**
+ * Get remaining daily messages for a conversation
+ * Returns { remaining: number, used: number, total: number }
+ */
+async function getRemainingDailyMessagesForConversation(conversationId) {
+  try {
+    const DAILY_MESSAGE_LIMIT = 5;
+    
+    // Get the conversation to find the player_id
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      return { remaining: 0, used: 0, total: DAILY_MESSAGE_LIMIT, error: 'Conversation not found' };
+    }
+
+    // Get today's date range (start of day to end of day in EST/EDT)
+    // EST is UTC-5, EDT is UTC-4 (daylight saving time)
+    const now = new Date();
+    
+    // Get current date parts in EST/EDT timezone
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    
+    const parts = formatter.formatToParts(now);
+    const estParts = {};
+    parts.forEach(part => {
+      estParts[part.type] = part.value;
+    });
+    
+    // Determine if we're currently in EST (UTC-5) or EDT (UTC-4)
+    // Check the timezone name to see if it's EDT or EST
+    const timeZoneFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      timeZoneName: 'short'
+    });
+    const timeZoneParts = timeZoneFormatter.formatToParts(now);
+    const timeZoneName = timeZoneParts.find(part => part.type === 'timeZoneName')?.value || '';
+    
+    // EDT (Eastern Daylight Time) is UTC-4, EST (Eastern Standard Time) is UTC-5
+    const offset = timeZoneName.includes('EDT') ? '-04:00' : '-05:00';
+    
+    // Create start and end of day in EST/EDT, then convert to UTC for database queries
+    // JavaScript Date constructor automatically converts these to UTC
+    const startOfDay = new Date(`${estParts.year}-${estParts.month}-${estParts.day}T00:00:00${offset}`);
+    const endOfDay = new Date(`${estParts.year}-${estParts.month}-${estParts.day}T23:59:59.999${offset}`);
+    
+    // Count text messages sent by the player today
+    const { data: messages, error } = await supabase
+      .from('messages')
+      .select('id')
+      .eq('conversation_id', conversationId)
+      .eq('sender_id', conversation.player_id)
+      .eq('sender_type', 'player')
+      .eq('message_type', 'text')
+      .gte('created_at', startOfDay.toISOString())
+      .lte('created_at', endOfDay.toISOString());
+
+    if (error) {
+      console.error('Error getting daily message count:', error);
+      // On error, return default values (assume no messages sent today)
+      return { remaining: DAILY_MESSAGE_LIMIT, used: 0, total: DAILY_MESSAGE_LIMIT };
+    }
+
+    const used = messages ? messages.length : 0;
+    const remaining = Math.max(0, DAILY_MESSAGE_LIMIT - used);
+
+    return {
+      remaining,
+      used,
+      total: DAILY_MESSAGE_LIMIT
+    };
+  } catch (err) {
+    console.error('Database error in getRemainingDailyMessagesForConversation:', err);
+    // On error, return default values (assume no messages sent today)
+    return { remaining: 5, used: 0, total: 5 };
+  }
+}
+
+/**
+ * Check if player can send a text message today (hasn't reached daily limit)
+ * Returns { canSend: boolean, remaining: number, used: number }
+ */
+async function canPlayerSendMessageToday(conversationId) {
+  try {
+    const messageInfo = await getRemainingDailyMessagesForConversation(conversationId);
+    return {
+      canSend: messageInfo.remaining > 0,
+      remaining: messageInfo.remaining,
+      used: messageInfo.used,
+      total: messageInfo.total
+    };
+  } catch (err) {
+    console.error('Database error in canPlayerSendMessageToday:', err);
+    // On error, allow sending (fail open)
+    return { canSend: true, remaining: 5, used: 0, total: 5 };
+  }
+}
+
+/**
  * Payment Transfers Management
  */
 
@@ -1537,6 +1643,8 @@ module.exports = {
   getRemainingClipsForConversation,
   decrementClipsForConversation,
   checkChatExpiry,
+  getRemainingDailyMessagesForConversation,
+  canPlayerSendMessageToday,
   saveTransfer,
   updateTransferStatus,
   getCoachTransfers,

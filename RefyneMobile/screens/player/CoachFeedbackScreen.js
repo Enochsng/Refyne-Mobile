@@ -17,7 +17,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getConversations, formatConversationForDisplay, manualConnectionTest, getRemainingClips } from '../../services/conversationService';
+import { getConversations, formatConversationForDisplay, manualConnectionTest, getRemainingClips, getRemainingDailyMessages } from '../../services/conversationService';
 import { supabase } from '../../supabaseClient';
 import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
@@ -38,6 +38,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const [remainingClips, setRemainingClips] = useState({ remaining: 0, total: 0, used: 0 });
   const [loadingClips, setLoadingClips] = useState(false);
   const [chatExpiry, setChatExpiry] = useState(null);
+  const [remainingDailyMessages, setRemainingDailyMessages] = useState({ remaining: 5, total: 5, used: 0 });
+  const [loadingDailyMessages, setLoadingDailyMessages] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -159,19 +161,99 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
       }
       
-      // Refresh clip counter when screen comes into focus (e.g., after returning from purchase)
+      // Refresh clip counter and daily messages when screen comes into focus (e.g., after returning from purchase)
       // Only if we have a selected conversation
       if (selectedConversation?.id) {
         loadRemainingClips(selectedConversation.id);
+        loadRemainingDailyMessages(selectedConversation.id);
       }
     }, [route?.params?.conversationId, conversations, selectedConversation])
   );
 
-  // Refresh clip counter when selected conversation changes
+  // Refresh clip counter and daily messages when selected conversation changes
   useEffect(() => {
     if (selectedConversation?.id) {
       loadRemainingClips(selectedConversation.id);
+      loadRemainingDailyMessages(selectedConversation.id);
     }
+  }, [selectedConversation?.id]);
+
+  // Set up interval to refresh daily message count at midnight EST
+  useEffect(() => {
+    if (!selectedConversation?.id) return;
+
+    // Calculate time until next midnight EST
+    const getTimeUntilMidnightEST = () => {
+      const now = new Date();
+      
+      // Get current date in EST/EDT
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      
+      const parts = formatter.formatToParts(now);
+      const estParts = {};
+      parts.forEach(part => {
+        estParts[part.type] = part.value;
+      });
+      
+      // Get timezone offset
+      const timeZoneFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        timeZoneName: 'short'
+      });
+      const timeZoneParts = timeZoneFormatter.formatToParts(now);
+      const timeZoneName = timeZoneParts.find(part => part.type === 'timeZoneName')?.value || '';
+      const offset = timeZoneName.includes('EDT') ? '-04:00' : '-05:00';
+      
+      // Create date for next midnight EST
+      const currentHour = parseInt(estParts.hour);
+      const currentMinute = parseInt(estParts.minute);
+      const currentSecond = parseInt(estParts.second);
+      
+      // Calculate milliseconds until next midnight EST
+      const msUntilMidnight = (24 * 60 * 60 * 1000) - (currentHour * 60 * 60 * 1000) - (currentMinute * 60 * 1000) - (currentSecond * 1000);
+      
+      return msUntilMidnight;
+    };
+
+    // Refresh immediately and then set up interval
+    const refreshDailyMessages = () => {
+      if (selectedConversation?.id) {
+        loadRemainingDailyMessages(selectedConversation.id);
+      }
+    };
+
+    // Refresh now
+    refreshDailyMessages();
+
+    // Calculate time until midnight EST
+    const msUntilMidnight = getTimeUntilMidnightEST();
+    
+    // Set timeout for midnight EST
+    const midnightTimeout = setTimeout(() => {
+      refreshDailyMessages();
+      // After midnight, refresh every minute to catch the reset
+      const interval = setInterval(refreshDailyMessages, 60000);
+      
+      // Clear interval after 2 minutes (to catch the reset)
+      setTimeout(() => clearInterval(interval), 2 * 60 * 1000);
+    }, msUntilMidnight);
+
+    // Also set up a periodic check every 5 minutes to catch any updates
+    const periodicCheck = setInterval(refreshDailyMessages, 5 * 60 * 1000);
+
+    return () => {
+      clearTimeout(midnightTimeout);
+      clearInterval(periodicCheck);
+    };
   }, [selectedConversation?.id]);
 
   // Clear chat state when selectedConversation becomes null
@@ -183,6 +265,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       setShowVideoModal(false);
       setRemainingClips({ remaining: 0, total: 0, used: 0 });
       setChatExpiry(null);
+      setRemainingDailyMessages({ remaining: 5, total: 5, used: 0 });
     }
   }, [selectedConversation]);
 
@@ -282,6 +365,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       // Load remaining clips for this conversation
       loadRemainingClips(conversationId);
       
+      // Load remaining daily messages for this conversation
+      loadRemainingDailyMessages(conversationId);
+      
     } catch (error) {
       console.warn('⚠️ Error loading messages:', error.message);
       if (__DEV__) {
@@ -321,6 +407,25 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
   };
 
+  const loadRemainingDailyMessages = async (conversationId) => {
+    try {
+      setLoadingDailyMessages(true);
+      console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining daily messages for conversation: ${conversationId}`);
+      const messageInfo = await getRemainingDailyMessages(conversationId);
+      console.log(`✅ [CoachFeedbackScreen] Daily message info received:`, JSON.stringify(messageInfo, null, 2));
+      console.log(`✅ [CoachFeedbackScreen] Setting remaining daily messages to: ${messageInfo.remaining}`);
+      setRemainingDailyMessages(messageInfo);
+      console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${messageInfo.remaining}, total: ${messageInfo.total}, used: ${messageInfo.used}`);
+    } catch (error) {
+      console.error('❌ [CoachFeedbackScreen] Error loading remaining daily messages:', error.message);
+      console.error('❌ [CoachFeedbackScreen] Error details:', error);
+      // Set default values on error
+      setRemainingDailyMessages({ remaining: 5, total: 5, used: 0 });
+    } finally {
+      setLoadingDailyMessages(false);
+    }
+  };
+
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
       try {
@@ -329,6 +434,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           Alert.alert(
             'Chat Expired',
             'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Check daily message limit BEFORE attempting to send
+        if (remainingDailyMessages.remaining <= 0) {
+          Alert.alert(
+            'Daily Message Limit Reached',
+            'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
             [{ text: 'OK' }]
           );
           return;
@@ -381,10 +496,33 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           )
         );
 
+        // Update daily message count from response first (for immediate UI update)
+        if (response?.dailyMessagesRemaining !== undefined) {
+          setRemainingDailyMessages(prev => ({ 
+            ...prev, 
+            remaining: response.dailyMessagesRemaining,
+            used: prev.total - response.dailyMessagesRemaining
+          }));
+        }
+        
+        // Then reload daily messages to ensure we have the latest accurate data
+        // This will update the counter to show the correct remaining count (including 0 if limit reached)
+        await loadRemainingDailyMessages(selectedConversation.id);
+
       } catch (error) {
-        console.warn('⚠️ Error sending message:', error.message);
-        if (__DEV__) {
-          console.log('Error details:', error);
+        // Check if error is due to daily message limit
+        if (error.message && (error.message.includes('Daily message limit') || error.message.includes('daily limit'))) {
+          // Reload daily message info to update the UI
+          if (selectedConversation) {
+            await loadRemainingDailyMessages(selectedConversation.id);
+          }
+          // Show alert for daily limit - don't log anything
+          Alert.alert(
+            'Daily Message Limit Reached',
+            'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+            [{ text: 'OK' }]
+          );
+          return;
         }
         
         // Check if error is due to chat expiry
@@ -397,8 +535,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           // Reload chat expiry info
           if (selectedConversation) {
             loadRemainingClips(selectedConversation.id);
+            loadRemainingDailyMessages(selectedConversation.id);
           }
         } else {
+          // Only log and show alert for other errors (not daily limit)
+          console.warn('⚠️ Error sending message:', error.message);
+          if (__DEV__) {
+            console.log('Error details:', error);
+          }
           Alert.alert('Error', error.message || 'Failed to send message. Please try again.');
         }
       }
@@ -665,13 +809,25 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               <Text style={styles.coachSport}>{selectedConversation.sport} Coach</Text>
             </View>
           </View>
-          {/* Clip Tracker */}
-          <View style={styles.clipTrackerContainer}>
-            <View style={styles.clipTracker}>
-              <Ionicons name="videocam" size={16} color="#0C295C" />
-              <Text style={styles.clipTrackerText}>
-                {loadingClips ? '...' : remainingClips.remaining}
-              </Text>
+          {/* Clip Tracker and Message Tracker */}
+          <View style={styles.trackerContainer}>
+            {/* Message Tracker */}
+            <View style={styles.messageTrackerContainer}>
+              <View style={styles.messageTracker}>
+                <Ionicons name="chatbubble" size={16} color="#0C295C" />
+                <Text style={styles.messageTrackerText}>
+                  {loadingDailyMessages ? '...' : remainingDailyMessages.remaining}
+                </Text>
+              </View>
+            </View>
+            {/* Clip Tracker */}
+            <View style={styles.clipTrackerContainer}>
+              <View style={styles.clipTracker}>
+                <Ionicons name="videocam" size={16} color="#0C295C" />
+                <Text style={styles.clipTrackerText}>
+                  {loadingClips ? '...' : remainingClips.remaining}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
@@ -699,15 +855,26 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 message.isFromPlayer ? styles.playerMessage : styles.coachMessage
               ]}
             >
-              <View
-                style={[
-                  styles.messageBubble,
-                  message.isFromPlayer ? styles.playerBubble : styles.coachBubble
-                ]}
-              >
-                {message.messageType === 'video' ? (
-                  renderVideoMessage(message)
-                ) : (
+              {message.messageType === 'video' ? (
+                <View>
+                  {renderVideoMessage(message)}
+                  <Text
+                    style={[
+                      styles.messageTime,
+                      message.isFromPlayer ? styles.playerTime : styles.coachTime,
+                      styles.videoMessageTime
+                    ]}
+                  >
+                    {message.timestamp}
+                  </Text>
+                </View>
+              ) : (
+                <View
+                  style={[
+                    styles.messageBubble,
+                    message.isFromPlayer ? styles.playerBubble : styles.coachBubble
+                  ]}
+                >
                   <Text
                     style={[
                       styles.messageText,
@@ -716,16 +883,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                   >
                     {message.text}
                   </Text>
-                )}
-                <Text
-                  style={[
-                    styles.messageTime,
-                    message.isFromPlayer ? styles.playerTime : styles.coachTime
-                  ]}
-                >
-                  {message.timestamp}
-                </Text>
-              </View>
+                  <Text
+                    style={[
+                      styles.messageTime,
+                      message.isFromPlayer ? styles.playerTime : styles.coachTime
+                    ]}
+                  >
+                    {message.timestamp}
+                  </Text>
+                </View>
+              )}
             </View>
           ))}
         </ScrollView>
@@ -749,7 +916,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 onChangeText={setMessageText}
                 multiline
                 maxLength={1000}
-                editable={!(chatExpiry && chatExpiry.isExpired)}
+                editable={!(chatExpiry && chatExpiry.isExpired) && remainingDailyMessages.remaining > 0}
               />
               <View style={styles.actionButtons}>
                 <TouchableOpacity 
@@ -769,15 +936,51 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 <TouchableOpacity 
                   style={[
                     styles.sendButton,
-                    (chatExpiry && chatExpiry.isExpired) && styles.sendButtonDisabled
+                    ((chatExpiry && chatExpiry.isExpired) || remainingDailyMessages.remaining <= 0) && styles.sendButtonDisabled
                   ]} 
-                  onPress={sendMessage}
-                  disabled={chatExpiry && chatExpiry.isExpired}
+                  onPress={async () => {
+                    // If chat is expired, show alert
+                    if (chatExpiry && chatExpiry.isExpired) {
+                      Alert.alert(
+                        'Chat Expired',
+                        'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+                        [{ text: 'OK' }]
+                      );
+                      return;
+                    }
+                    // If limit is reached, reload counter first to ensure it's accurate, then show alert
+                    if (remainingDailyMessages.remaining <= 0) {
+                      // Reload to get the latest count (in case it reset at midnight)
+                      if (selectedConversation) {
+                        const { getRemainingDailyMessages } = await import('../../services/conversationService');
+                        const messageInfo = await getRemainingDailyMessages(selectedConversation.id);
+                        // Update state with latest info
+                        setRemainingDailyMessages(messageInfo);
+                        // If still at 0, show alert
+                        if (messageInfo.remaining <= 0) {
+                          Alert.alert(
+                            'Daily Message Limit Reached',
+                            'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+                            [{ text: 'OK' }]
+                          );
+                        }
+                      } else {
+                        Alert.alert(
+                          'Daily Message Limit Reached',
+                          'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+                          [{ text: 'OK' }]
+                        );
+                      }
+                      return;
+                    }
+                    // Otherwise, proceed with sending
+                    sendMessage();
+                  }}
                 >
                   <Ionicons 
                     name="send" 
                     size={20} 
-                    color={(chatExpiry && chatExpiry.isExpired) ? "#90A4AE" : "white"} 
+                    color={((chatExpiry && chatExpiry.isExpired) || remainingDailyMessages.remaining <= 0) ? "#90A4AE" : "white"} 
                   />
                 </TouchableOpacity>
               </View>
@@ -928,41 +1131,55 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                     loadMessages(conversation.id);
                   }}
                 >
-                  <View style={styles.conversationAvatar}>
-                    {conversation.avatar ? (
-                      <Image 
-                        source={{ uri: conversation.avatar }} 
-                        style={styles.avatarImage}
-                        resizeMode="cover"
-                        onError={() => {
-                          // If image fails to load, we'll fall back to initials
-                          console.log('Failed to load profile image for:', conversation.otherPartyName);
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.avatarText}>{conversation.otherPartyName.charAt(0)}</Text>
-                    )}
-                  </View>
-                  <View style={styles.conversationInfo}>
-                    <View style={styles.conversationHeader}>
-                      <Text style={styles.conversationName}>{conversation.otherPartyName}</Text>
-                      <Text style={styles.conversationTime}>
-                        {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleTimeString([], { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        }) : ''}
+                  {/* Days Remaining Banner - Top of Card */}
+                  {conversation.chatExpiry && conversation.chatExpiry.daysRemaining !== null && !conversation.chatExpiry.isExpired && (
+                    <View style={styles.daysRemainingBanner}>
+                      <Ionicons name="time-outline" size={14} color="#0C295C" />
+                      <Text style={styles.daysRemainingText}>
+                        {conversation.chatExpiry.daysRemaining === 1 
+                          ? '1 day left' 
+                          : `${conversation.chatExpiry.daysRemaining} days left`}
                       </Text>
                     </View>
-                    <Text style={styles.conversationSport}>{conversation.sport} Coach</Text>
-                    <Text style={styles.conversationMessage} numberOfLines={2}>
-                      {conversation.lastMessage || 'No messages yet'}
-                    </Text>
-                  </View>
-                  {conversation.unreadCount > 0 && (
-                    <View style={styles.unreadBadge}>
-                      <Text style={styles.unreadText}>{conversation.unreadCount}</Text>
-                    </View>
                   )}
+                  
+                  <View style={styles.conversationContent}>
+                    <View style={styles.conversationAvatar}>
+                      {conversation.avatar ? (
+                        <Image 
+                          source={{ uri: conversation.avatar }} 
+                          style={styles.avatarImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            // If image fails to load, we'll fall back to initials
+                            console.log('Failed to load profile image for:', conversation.otherPartyName);
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.avatarText}>{conversation.otherPartyName.charAt(0)}</Text>
+                      )}
+                    </View>
+                    <View style={styles.conversationInfo}>
+                      <View style={styles.conversationHeader}>
+                        <Text style={styles.conversationName}>{conversation.otherPartyName}</Text>
+                        <Text style={styles.conversationTime}>
+                          {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleTimeString([], { 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          }) : ''}
+                        </Text>
+                      </View>
+                      <Text style={styles.conversationSport}>{conversation.sport} Coach</Text>
+                      <Text style={styles.conversationMessage} numberOfLines={2}>
+                        {conversation.lastMessage || 'No messages yet'}
+                      </Text>
+                    </View>
+                    {conversation.unreadCount > 0 && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadText}>{conversation.unreadCount}</Text>
+                      </View>
+                    )}
+                  </View>
                 </TouchableOpacity>
               ))
             ) : (
@@ -1027,15 +1244,34 @@ const styles = StyleSheet.create({
   conversationCard: {
     backgroundColor: 'white',
     borderRadius: 15,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
     marginBottom: 15,
     shadowColor: '#0C295C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+    overflow: 'hidden',
+  },
+  daysRemainingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E3F2FD',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#90CAF9',
+  },
+  daysRemainingText: {
+    fontSize: width * 0.032,
+    fontFamily: 'Manrope-Medium',
+    color: '#0C295C',
+    marginLeft: 6,
+  },
+  conversationContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
   },
   conversationAvatar: {
     width: 50,
@@ -1146,8 +1382,32 @@ const styles = StyleSheet.create({
     color: '#0C295C',
     opacity: 0.7,
   },
-  clipTrackerContainer: {
+  trackerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginRight: 10,
+  },
+  messageTrackerContainer: {
+    marginRight: 8,
+  },
+  messageTracker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F4F8',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E8F2FF',
+  },
+  messageTrackerText: {
+    fontSize: 14,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#0C295C',
+    marginLeft: 6,
+  },
+  clipTrackerContainer: {
+    marginRight: 0,
   },
   clipTracker: {
     flexDirection: 'row',
@@ -1522,6 +1782,9 @@ const styles = StyleSheet.create({
     color: '#64748B',
     marginTop: 4,
     textAlign: 'center',
+  },
+  videoMessageTime: {
+    marginTop: 4,
   },
   // Video modal styles
   videoModal: {

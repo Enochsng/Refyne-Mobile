@@ -5,12 +5,13 @@ import { Platform } from 'react-native';
 
 // Backend API configuration
 const API_BASE_URL = __DEV__ 
-  ? 'http://192.168.1.79:3001'  // Development - Your computer's IP address
+  ? 'http://10.0.0.51:3001'  // Development - Your computer's IP address
   : 'https://your-production-api.com';  // Production
 
 // Fallback URLs for development
 const FALLBACK_URLS = [
-  'http://192.168.1.79:3001', // Current network IP
+  'http://10.0.0.51:3001', // Current network IP
+  'http://192.168.1.79:3001', // Previous network IP
   'http://10.0.0.77:3001', // Previous network IP
   'http://10.0.0.50:3001',
   'http://localhost:3001',
@@ -486,6 +487,14 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
 
     if (!response.ok) {
       const errorData = await response.json();
+      
+      // For daily message limit errors, throw error without logging
+      if (errorData.error === 'Daily message limit reached' || errorData.dailyLimitReached) {
+        // Don't log to console - just throw the error silently
+        throw new Error(errorData.message || 'Daily message limit reached');
+      }
+      
+      // For other errors, log and throw
       console.error('API Error Response:', JSON.stringify(errorData, null, 2));
       throw new Error(errorData.message || 'Failed to send message');
     }
@@ -494,12 +503,25 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
     console.log('Message sent successfully');
     return {
       message: data.message,
-      clipsRemaining: data.clipsRemaining
+      clipsRemaining: data.clipsRemaining,
+      dailyMessagesRemaining: data.dailyMessagesRemaining
     };
   } catch (error) {
-    console.error('Error sending message:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Check if this is a daily message limit error - don't log these
+    const isDailyLimitError = error.message && (
+      error.message.includes('Daily message limit') || 
+      error.message.includes('daily limit') ||
+      error.message.includes('daily limit reached')
+    );
+    
+    if (!isDailyLimitError) {
+      // Only log non-daily-limit errors
+      console.error('Error sending message:', error);
+      console.error('Error type:', error.constructor?.name || 'Unknown');
+      console.error('Error message:', error.message || 'Unknown error');
+    }
+    
+    // Re-throw the error so it can be handled by the caller
     throw new Error(error.message || 'Failed to send message');
   }
 };
@@ -549,6 +571,61 @@ export const markConversationAsRead = async (conversationId, userType) => {
     console.error('Error type:', error.constructor?.name || 'Unknown');
     console.error('Error message:', error.message || 'Unknown error');
     throw new Error(error.message || 'Failed to mark conversation as read');
+  }
+};
+
+/**
+ * Get remaining daily messages for a conversation
+ */
+export const getRemainingDailyMessages = async (conversationId) => {
+  try {
+    // Test connection and get working URL
+    const workingUrl = await testBackendConnection();
+    if (!workingUrl) {
+      throw new Error('No working backend URL found');
+    }
+
+    console.log(`Getting remaining daily messages for conversation: ${conversationId}`);
+    console.log(`Using working URL: ${workingUrl}`);
+    
+    const fullUrl = `${workingUrl}/api/conversations/${conversationId}/daily-messages`;
+    console.log(`Full URL: ${fullUrl}`);
+    
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
+
+    console.log(`Response status: ${response.status}`);
+    console.log(`Response ok: ${response.ok}`);
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('API Error Response:', errorData);
+      // Return default values if there's an error
+      return { remaining: 5, total: 5, used: 0, error: errorData.message || 'Failed to get daily messages' };
+    }
+
+    const data = await response.json();
+    console.log(`📊 [getRemainingDailyMessages] Retrieved daily message info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
+    
+    const messageInfo = {
+      remaining: data.remaining || 5,
+      total: data.total || 5,
+      used: data.used || 0,
+      error: data.error || null
+    };
+    
+    console.log(`📊 [getRemainingDailyMessages] Returning message info:`, messageInfo);
+    return messageInfo;
+  } catch (error) {
+    console.error('Error getting remaining daily messages:', error);
+    console.error('Error type:', error.constructor?.name || 'Unknown');
+    console.error('Error message:', error.message || 'Unknown error');
+    // Return default values on error
+    return { remaining: 5, total: 5, used: 0, error: error.message || 'Failed to get daily messages' };
   }
 };
 
@@ -679,7 +756,8 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     unreadCount,
     sessionId: conversation.session_id,
     isOnline: false, // TODO: Implement online status
-    avatar: profilePhotoUrl
+    avatar: profilePhotoUrl,
+    chatExpiry: conversation.chatExpiry || null
   };
   
   console.log('formatConversationForDisplay returning:', {
@@ -687,7 +765,8 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     otherPartyName: result.otherPartyName,
     playerName: result.playerName,
     userType,
-    avatar: result.avatar
+    avatar: result.avatar,
+    chatExpiry: result.chatExpiry
   });
   
   return result;

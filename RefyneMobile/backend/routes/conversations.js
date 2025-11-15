@@ -9,7 +9,9 @@ const {
   createConversation,
   getRemainingClipsForConversation,
   decrementClipsForConversation,
-  checkChatExpiry
+  checkChatExpiry,
+  getRemainingDailyMessagesForConversation,
+  canPlayerSendMessageToday
 } = require('../services/database');
 
 const router = express.Router();
@@ -101,6 +103,36 @@ router.get('/:conversationId/messages', async (req, res) => {
 });
 
 /**
+ * GET /api/conversations/:conversationId/daily-messages
+ * Get remaining daily messages for a conversation
+ */
+router.get('/:conversationId/daily-messages', async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    
+    if (!conversationId) {
+      return res.status(400).json({
+        error: 'Conversation ID is required'
+      });
+    }
+
+    const messageInfo = await getRemainingDailyMessagesForConversation(conversationId);
+    
+    res.json({
+      success: true,
+      ...messageInfo
+    });
+
+  } catch (err) {
+    console.error('Error getting daily messages:', err);
+    res.status(500).json({
+      error: 'Failed to get daily messages',
+      message: err.message
+    });
+  }
+});
+
+/**
  * GET /api/conversations/:conversationId/clips
  * Get remaining clips for a conversation
  */
@@ -180,10 +212,33 @@ router.get('/:userId/:userType', async (req, res) => {
     const { userId, userType } = value;
     const conversations = await getConversations(userId, userType);
 
-    res.json({
-      success: true,
-      conversations
-    });
+    // For players, add chat expiry info to each conversation
+    if (userType === 'player') {
+      const conversationsWithExpiry = await Promise.all(
+        conversations.map(async (conversation) => {
+          try {
+            const expiry = await checkChatExpiry(conversation.id);
+            return {
+              ...conversation,
+              chatExpiry: expiry
+            };
+          } catch (error) {
+            console.error(`Error getting chat expiry for conversation ${conversation.id}:`, error);
+            return conversation;
+          }
+        })
+      );
+      
+      res.json({
+        success: true,
+        conversations: conversationsWithExpiry
+      });
+    } else {
+      res.json({
+        success: true,
+        conversations
+      });
+    }
 
   } catch (err) {
     console.error('Error getting conversations:', err);
@@ -279,6 +334,27 @@ router.post('/:conversationId/messages', async (req, res) => {
         console.error('Error checking chat expiry:', expiryError);
         // Don't block message if expiry check fails (fail open)
       }
+
+      // Check daily message limit for text messages from players
+      if (messageType === 'text') {
+        try {
+          const canSend = await canPlayerSendMessageToday(conversationId);
+          
+          if (!canSend.canSend) {
+            return res.status(403).json({
+              error: 'Daily message limit reached',
+              message: 'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+              dailyLimitReached: true,
+              remaining: 0,
+              used: canSend.used,
+              total: canSend.total
+            });
+          }
+        } catch (messageLimitError) {
+          console.error('Error checking daily message limit:', messageLimitError);
+          // Don't block message if limit check fails (fail open)
+        }
+      }
     }
 
     // If this is a video message from a player, check clip limits
@@ -337,10 +413,22 @@ router.post('/:conversationId/messages', async (req, res) => {
       }
     }
 
+    // Get updated daily message info to return with the response (for text messages from players)
+    let dailyMessageInfo = null;
+    if (messageType === 'text' && senderType === 'player') {
+      try {
+        dailyMessageInfo = await getRemainingDailyMessagesForConversation(conversationId);
+      } catch (err) {
+        // Don't fail the message send if we can't get daily message info
+        console.error('Error getting updated daily message info:', err);
+      }
+    }
+
     res.json({
       success: true,
       message,
-      clipsRemaining: clipInfo ? clipInfo.remaining : undefined
+      clipsRemaining: clipInfo ? clipInfo.remaining : undefined,
+      dailyMessagesRemaining: dailyMessageInfo ? dailyMessageInfo.remaining : undefined
     });
 
   } catch (err) {

@@ -56,6 +56,44 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
   }, [messages.length]);
 
+  // Handle keyboard show/hide to auto-scroll messages
+  useEffect(() => {
+    if (!selectedConversation) return;
+    
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    
+    const keyboardWillShowListener = Keyboard.addListener(
+      showEvent,
+      (event) => {
+        // Scroll to bottom when keyboard appears with extra padding
+        const delay = Platform.OS === 'ios' ? 200 : 300;
+        setTimeout(() => {
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollToEnd({ animated: true });
+          }
+        }, delay);
+      }
+    );
+
+    const keyboardWillHideListener = Keyboard.addListener(
+      hideEvent,
+      () => {
+        // Optional: scroll to bottom when keyboard hides
+        setTimeout(() => {
+          if (scrollViewRef.current) {
+            scrollViewRef.current.scrollToEnd({ animated: false });
+          }
+        }, 100);
+      }
+    );
+
+    return () => {
+      keyboardWillShowListener.remove();
+      keyboardWillHideListener.remove();
+    };
+  }, [selectedConversation]);
+
   // Mark conversation as read when messages are loaded
   useEffect(() => {
     if (selectedConversation && messages.length > 0) {
@@ -550,8 +588,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     return (
       <KeyboardAvoidingView 
         style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        enabled={Platform.OS === 'ios'}
       >
         {/* Chat Header */}
         <View style={styles.chatHeader}>
@@ -601,13 +640,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.messagesContent}
           keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          nestedScrollEnabled={true}
           onScroll={(event) => {
             const currentScrollY = event.nativeEvent.contentOffset.y;
-            // Dismiss keyboard when scrolling down (additional check)
-            if (currentScrollY > scrollY.current && currentScrollY > 50) {
-              Keyboard.dismiss();
-            }
             scrollY.current = currentScrollY;
           }}
           scrollEventThrottle={16}
@@ -617,7 +653,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               if (scrollViewRef.current) {
                 scrollViewRef.current.scrollToEnd({ animated: true });
               }
-            }, 50);
+            }, 100);
           }}
         >
           {messages.map((message) => (
@@ -628,15 +664,26 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 message.isFromPlayer ? styles.playerMessage : styles.coachMessage
               ]}
             >
-              <View
-                style={[
-                  styles.messageBubble,
-                  message.isFromPlayer ? styles.playerBubble : styles.coachBubble
-                ]}
-              >
-                {message.messageType === 'video' ? (
-                  renderVideoMessage(message)
-                ) : (
+              {message.messageType === 'video' ? (
+                <View>
+                  {renderVideoMessage(message)}
+                  <Text
+                    style={[
+                      styles.messageTime,
+                      message.isFromPlayer ? styles.playerTime : styles.coachTime,
+                      styles.videoMessageTime
+                    ]}
+                  >
+                    {message.timestamp}
+                  </Text>
+                </View>
+              ) : (
+                <View
+                  style={[
+                    styles.messageBubble,
+                    message.isFromPlayer ? styles.playerBubble : styles.coachBubble
+                  ]}
+                >
                   <Text
                     style={[
                       styles.messageText,
@@ -645,16 +692,16 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                   >
                     {message.text}
                   </Text>
-                )}
-                <Text
-                  style={[
-                    styles.messageTime,
-                    message.isFromPlayer ? styles.playerTime : styles.coachTime
-                  ]}
-                >
-                  {message.timestamp}
-                </Text>
-              </View>
+                  <Text
+                    style={[
+                      styles.messageTime,
+                      message.isFromPlayer ? styles.playerTime : styles.coachTime
+                    ]}
+                  >
+                    {message.timestamp}
+                  </Text>
+                </View>
+              )}
             </View>
           ))}
         </ScrollView>
@@ -669,6 +716,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               value={messageText}
               onChangeText={setMessageText}
               multiline
+              blurOnSubmit={false}
+              returnKeyType="default"
+              editable={true}
             />
             <TouchableOpacity 
               style={styles.tutorialButton} 
@@ -1467,8 +1517,11 @@ const styles = StyleSheet.create({
   messagesContainer: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingVertical: 10,
     backgroundColor: '#F8FAFF',
+  },
+  messagesContent: {
+    paddingTop: 10,
+    paddingBottom: 40,
   },
   messageContainer: {
     marginVertical: 5,
@@ -1536,6 +1589,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 4,
+    zIndex: 10,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -1557,6 +1611,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 8,
     marginRight: 8,
+    zIndex: 1,
   },
   tutorialButton: {
     width: 36,
@@ -1612,6 +1667,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
+  videoMessageTime: {
+    marginTop: 4,
+  },
   // Video modal styles
   videoModal: {
     position: 'absolute',
@@ -1647,10 +1705,6 @@ const styles = StyleSheet.create({
   fullScreenVideo: {
     width: '100%',
     height: '100%',
-  },
-  // Additional styles to match player chat
-  messagesContent: {
-    paddingVertical: 10,
   },
   coachAvatarImage: {
     width: 44,

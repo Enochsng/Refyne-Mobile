@@ -184,9 +184,19 @@ export default function HomeScreen({ navigation }) {
         packageText = `Package • ${capitalizedSport}`;
       }
 
-      // Determine status
+      // Determine status - check chat expiry first, then session status
       let status = 'Active';
-      if (formattedConversation.sessionId) {
+      
+      // Check if chat is expired (0 days left or isExpired = true)
+      if (formattedConversation.chatExpiry) {
+        if (formattedConversation.chatExpiry.isExpired || 
+            formattedConversation.chatExpiry.daysRemaining === 0) {
+          status = 'Inactive';
+        }
+      }
+      
+      // If chat is not expired, check session status
+      if (status === 'Active' && formattedConversation.sessionId) {
         try {
           const { data: session } = await supabase
             .from('coaching_sessions')
@@ -459,7 +469,13 @@ export default function HomeScreen({ navigation }) {
                     </View>
                   </View>
                   <View style={styles.feedbackRight}>
-                    <View style={styles.activeBadge}>
+                    <View style={[
+                      styles.activeBadge,
+                      recentFeedback.status === 'Active' && styles.activeBadgeActive,
+                      recentFeedback.status === 'Inactive' && styles.activeBadgeInactive,
+                      recentFeedback.status === 'Completed' && styles.activeBadgeCompleted,
+                      recentFeedback.status === 'Expired' && styles.activeBadgeExpired
+                    ]}>
                       <Text style={styles.activeBadgeText}>{recentFeedback.status}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
@@ -710,11 +726,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   activeBadge: {
-    backgroundColor: '#4CAF50',
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 4,
     marginBottom: 8,
+  },
+  activeBadgeActive: {
+    backgroundColor: '#4CAF50',
+  },
+  activeBadgeInactive: {
+    backgroundColor: '#9E9E9E',
+  },
+  activeBadgeCompleted: {
+    backgroundColor: '#2196F3',
+  },
+  activeBadgeExpired: {
+    backgroundColor: '#F44336',
   },
   activeBadgeText: {
     fontSize: width * 0.035,
