@@ -50,7 +50,13 @@ const corsOptions = {
       'http://10.0.0.207:19006',
       'exp://10.0.0.207:19000',
       'http://192.168.1.79:19006',
-      'exp://192.168.1.79:19000'
+      'exp://192.168.1.79:19000',
+      'http://167.160.184.214:19006',
+      'exp://167.160.184.214:19000',
+      'http://167.160.184.214:3001',
+      'https://167.160.184.214:19006',
+      'exp://167.160.184.214:19000',
+      'https://167.160.184.214:3001'
     ];
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
@@ -730,7 +736,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Environment: ${process.env.NODE_ENV}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-  console.log(`🔗 Network access: http://10.0.0.207:${PORT}/health`);
+  console.log(`🔗 Network access: http://167.160.184.214:${PORT}/health`);
 });
 
 module.exports = app;

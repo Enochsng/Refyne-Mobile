@@ -7,7 +7,7 @@ export const STRIPE_CONFIG = {
   publishableKey: 'pk_test_51SALeHPjC3F0lBjEUDnOFxXlS7oFyOj6LglGZBVQf5jEPEQ3ika3QbNacZ0aZSmFqJNWjLyKVVtMEqCCKBvvB1WI00WpCLOV9z',
   
   // Your backend URL for creating payment intents
-  backendUrl: 'http://10.0.0.51:3001', // Use your computer's IP address for mobile access
+  backendUrl: 'http://167.160.184.214:3001', // Server IP address
   
   // Merchant identifier for Apple Pay (iOS)
   merchantIdentifier: 'merchant.com.yourcompany.refynemobile',
@@ -22,7 +22,7 @@ export const STRIPE_CONNECT_CONFIG = {
   clientId: 'ca_T6YmjebfrMSRht1lXHdEelDoXxI6JmY8',
   
   // Backend URL for API calls
-  backendUrl: 'http://10.0.0.51:3001', // Use your computer's IP address for mobile access
+  backendUrl: 'http://167.160.184.214:3001', // Server IP address
   
   // Redirect URI for OAuth flow
   redirectUri: 'refynemobile://stripe-connect',

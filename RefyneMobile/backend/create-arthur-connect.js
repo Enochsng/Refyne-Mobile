@@ -99,8 +99,8 @@ async function createArthurConnectAccount() {
     console.log('\n3. Creating onboarding link...');
     const accountLink = await stripe.accountLinks.create({
       account: account.id,
-      refresh_url: `${process.env.APP_URL || 'http://localhost:3001'}/coach/earnings?refresh=true`,
-      return_url: `${process.env.APP_URL || 'http://localhost:3001'}/coach/earnings?success=true&accountId=${account.id}`,
+      refresh_url: `${process.env.APP_URL || 'http://167.160.184.214:3001'}/coach/earnings?refresh=true`,
+      return_url: `${process.env.APP_URL || 'http://167.160.184.214:3001'}/coach/earnings?success=true&accountId=${account.id}`,
       type: 'account_onboarding',
     });
 
