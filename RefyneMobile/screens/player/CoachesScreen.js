@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -166,6 +167,17 @@ export default function CoachesScreen({ route, navigation }) {
   const scale = useRef(new Animated.Value(1)).current;
   const opacity = useRef(new Animated.Value(1)).current;
   
+  // Next and previous card animations for smooth transitions
+  const nextCardTranslateX = useRef(new Animated.Value(width)).current;
+  const nextCardOpacity = useRef(new Animated.Value(0)).current;
+  const nextCardTranslateY = useRef(new Animated.Value(0)).current;
+  const prevCardTranslateX = useRef(new Animated.Value(-width)).current;
+  const prevCardOpacity = useRef(new Animated.Value(0)).current;
+  const prevCardTranslateY = useRef(new Animated.Value(0)).current;
+  
+  // Current card translateY to prevent vertical movement
+  const translateY = useRef(new Animated.Value(0)).current;
+  
   // Single card animation system - no preview cards
   const cardTransition = useRef(new Animated.Value(0)).current;
   
@@ -206,9 +218,16 @@ export default function CoachesScreen({ route, navigation }) {
       
       // Reset animation values for new data
       translateX.setValue(0);
+      translateY.setValue(0);
       scale.setValue(1);
       opacity.setValue(1);
       cardTransition.setValue(0);
+      nextCardTranslateX.setValue(width);
+      nextCardOpacity.setValue(0);
+      nextCardTranslateY.setValue(0);
+      prevCardTranslateX.setValue(-width);
+      prevCardOpacity.setValue(0);
+      prevCardTranslateY.setValue(0);
     } catch (error) {
       console.error('Error loading coaches:', error);
     } finally {
@@ -242,6 +261,28 @@ export default function CoachesScreen({ route, navigation }) {
     ]).start();
   }, []);
 
+  // Update next/prev card positions when index changes (for smooth transitions)
+  // Use useLayoutEffect to run synchronously before paint to prevent layout shifts
+  useLayoutEffect(() => {
+    if (!isAnimating && coaches.length > 0) {
+      // Lock all positions immediately to prevent any layout shifts
+      translateY.setValue(0);
+      
+      // Position next card off-screen to the right
+      if (currentIndex < coaches.length - 1) {
+        nextCardTranslateX.setValue(width);
+        nextCardOpacity.setValue(0);
+        nextCardTranslateY.setValue(0);
+      }
+      // Position prev card off-screen to the left
+      if (currentIndex > 0) {
+        prevCardTranslateX.setValue(-width);
+        prevCardOpacity.setValue(0);
+        prevCardTranslateY.setValue(0);
+      }
+    }
+  }, [currentIndex, coaches.length, isAnimating, nextCardTranslateX, prevCardTranslateX, nextCardOpacity, prevCardOpacity, nextCardTranslateY, prevCardTranslateY, translateY]);
+
   const handleCoachSelect = (coach) => {
     setSelectedCoach(coach);
     
@@ -272,6 +313,9 @@ export default function CoachesScreen({ route, navigation }) {
         const { translationX } = event.nativeEvent;
         const progress = Math.min(Math.abs(translationX) / (width * 0.4), 1);
         
+        // Lock vertical position - always keep translateY at 0
+        translateY.setValue(0);
+        
         // Smooth scale effect
         const scaleValue = 1 - (progress * 0.03);
         scale.setValue(Math.max(scaleValue, 0.97));
@@ -279,9 +323,36 @@ export default function CoachesScreen({ route, navigation }) {
         // Smooth opacity effect
         const opacityValue = 1 - (progress * 0.1);
         opacity.setValue(Math.max(opacityValue, 0.9));
+        
+        // Move next/prev cards during swipe for smoother transition
+        if (translationX < 0 && nextCoach) {
+          // Swiping left - move next card in from right
+          const nextCardProgress = Math.min(Math.abs(translationX) / width, 1);
+          nextCardTranslateX.setValue(width + translationX);
+          nextCardOpacity.setValue(nextCardProgress * 0.6); // Fade in slightly
+          nextCardTranslateY.setValue(0); // Lock vertical position
+        } else if (translationX > 0 && previousCoach) {
+          // Swiping right - move prev card in from left
+          const prevCardProgress = Math.min(Math.abs(translationX) / width, 1);
+          prevCardTranslateX.setValue(-width + translationX);
+          prevCardOpacity.setValue(prevCardProgress * 0.6); // Fade in slightly
+          prevCardTranslateY.setValue(0); // Lock vertical position
+        } else {
+          // Reset next/prev cards when not swiping in their direction
+          if (nextCoach) {
+            nextCardTranslateX.setValue(width);
+            nextCardOpacity.setValue(0);
+            nextCardTranslateY.setValue(0);
+          }
+          if (previousCoach) {
+            prevCardTranslateX.setValue(-width);
+            prevCardOpacity.setValue(0);
+            prevCardTranslateY.setValue(0);
+          }
+        }
       }
     }
-  ), [translateX, scale, opacity]);
+  ), [translateX, translateY, scale, opacity, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, nextCoach, previousCoach]);
 
   // Memoize the current coach to prevent unnecessary re-renders
   const currentCoach = coaches[currentIndex];
@@ -321,13 +392,15 @@ export default function CoachesScreen({ route, navigation }) {
 
         setIsAnimating(true);
         
-        // Smooth card transition with fade effect
-        const toValue = translationX < 0 ? -width * 1.2 : width * 1.2;
+        // Smooth card transition with simultaneous next card animation
+        const isSwipeLeft = translationX < 0;
+        const toValue = isSwipeLeft ? -width * 1.2 : width * 1.2;
         const velocityFactor = Math.min(Math.abs(velocityX) / 1000, 1);
         const duration = Math.max(300 - velocityFactor * 100, 250);
         
-        // Animate current card out with smooth easing
+        // Animate current card out and next card in simultaneously
         Animated.parallel([
+          // Current card out
           Animated.timing(translateX, {
             toValue,
             duration,
@@ -345,39 +418,115 @@ export default function CoachesScreen({ route, navigation }) {
             duration,
             useNativeDriver: true,
             easing: Easing.out(Easing.cubic),
-          })
+          }),
+          // Next card in (from the side)
+          isSwipeLeft ? Animated.parallel([
+            Animated.timing(nextCardTranslateX, {
+              toValue: 0,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }),
+            Animated.timing(nextCardOpacity, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }),
+            Animated.timing(nextCardTranslateY, {
+              toValue: 0,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            })
+          ]) : Animated.parallel([
+            Animated.timing(prevCardTranslateX, {
+              toValue: 0,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }),
+            Animated.timing(prevCardOpacity, {
+              toValue: 1,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            }),
+            Animated.timing(prevCardTranslateY, {
+              toValue: 0,
+              duration,
+              useNativeDriver: true,
+              easing: Easing.out(Easing.cubic),
+            })
+          ])
         ]).start(() => {
-          // Update index after animation completes
-          if (translationX < 0) {
-            setCurrentIndex(currentIndex + 1);
-          } else {
-            setCurrentIndex(currentIndex - 1);
-          }
-          
-          // Reset animations for new card
-          translateX.setValue(0);
-          scale.setValue(1);
-          opacity.setValue(1);
-          setIsAnimating(false);
+          // Use InteractionManager to delay state update until after animations complete
+          // This prevents layout shifts during the transition
+          InteractionManager.runAfterInteractions(() => {
+            // Update index after animation completes
+            const newIndex = isSwipeLeft ? currentIndex + 1 : currentIndex - 1;
+            
+            // Reset animations for new card positions BEFORE state update
+            translateX.setValue(0);
+            translateY.setValue(0);
+            scale.setValue(1);
+            opacity.setValue(1);
+            
+            // Reset next/prev card positions based on new index
+            if (newIndex < coaches.length - 1) {
+              nextCardTranslateX.setValue(width);
+              nextCardOpacity.setValue(0);
+              nextCardTranslateY.setValue(0);
+            }
+            if (newIndex > 0) {
+              prevCardTranslateX.setValue(-width);
+              prevCardOpacity.setValue(0);
+              prevCardTranslateY.setValue(0);
+            }
+            
+            // Update state after positions are locked
+            setCurrentIndex(newIndex);
+            setIsAnimating(false);
+          });
         });
       } else {
         // Snap back to center with smooth spring
-        Animated.parallel([
+        const snapBackAnimations = [
           Animated.spring(translateX, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
+          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
           Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...animationConfig.spring }),
           Animated.spring(opacity, { toValue: 1, useNativeDriver: true, ...animationConfig.spring })
-        ]).start();
+        ];
+        
+        // Reset next/prev cards if they exist
+        if (nextCoach) {
+          snapBackAnimations.push(
+            Animated.spring(nextCardTranslateX, { toValue: width, useNativeDriver: true, ...animationConfig.spring }),
+            Animated.spring(nextCardOpacity, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
+            Animated.spring(nextCardTranslateY, { toValue: 0, useNativeDriver: true, ...animationConfig.spring })
+          );
+        }
+        if (previousCoach) {
+          snapBackAnimations.push(
+            Animated.spring(prevCardTranslateX, { toValue: -width, useNativeDriver: true, ...animationConfig.spring }),
+            Animated.spring(prevCardOpacity, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
+            Animated.spring(prevCardTranslateY, { toValue: 0, useNativeDriver: true, ...animationConfig.spring })
+          );
+        }
+        
+        Animated.parallel(snapBackAnimations).start();
       }
     }
-  }, [isAnimating, currentIndex, coaches.length, translateX, scale, opacity, animationConfig]);
+  }, [isAnimating, currentIndex, coaches.length, translateX, translateY, scale, opacity, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, nextCoach, previousCoach, animationConfig]);
 
   // Navigation arrow handlers
   const handleNextCoach = useCallback(() => {
     if (currentIndex < coaches.length - 1 && !isAnimating) {
       setIsAnimating(true);
       
-      // Animate current card out to the left
+      // Animate current card out to the left and next card in simultaneously
       Animated.parallel([
+        // Current card out
         Animated.timing(translateX, {
           toValue: -width * 1.2,
           duration: 300,
@@ -395,24 +544,66 @@ export default function CoachesScreen({ route, navigation }) {
           duration: 300,
           useNativeDriver: true,
           easing: Easing.out(Easing.cubic),
+        }),
+        // Next card in
+        Animated.timing(nextCardTranslateX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(nextCardOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(nextCardTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
         })
       ]).start(() => {
-        // Update index and reset animations
-        setCurrentIndex(currentIndex + 1);
-        translateX.setValue(0);
-        scale.setValue(1);
-        opacity.setValue(1);
-        setIsAnimating(false);
+        // Use InteractionManager to delay state update until after animations complete
+        InteractionManager.runAfterInteractions(() => {
+          // Update index and reset animations
+          const newIndex = currentIndex + 1;
+          
+          // Reset animations BEFORE state update
+          translateX.setValue(0);
+          translateY.setValue(0);
+          scale.setValue(1);
+          opacity.setValue(1);
+          
+          // Reset next card position if there's still a next card
+          if (newIndex < coaches.length - 1) {
+            nextCardTranslateX.setValue(width);
+            nextCardOpacity.setValue(0);
+            nextCardTranslateY.setValue(0);
+          }
+          // Reset prev card position
+          if (newIndex > 0) {
+            prevCardTranslateX.setValue(-width);
+            prevCardOpacity.setValue(0);
+            prevCardTranslateY.setValue(0);
+          }
+          
+          // Update state after positions are locked
+          setCurrentIndex(newIndex);
+          setIsAnimating(false);
+        });
       });
     }
-  }, [currentIndex, coaches.length, isAnimating, translateX, scale, opacity]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY]);
 
   const handlePreviousCoach = useCallback(() => {
     if (currentIndex > 0 && !isAnimating) {
       setIsAnimating(true);
       
-      // Animate current card out to the right
+      // Animate current card out to the right and previous card in simultaneously
       Animated.parallel([
+        // Current card out
         Animated.timing(translateX, {
           toValue: width * 1.2,
           duration: 300,
@@ -430,17 +621,58 @@ export default function CoachesScreen({ route, navigation }) {
           duration: 300,
           useNativeDriver: true,
           easing: Easing.out(Easing.cubic),
+        }),
+        // Previous card in
+        Animated.timing(prevCardTranslateX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(prevCardOpacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(prevCardTranslateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
         })
       ]).start(() => {
-        // Update index and reset animations
-        setCurrentIndex(currentIndex - 1);
-        translateX.setValue(0);
-        scale.setValue(1);
-        opacity.setValue(1);
-        setIsAnimating(false);
+        // Use InteractionManager to delay state update until after animations complete
+        InteractionManager.runAfterInteractions(() => {
+          // Update index and reset animations
+          const newIndex = currentIndex - 1;
+          
+          // Reset animations BEFORE state update
+          translateX.setValue(0);
+          translateY.setValue(0);
+          scale.setValue(1);
+          opacity.setValue(1);
+          
+          // Reset prev card position if there's still a prev card
+          if (newIndex > 0) {
+            prevCardTranslateX.setValue(-width);
+            prevCardOpacity.setValue(0);
+            prevCardTranslateY.setValue(0);
+          }
+          // Reset next card position
+          if (newIndex < coaches.length - 1) {
+            nextCardTranslateX.setValue(width);
+            nextCardOpacity.setValue(0);
+            nextCardTranslateY.setValue(0);
+          }
+          
+          // Update state after positions are locked
+          setCurrentIndex(newIndex);
+          setIsAnimating(false);
+        });
       });
     }
-  }, [currentIndex, isAnimating, translateX, scale, opacity]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY]);
 
 
 
@@ -495,6 +727,47 @@ export default function CoachesScreen({ route, navigation }) {
         ) : currentCoach ? (
           /* Single Card Swipe System with Navigation Arrows */
           <View style={styles.swipeContainer}>
+            {/* Previous Card - positioned off-screen to the left */}
+            {previousCoach && (
+              <Animated.View
+                style={[
+                  styles.coachCard,
+                  styles.absoluteCard,
+                  {
+                    transform: [
+                      { translateX: prevCardTranslateX },
+                      { translateY: prevCardTranslateY },
+                    ],
+                    opacity: prevCardOpacity,
+                  }
+                ]}
+                pointerEvents="none"
+              >
+                <CoachCard coach={previousCoach} onSelect={() => {}} />
+              </Animated.View>
+            )}
+            
+            {/* Next Card - positioned off-screen to the right */}
+            {nextCoach && (
+              <Animated.View
+                style={[
+                  styles.coachCard,
+                  styles.absoluteCard,
+                  {
+                    transform: [
+                      { translateX: nextCardTranslateX },
+                      { translateY: nextCardTranslateY },
+                    ],
+                    opacity: nextCardOpacity,
+                  }
+                ]}
+                pointerEvents="none"
+              >
+                <CoachCard coach={nextCoach} onSelect={() => {}} />
+              </Animated.View>
+            )}
+            
+            {/* Current Card - interactive */}
             <PanGestureHandler
               onGestureEvent={onGestureEvent}
               onHandlerStateChange={onHandlerStateChange}
@@ -508,9 +781,11 @@ export default function CoachesScreen({ route, navigation }) {
               <Animated.View
                 style={[
                   styles.coachCard,
+                  styles.currentCard,
                   {
                     transform: [
                       { translateX: translateX },
+                      { translateY: translateY },
                       { scale: scale },
                     ],
                     opacity: opacity,
@@ -620,6 +895,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
+    position: 'relative',
+    minHeight: 600, // Fixed minimum height to prevent layout shifts
+  },
+  absoluteCard: {
+    position: 'absolute',
+    zIndex: 1,
+  },
+  currentCard: {
+    zIndex: 2,
+    position: 'relative',
   },
   navigationContainer: {
     flexDirection: 'row',
