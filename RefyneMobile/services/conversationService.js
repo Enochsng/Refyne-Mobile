@@ -495,6 +495,12 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
         throw new Error(errorData.message || 'Daily message limit reached');
       }
       
+      // For chat expiry errors, throw error without logging
+      if (errorData.error === 'Chat expired' || errorData.chatExpired) {
+        // Don't log to console - just throw the error silently
+        throw new Error(errorData.message || 'This chat has expired and is now read-only. Please purchase a new package to continue messaging.');
+      }
+      
       // For other errors, log and throw
       console.error('API Error Response:', JSON.stringify(errorData, null, 2));
       throw new Error(errorData.message || 'Failed to send message');
@@ -515,8 +521,15 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
       error.message.includes('daily limit reached')
     );
     
-    if (!isDailyLimitError) {
-      // Only log non-daily-limit errors
+    // Check if this is a chat expiry error - don't log these
+    const isChatExpiredError = error.message && (
+      error.message.includes('expired') || 
+      error.message.includes('read-only') ||
+      error.message.includes('Chat expired')
+    );
+    
+    if (!isDailyLimitError && !isChatExpiredError) {
+      // Only log errors that are not daily limit or chat expiry
       console.error('Error sending message:', error);
       console.error('Error type:', error.constructor?.name || 'Unknown');
       console.error('Error message:', error.message || 'Unknown error');
@@ -613,9 +626,9 @@ export const getRemainingDailyMessages = async (conversationId) => {
     console.log(`📊 [getRemainingDailyMessages] Retrieved daily message info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
     const messageInfo = {
-      remaining: data.remaining || 5,
-      total: data.total || 5,
-      used: data.used || 0,
+      remaining: data.remaining !== undefined && data.remaining !== null ? data.remaining : 5,
+      total: data.total !== undefined && data.total !== null ? data.total : 5,
+      used: data.used !== undefined && data.used !== null ? data.used : 0,
       error: data.error || null
     };
     

@@ -256,6 +256,18 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     };
   }, [selectedConversation?.id]);
 
+  // Helper function to check if chat is expired
+  // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
+  // until they purchase a new coaching package with that coach.
+  // A new package purchase creates a new coaching session, which reactivates the chat.
+  const isChatExpired = () => {
+    // Check both the chatExpiry state and the selectedConversation's chatExpiry
+    // This ensures we catch expiry even if state hasn't loaded yet
+    const stateExpired = chatExpiry && chatExpiry.isExpired;
+    const conversationExpired = selectedConversation?.chatExpiry && selectedConversation.chatExpiry.isExpired;
+    return stateExpired || conversationExpired;
+  };
+
   // Clear chat state when selectedConversation becomes null
   useEffect(() => {
     if (!selectedConversation) {
@@ -429,8 +441,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
       try {
-        // Check if chat is expired
-        if (chatExpiry && chatExpiry.isExpired) {
+        // CRITICAL: Block ALL text messages if chat is expired
+        // Players must purchase a new coaching package to reactivate the chat
+        if (isChatExpired()) {
           Alert.alert(
             'Chat Expired',
             'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
@@ -441,6 +454,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
         // Check daily message limit BEFORE attempting to send
         if (remainingDailyMessages.remaining <= 0) {
+          // Ensure counter shows 0
+          setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
           Alert.alert(
             'Daily Message Limit Reached',
             'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
@@ -512,7 +527,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       } catch (error) {
         // Check if error is due to daily message limit
         if (error.message && (error.message.includes('Daily message limit') || error.message.includes('daily limit'))) {
-          // Reload daily message info to update the UI
+          // Immediately set remaining to 0 to update the UI
+          setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
+          // Reload daily message info to update the UI with accurate data
           if (selectedConversation) {
             await loadRemainingDailyMessages(selectedConversation.id);
           }
@@ -526,16 +543,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
         
         // Check if error is due to chat expiry
-        if (error.message && error.message.includes('expired')) {
+        if (error.message && (error.message.includes('expired') || error.message.includes('read-only'))) {
           Alert.alert(
             'Chat Expired',
             'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
             [{ text: 'OK' }]
           );
-          // Reload chat expiry info
+          // Reload chat expiry info to update UI
           if (selectedConversation) {
-            loadRemainingClips(selectedConversation.id);
-            loadRemainingDailyMessages(selectedConversation.id);
+            await loadRemainingClips(selectedConversation.id);
+            await loadRemainingDailyMessages(selectedConversation.id);
           }
         } else {
           // Only log and show alert for other errors (not daily limit)
@@ -551,8 +568,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   const pickVideo = async () => {
     try {
-      // Check if chat is expired
-      if (chatExpiry && chatExpiry.isExpired) {
+      // CRITICAL: Block ALL video messages if chat is expired
+      // Players must purchase a new coaching package to reactivate the chat
+      if (isChatExpired()) {
         Alert.alert(
           'Chat Expired',
           'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
@@ -816,7 +834,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               <View style={styles.messageTracker}>
                 <Ionicons name="chatbubble" size={16} color="#0C295C" />
                 <Text style={styles.messageTrackerText}>
-                  {loadingDailyMessages ? '...' : remainingDailyMessages.remaining}
+                  {loadingDailyMessages ? '...' : Math.max(0, remainingDailyMessages.remaining)}
                 </Text>
               </View>
             </View>
@@ -899,7 +917,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
         {/* Message Input */}
         <View style={styles.inputContainer}>
-          {chatExpiry && chatExpiry.isExpired ? (
+          {isChatExpired() ? (
             <View style={styles.readOnlyBanner}>
               <Ionicons name="lock-closed" size={16} color="#90A4AE" />
               <Text style={styles.readOnlyText}>
@@ -916,31 +934,31 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 onChangeText={setMessageText}
                 multiline
                 maxLength={1000}
-                editable={!(chatExpiry && chatExpiry.isExpired) && remainingDailyMessages.remaining > 0}
+                editable={!isChatExpired() && remainingDailyMessages.remaining > 0}
               />
               <View style={styles.actionButtons}>
                 <TouchableOpacity 
                   style={[
                     styles.uploadButton, 
-                    (remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)) && styles.uploadButtonDisabled
+                    (remainingClips.remaining <= 0 || isChatExpired()) && styles.uploadButtonDisabled
                   ]} 
                   onPress={pickVideo}
-                  disabled={remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)}
+                  disabled={remainingClips.remaining <= 0 || isChatExpired()}
                 >
                   <Ionicons 
                     name="videocam" 
                     size={20} 
-                    color={(remainingClips.remaining <= 0 || (chatExpiry && chatExpiry.isExpired)) ? "#90A4AE" : "#0C295C"} 
+                    color={(remainingClips.remaining <= 0 || isChatExpired()) ? "#90A4AE" : "#0C295C"} 
                   />
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={[
                     styles.sendButton,
-                    ((chatExpiry && chatExpiry.isExpired) || remainingDailyMessages.remaining <= 0) && styles.sendButtonDisabled
+                    (isChatExpired() || remainingDailyMessages.remaining <= 0) && styles.sendButtonDisabled
                   ]} 
                   onPress={async () => {
                     // If chat is expired, show alert
-                    if (chatExpiry && chatExpiry.isExpired) {
+                    if (isChatExpired()) {
                       Alert.alert(
                         'Chat Expired',
                         'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
@@ -950,6 +968,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                     }
                     // If limit is reached, reload counter first to ensure it's accurate, then show alert
                     if (remainingDailyMessages.remaining <= 0) {
+                      // Immediately set remaining to 0 to update the UI
+                      setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
                       // Reload to get the latest count (in case it reset at midnight)
                       if (selectedConversation) {
                         const { getRemainingDailyMessages } = await import('../../services/conversationService');
@@ -980,7 +1000,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                   <Ionicons 
                     name="send" 
                     size={20} 
-                    color={((chatExpiry && chatExpiry.isExpired) || remainingDailyMessages.remaining <= 0) ? "#90A4AE" : "white"} 
+                    color={(isChatExpired() || remainingDailyMessages.remaining <= 0) ? "#90A4AE" : "white"} 
                   />
                 </TouchableOpacity>
               </View>

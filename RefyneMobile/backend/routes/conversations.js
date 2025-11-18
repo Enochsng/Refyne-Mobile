@@ -318,6 +318,9 @@ router.post('/:conversationId/messages', async (req, res) => {
     const { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
 
     // Check if chat is expired for players (coaches can always send messages)
+    // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
+    // until they purchase a new coaching package with that coach.
+    // A new package purchase creates a new coaching session, which reactivates the chat.
     if (senderType === 'player') {
       try {
         const chatExpiry = await checkChatExpiry(conversationId);
@@ -332,7 +335,13 @@ router.post('/:conversationId/messages', async (req, res) => {
         }
       } catch (expiryError) {
         console.error('Error checking chat expiry:', expiryError);
-        // Don't block message if expiry check fails (fail open)
+        // On error, block the message to be safe (fail closed for security)
+        // This ensures expired chats remain read-only even if there's a temporary database issue
+        return res.status(403).json({
+          error: 'Chat expiry check failed',
+          message: 'Unable to verify chat status. Please try again or contact support.',
+          chatExpired: true
+        });
       }
 
       // Check daily message limit for text messages from players
