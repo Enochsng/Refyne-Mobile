@@ -105,6 +105,21 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       console.log('✅ Formatted conversations:', formattedConversations);
       setConversations(formattedConversations);
       
+      // If we have a selected conversation, update it with the latest data
+      // This ensures chat expiration is refreshed after a new package purchase
+      if (selectedConversation) {
+        const updatedConversation = formattedConversations.find(
+          conv => conv.id === selectedConversation.id
+        );
+        if (updatedConversation) {
+          console.log('🔄 Updating selected conversation with latest data (including new session_id if applicable)');
+          setSelectedConversation(updatedConversation);
+          // Refresh clips and daily messages to get updated chat expiry
+          loadRemainingClips(updatedConversation.id);
+          loadRemainingDailyMessages(updatedConversation.id);
+        }
+      }
+      
       // If we have route params for a specific conversation, select it and load messages
       if (route?.params?.conversationId) {
         const targetConversation = formattedConversations.find(
@@ -114,6 +129,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           setSelectedConversation(targetConversation);
           // Load messages for the selected conversation
           loadMessages(targetConversation.id);
+          // Also refresh clips and daily messages to get updated chat expiry
+          loadRemainingClips(targetConversation.id);
+          loadRemainingDailyMessages(targetConversation.id);
         }
       }
     } catch (error) {
@@ -143,6 +161,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   // Handle route params when screen comes into focus (for tab navigator)
   useFocusEffect(
     React.useCallback(() => {
+      // If isNewSession is true, force reload conversations to get updated session_id and chat expiration
+      // This happens when a player purchases a new package for the same coach
+      if (route?.params?.isNewSession) {
+        console.log('🔄 New session detected - reloading conversations to refresh chat expiration');
+        console.log('   This will update the conversation with the new session_id and reset chat expiration');
+        loadConversations();
+      }
+      
       // Only auto-select conversation if we have a conversationId in route params AND no conversation is currently selected
       // This prevents re-selection when navigating back to the list view
       if (route?.params?.conversationId && !selectedConversation) {
@@ -161,13 +187,15 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
       }
       
-      // Refresh clip counter and daily messages when screen comes into focus (e.g., after returning from purchase)
+      // Refresh clip counter, daily messages, and chat expiry when screen comes into focus (e.g., after returning from purchase)
       // Only if we have a selected conversation
       if (selectedConversation?.id) {
         loadRemainingClips(selectedConversation.id);
         loadRemainingDailyMessages(selectedConversation.id);
+        // Also reload the conversation to get updated chatExpiry
+        // This is handled by loadRemainingClips which returns chatExpiry, but we should also check it directly
       }
-    }, [route?.params?.conversationId, conversations, selectedConversation])
+    }, [route?.params?.conversationId, route?.params?.isNewSession, conversations, selectedConversation])
   );
 
   // Refresh clip counter and daily messages when selected conversation changes

@@ -1157,6 +1157,128 @@ async function getCoachConnectAccountId(coachId) {
  */
 
 /**
+ * Find or create/update a conversation between player and coach
+ * If a conversation already exists, update its session_id to the new session
+ * This allows players to purchase new packages and reactivate expired chats
+ */
+async function findOrUpdateConversation(conversationData) {
+  try {
+    // Check if Supabase is configured
+    if (!isSupabaseConfigured) {
+      console.log('Using in-memory storage for conversation (Supabase not configured)');
+      
+      // Check if conversation already exists in memory
+      const existingConv = conversations.find(conv => 
+        conv.player_id === conversationData.playerId &&
+        conv.coach_id === conversationData.coachId &&
+        conv.status === 'active'
+      );
+      
+      if (existingConv) {
+        // Update existing conversation with new session_id
+        existingConv.session_id = conversationData.sessionId;
+        existingConv.updated_at = new Date().toISOString();
+        console.log(`Updated existing conversation ${existingConv.id} with new session ${conversationData.sessionId}`);
+        return existingConv;
+      } else {
+        // Create new conversation
+        const conversation = {
+          id: conversationData.id,
+          player_id: conversationData.playerId,
+          player_name: conversationData.playerName,
+          coach_id: conversationData.coachId,
+          coach_name: conversationData.coachName,
+          sport: conversationData.sport,
+          session_id: conversationData.sessionId,
+          last_message: conversationData.lastMessage || null,
+          last_message_at: conversationData.lastMessageAt || null,
+          player_unread_count: 0,
+          coach_unread_count: 0,
+          status: 'active',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        conversations.push(conversation);
+        console.log(`Conversation created in memory: ${conversationData.id}`);
+        return conversation;
+      }
+    }
+
+    // Check if conversation already exists in Supabase
+    const { data: existingConversations, error: findError } = await supabase
+      .from('conversations')
+      .select('*')
+      .eq('player_id', conversationData.playerId)
+      .eq('coach_id', conversationData.coachId)
+      .eq('status', 'active')
+      .limit(1);
+
+    if (findError) {
+      console.error('Error finding existing conversation:', findError);
+      // Continue to create new conversation if find fails
+    }
+
+    if (existingConversations && existingConversations.length > 0) {
+      // Update existing conversation with new session_id
+      const existingConv = existingConversations[0];
+      const { data: updatedConv, error: updateError } = await supabase
+        .from('conversations')
+        .update({
+          session_id: conversationData.sessionId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingConv.id)
+        .select()
+        .single();
+
+      if (updateError) {
+        console.error('Error updating conversation:', updateError);
+        throw updateError;
+      }
+
+      console.log(`✅ Updated existing conversation ${existingConv.id} with new session ${conversationData.sessionId}`);
+      console.log(`   This will reset the chat expiration countdown`);
+      return updatedConv;
+    }
+
+    // No existing conversation found, create a new one
+    const conversation = {
+      id: conversationData.id,
+      player_id: conversationData.playerId,
+      player_name: conversationData.playerName,
+      coach_id: conversationData.coachId,
+      coach_name: conversationData.coachName,
+      sport: conversationData.sport,
+      session_id: conversationData.sessionId,
+      last_message: conversationData.lastMessage || null,
+      last_message_at: conversationData.lastMessageAt || null,
+      player_unread_count: 0,
+      coach_unread_count: 0,
+      status: 'active',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert(conversation)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase error in findOrUpdateConversation:', error);
+      throw error;
+    }
+
+    console.log(`✅ Created new conversation: ${conversationData.id}`);
+    return data;
+  } catch (err) {
+    console.error('Database error in findOrUpdateConversation:', err);
+    throw err;
+  }
+}
+
+/**
  * Create a new conversation between player and coach
  */
 async function createConversation(conversationData) {
@@ -1650,6 +1772,7 @@ module.exports = {
   getCoachTransfers,
   getCoachConnectAccountId,
   createConversation,
+  findOrUpdateConversation,
   getConversations,
   getConversation,
   addMessageToConversation,

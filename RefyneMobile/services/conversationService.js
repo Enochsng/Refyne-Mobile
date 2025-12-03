@@ -5,14 +5,14 @@ import { Platform } from 'react-native';
 
 // Backend API configuration
 const API_BASE_URL = __DEV__ 
-  ? 'http://167.160.184.214:3001'  // Development - Server IP address
+  ? 'http://192.168.1.79:3001'  // Development - Server IP address
   : 'https://your-production-api.com';  // Production
 
 // Fallback URLs for development
 const FALLBACK_URLS = [
-  'http://167.160.184.214:3001', // Server IP
-  'http://10.0.0.51:3001', // Current network IP
-  'http://192.168.1.79:3001', // Previous network IP
+  'http://192.168.1.79:3001', // Current network IP
+  'http://167.160.184.214:3001', // Previous server IP
+  'http://10.0.0.51:3001', // Previous network IP
   'http://10.0.0.77:3001', // Previous network IP
   'http://10.0.0.50:3001',
   'http://localhost:3001',
@@ -941,11 +941,37 @@ export const getPlayerProfilePhoto = async (playerId) => {
     
     console.log(`🔍 Looking for profile photo for player: ${playerId}`);
     
-    // Try to get profile photo from AsyncStorage
-    const savedPhotoUri = await AsyncStorage.getItem(`player_profile_photo_${playerId}`);
+    // Try to get profile photo from AsyncStorage (check both key formats for compatibility)
+    // Players save with: profile_photo_${user.id}
+    let savedPhotoUri = await AsyncStorage.getItem(`profile_photo_${playerId}`);
     if (savedPhotoUri) {
-      console.log(`✅ Found saved profile photo for player ${playerId}: ${savedPhotoUri}`);
+      console.log(`✅ Found saved profile photo for player ${playerId} (profile_photo_ key): ${savedPhotoUri}`);
       return savedPhotoUri;
+    }
+    
+    // Also check the alternative key format for backwards compatibility
+    savedPhotoUri = await AsyncStorage.getItem(`player_profile_photo_${playerId}`);
+    if (savedPhotoUri) {
+      console.log(`✅ Found saved profile photo for player ${playerId} (player_profile_photo_ key): ${savedPhotoUri}`);
+      return savedPhotoUri;
+    }
+    
+    // Try to get profile photo from Supabase user metadata (only works for current user)
+    try {
+      const { supabase } = await import('../supabaseClient');
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user && user.id === playerId) {
+        const profilePhoto = user.user_metadata?.profile_photo || 
+                            user.user_metadata?.profilePicture ||
+                            user.user_metadata?.avatar_url;
+        if (profilePhoto) {
+          console.log(`✅ Found profile photo in Supabase user metadata for current player ${playerId}: ${profilePhoto}`);
+          return profilePhoto;
+        }
+      }
+    } catch (authError) {
+      console.log(`Could not get profile photo from Supabase for player ${playerId}:`, authError.message);
     }
     
     // Try to get profile photo from player onboarding data (if they have any)

@@ -7,6 +7,7 @@ const {
   getConversationMessages,
   markConversationAsRead,
   createConversation,
+  findOrUpdateConversation,
   getRemainingClipsForConversation,
   decrementClipsForConversation,
   checkChatExpiry,
@@ -486,7 +487,9 @@ router.post('/:conversationId/read', async (req, res) => {
 
 /**
  * POST /api/conversations
- * Create a new conversation between player and coach
+ * Create a new conversation between player and coach, or update existing one
+ * If a conversation already exists between the player and coach, update its session_id
+ * This allows players to purchase new packages and reactivate expired chats
  */
 router.post('/', async (req, res) => {
   try {
@@ -500,7 +503,7 @@ router.post('/', async (req, res) => {
 
     const { playerId, playerName, coachId, coachName, sport, sessionId } = value;
 
-    // Generate unique conversation ID
+    // Generate unique conversation ID (will only be used if creating new conversation)
     const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const conversationData = {
@@ -515,20 +518,26 @@ router.post('/', async (req, res) => {
       lastMessageAt: null
     };
 
-    const conversation = await createConversation(conversationData);
+    // Use findOrUpdateConversation to check for existing conversation
+    // If one exists, it will be updated with the new session_id
+    // This resets the chat expiration countdown
+    const conversation = await findOrUpdateConversation(conversationData);
 
     // Note: Welcome message is now handled by the frontend to avoid duplicates
 
+    const isNewConversation = conversation.id === conversationId;
     res.json({
       success: true,
       conversation,
-      message: 'Conversation created successfully'
+      message: isNewConversation 
+        ? 'Conversation created successfully' 
+        : 'Conversation updated with new session - chat expiration reset'
     });
 
   } catch (err) {
-    console.error('Error creating conversation:', err);
+    console.error('Error creating/updating conversation:', err);
     res.status(500).json({
-      error: 'Failed to create conversation',
+      error: 'Failed to create/update conversation',
       message: err.message
     });
   }

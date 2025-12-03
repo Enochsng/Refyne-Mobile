@@ -16,7 +16,6 @@ import { useStripe } from '@stripe/stripe-react-native';
 import { STRIPE_CONFIG, getPriceInCents, formatPrice } from '../../stripeConfig';
 import { createCoachingSession } from '../../utils/sessionManager';
 import { createDestinationCharge, confirmPaymentIntent, attemptDirectPayment } from '../../services/paymentService';
-import { createConversation } from '../../services/conversationService';
 import { supabase } from '../../supabaseClient';
 
 const { width } = Dimensions.get('window');
@@ -208,7 +207,9 @@ export default function StripePaymentScreen({ route, navigation }) {
 
       const newSession = await createCoachingSession(localSessionData);
 
-      // Try to create a conversation between player and coach (optional)
+      // Find existing conversation between player and coach
+      // The webhook should have already created/updated the conversation, but we'll find it here
+      // to get the conversation ID for navigation
       let conversation = null;
       try {
         // Get the authenticated user
@@ -217,42 +218,33 @@ export default function StripePaymentScreen({ route, navigation }) {
         
         if (user) {
           const playerId = user.id;
-          console.log('Creating conversation for authenticated player:', playerId);
+          console.log('Finding existing conversation for player:', playerId);
           
-          // Get player name from user metadata
-          let playerName = 'Player'; // Default fallback
-          if (user.user_metadata?.full_name) {
-            playerName = user.user_metadata.full_name;
-          } else if (user.user_metadata?.name) {
-            playerName = user.user_metadata.name;
-          } else if (user.user_metadata?.display_name) {
-            playerName = user.user_metadata.display_name;
-          } else if (user.email) {
-            // Use email prefix as fallback
-            playerName = user.email.split('@')[0];
+          // Get conversations for this player
+          const { getConversations } = await import('../../services/conversationService');
+          const playerConversations = await getConversations(playerId, 'player');
+          
+          // Find conversation with this coach
+          // Raw conversations from API have coach_id and coach_name (snake_case)
+          conversation = playerConversations.find(conv => 
+            (conv.coach_id === coach.id) || 
+            (conv.coach_name === coach.name)
+          );
+          
+          if (conversation) {
+            console.log('✅ Found existing conversation:', conversation.id);
+            console.log('   → Conversation will be updated by webhook with new session_id');
+          } else {
+            console.log('⚠️ No existing conversation found - webhook will create one');
+            console.log('   → Conversation will be created automatically by webhook');
           }
-          
-          console.log('Player name for conversation:', playerName);
-          
-          const conversationData = {
-            playerId: playerId,
-            playerName: playerName,
-            coachId: coach.id,
-            coachName: coach.name,
-            sport: sport,
-            sessionId: newSession.id
-          };
-
-          conversation = await createConversation(conversationData);
-          console.log('Conversation created:', conversation.id);
-
-          // Note: Welcome message removed as requested
         } else {
-          console.log('No authenticated user found - skipping conversation creation');
+          console.log('No authenticated user found - skipping conversation lookup');
         }
       } catch (conversationError) {
-        console.error('Error creating conversation (non-critical):', conversationError);
-        // Continue with the flow even if conversation creation fails
+        console.error('Error finding conversation (non-critical):', conversationError);
+        // Continue with the flow even if conversation lookup fails
+        // The webhook will handle conversation creation/update
       }
 
       // Always show success message regardless of conversation creation

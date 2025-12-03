@@ -6,14 +6,14 @@ import { STRIPE_CONFIG, getPriceInCents } from '../stripeConfig';
 // Backend API configuration
 // For React Native development, use your server IP address for both simulator and physical device
 const API_BASE_URL = __DEV__ 
-  ? 'http://167.160.184.214:3001'  // Development - Server IP address
+  ? 'http://192.168.1.79:3001'  // Development - Server IP address
   : 'https://your-production-api.com';  // Production
 
 // Fallback URLs for development
 const FALLBACK_URLS = [
-  'http://167.160.184.214:3001', // Server IP
-  'http://10.0.0.51:3001', // Current network IP
-  'http://192.168.1.79:3001', // Previous network IP
+  'http://192.168.1.79:3001', // Current network IP
+  'http://167.160.184.214:3001', // Previous server IP
+  'http://10.0.0.51:3001', // Previous network IP
   'http://10.0.0.77:3001', // Previous network IP
   'http://10.0.0.50:3001',
   'http://localhost:3001',

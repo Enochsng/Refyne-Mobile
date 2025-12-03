@@ -7,6 +7,7 @@ const {
   updateTransferStatus,
   getCoachConnectAccountId,
   createConversation,
+  findOrUpdateConversation,
   addMessageToConversation
 } = require('../services/database');
 
@@ -191,7 +192,9 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       throw saveError; // Re-throw to prevent conversation creation if session save fails
     }
 
-    // Create DM conversation between player and coach
+    // Find or update DM conversation between player and coach
+    // If conversation already exists (e.g., player purchasing new package), update its session_id
+    // This will reset the chat expiration countdown
     try {
       // Use player information from payment intent metadata
       const actualPlayerId = playerId || `player_${paymentIntent.customer || 'unknown'}`;
@@ -217,14 +220,20 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         lastMessageAt: null
       };
 
-      await createConversation(conversationData);
-      console.log('DM conversation created:', conversationId);
+      const conversation = await findOrUpdateConversation(conversationData);
+      console.log('✅ Conversation found or updated:', conversation.id);
+      if (conversation.id === conversationId) {
+        console.log('   → New conversation created');
+      } else {
+        console.log('   → Existing conversation updated with new session_id');
+        console.log('   → Chat expiration countdown has been reset');
+      }
 
       // Note: Welcome message is now handled by the frontend to avoid duplicates
 
     } catch (conversationError) {
-      console.error('Error creating DM conversation:', conversationError);
-      // Don't fail the entire payment process if conversation creation fails
+      console.error('Error finding/updating DM conversation:', conversationError);
+      // Don't fail the entire payment process if conversation update fails
     }
 
     // Handle payment distribution based on payment type

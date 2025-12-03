@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { stripe, getPackageInfo, calculatePlatformFee, calculateTransferAmount, DEFAULT_CURRENCY } = require('../config/stripe');
-const { getCoachConnectAccountId, saveCoachingSession, saveTransfer } = require('../services/database');
+const { getCoachConnectAccountId, saveCoachingSession, saveTransfer, findOrUpdateConversation } = require('../services/database');
 
 const router = express.Router();
 
