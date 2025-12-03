@@ -38,4 +38,11 @@ yarn-error.*
 
 # generated native folders
 /android
-/ios
+
+# iOS - keep project files but exclude generated content
+ios/Pods/
+ios/build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+DerivedData/
