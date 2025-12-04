@@ -24,6 +24,7 @@ import AuthScreen from './screens/AuthScreen';
 import PlayerNavigator from './navigation/PlayerNavigator';
 import CoachNavigator from './navigation/CoachNavigator';
 import CoachOnboardingNavigator from './navigation/CoachOnboardingNavigator';
+import SplashScreen from './components/SplashScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -41,6 +42,7 @@ export default function App() {
   const [userRole, setUserRole] = useState('player'); // Default to player, can be 'player' or 'coach'
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showSplash, setShowSplash] = useState(true);
   
   const [fontsLoaded] = useFonts({
     'Rubik-Regular': Rubik_400Regular,
@@ -282,6 +284,11 @@ export default function App() {
       console.log('User signed out, cleared onboarding status and all flags');
     }
   }, [session]);
+
+  // Show splash screen first
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
 
   if (loading || !fontsLoaded) {
     return (
