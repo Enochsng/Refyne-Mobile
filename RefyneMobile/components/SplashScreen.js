@@ -29,6 +29,10 @@ export default function SplashScreen({ onFinish }) {
   ).current;
 
   useEffect(() => {
+    if (!onFinish || typeof onFinish !== 'function') {
+      return;
+    }
+
     // Logo entrance animation
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -151,7 +155,9 @@ export default function SplashScreen({ onFinish }) {
           useNativeDriver: true,
         }),
       ]).start(() => {
-        onFinish();
+        if (onFinish && typeof onFinish === 'function') {
+          onFinish();
+        }
       });
     }, 3000);
 
@@ -160,7 +166,7 @@ export default function SplashScreen({ onFinish }) {
       rotateAnimation.stop();
       pulseAnimation.stop();
     };
-  }, []);
+  }, [onFinish]);
 
   const rotateInterpolate = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -211,14 +217,14 @@ export default function SplashScreen({ onFinish }) {
       {/* Floating particles */}
       {particles.map((particle, index) => {
         const positions = [
-          { top: '20%', left: '15%' },
-          { top: '30%', right: '20%' },
-          { top: '50%', left: '10%' },
-          { top: '60%', right: '15%' },
-          { bottom: '30%', left: '20%' },
-          { bottom: '20%', right: '25%' },
-          { top: '40%', left: '50%' },
-          { bottom: '40%', right: '10%' },
+          { top: height * 0.2, left: width * 0.15 },
+          { top: height * 0.3, right: width * 0.2 },
+          { top: height * 0.5, left: width * 0.1 },
+          { top: height * 0.6, right: width * 0.15 },
+          { bottom: height * 0.3, left: width * 0.2 },
+          { bottom: height * 0.2, right: width * 0.25 },
+          { top: height * 0.4, left: width * 0.5 },
+          { bottom: height * 0.4, right: width * 0.1 },
         ];
 
         return (

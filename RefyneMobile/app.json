@@ -6,7 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -45,9 +44,14 @@
           "localhost",
           "10.0.0.50",
           "192.168.1.79",
+          "10.0.2.2",
+          "localhost",
+          "10.0.0.50",
+          "192.168.1.79",
           "10.0.2.2"
         ]
-      }
+      },
+      "package": "com.anonymous.RefyneMobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"

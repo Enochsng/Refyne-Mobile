@@ -1,20 +1,56 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { Dimensions } from 'react-native';
+import { Dimensions, View, Text, ActivityIndicator } from 'react-native';
 
 import HomeScreen from '../screens/player/HomeScreen';
 import ExploreSportsScreen from '../screens/player/ExploreSportsScreen';
 import CoachesScreen from '../screens/player/CoachesScreen';
-import PaywallScreen from '../screens/player/PaywallScreen';
-import StripePaymentScreen from '../screens/player/StripePaymentScreen';
 import CoachFeedbackScreen from '../screens/player/CoachFeedbackScreen';
 import ProfileScreen from '../screens/player/ProfileScreen';
+
+// Lazy load Stripe-dependent screens using React.lazy to prevent initialization errors
+const PaywallScreen = React.lazy(() => {
+  try {
+    return import('../screens/player/PaywallScreen');
+  } catch (error) {
+    console.warn('PaywallScreen not available:', error);
+    return { default: () => (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Payment screen not available</Text>
+      </View>
+    )};
+  }
+});
+
+const StripePaymentScreen = React.lazy(() => {
+  try {
+    return import('../screens/player/StripePaymentScreen');
+  } catch (error) {
+    console.warn('StripePaymentScreen not available:', error);
+    return { default: () => (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <Text>Payment screen not available</Text>
+      </View>
+    )};
+  }
+});
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const { width } = Dimensions.get('window');
+
+// Wrapper component for lazy-loaded screens
+const LazyScreenWrapper = ({ ScreenComponent, ...props }) => (
+  <Suspense fallback={
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ActivityIndicator size="large" color="#0C295C" />
+    </View>
+  }>
+    <ScreenComponent {...props} />
+  </Suspense>
+);
 
 // Stack Navigator for Explore Sports
 function ExploreSportsStack() {
@@ -22,8 +58,14 @@ function ExploreSportsStack() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ExploreSportsMain" component={ExploreSportsScreen} />
       <Stack.Screen name="Coaches" component={CoachesScreen} />
-      <Stack.Screen name="Paywall" component={PaywallScreen} />
-      <Stack.Screen name="StripePayment" component={StripePaymentScreen} />
+      <Stack.Screen 
+        name="Paywall" 
+        component={(props) => <LazyScreenWrapper ScreenComponent={PaywallScreen} {...props} />}
+      />
+      <Stack.Screen 
+        name="StripePayment" 
+        component={(props) => <LazyScreenWrapper ScreenComponent={StripePaymentScreen} {...props} />}
+      />
     </Stack.Navigator>
   );
 }

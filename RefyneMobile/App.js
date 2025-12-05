@@ -4,7 +4,6 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator, StyleSheet, AppState, DeviceEventEmitter } from 'react-native';
 import { useFonts } from 'expo-font';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { 
   Rubik_400Regular,
@@ -19,7 +18,6 @@ import {
   Manrope_700Bold,
 } from '@expo-google-fonts/manrope';
 import { supabase } from './supabaseClient';
-import { STRIPE_CONFIG } from './stripeConfig';
 import AuthScreen from './screens/AuthScreen';
 import PlayerNavigator from './navigation/PlayerNavigator';
 import CoachNavigator from './navigation/CoachNavigator';
@@ -317,51 +315,66 @@ export default function App() {
     });
   }
 
+  // Determine which screen to show
+  const getInitialScreen = () => {
+    if (!session) {
+      return 'Auth';
+    }
+    if (userRole === 'coach') {
+      return onboardingCompleted ? 'CoachApp' : 'CoachOnboarding';
+    }
+    return 'PlayerApp';
+  };
+
+  const initialRoute = getInitialScreen();
+
+  // Wrap content with StripeProvider only if Stripe is available and configured
+  const AppContent = (
+    <NavigationContainer key={`nav-${initialRoute}-${refreshKey}`}>
+      <Stack.Navigator 
+        initialRouteName={initialRoute}
+        screenOptions={{ 
+          headerShown: false,
+          animation: 'slide_from_right',
+        }}
+      >
+        <Stack.Screen 
+          name="Auth" 
+          component={AuthScreen}
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen 
+          name="PlayerApp" 
+          component={PlayerNavigator}
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen 
+          name="CoachApp" 
+          component={CoachNavigator}
+          options={{
+            headerShown: false,
+            animation: 'fade',
+          }}
+        />
+        <Stack.Screen 
+          name="CoachOnboarding" 
+          component={CoachOnboardingNavigator}
+          options={{
+            headerShown: false,
+            gestureEnabled: false,
+          }}
+        />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <StripeProvider
-        publishableKey={STRIPE_CONFIG.publishableKey}
-        merchantIdentifier={STRIPE_CONFIG.merchantIdentifier}
-        urlScheme={STRIPE_CONFIG.urlScheme}
-      >
-        <NavigationContainer>
-        <Stack.Navigator 
-          screenOptions={{ 
-            headerShown: false,
-            animation: 'slide_from_right',
-            animationDuration: 300,
-          }}
-        >
-          {session ? (
-            userRole === 'coach' ? (
-              onboardingCompleted ? (
-                <Stack.Screen 
-                  name="CoachApp" 
-                  component={CoachNavigator}
-                  options={{
-                    animation: 'fade',
-                    animationDuration: 500,
-                  }}
-                />
-              ) : (
-                <Stack.Screen 
-                  name="CoachOnboarding" 
-                  component={CoachOnboardingNavigator}
-                  options={{
-                    animation: 'slide_from_right',
-                    animationDuration: 300,
-                  }}
-                />
-              )
-            ) : (
-              <Stack.Screen name="PlayerApp" component={PlayerNavigator} />
-            )
-          ) : (
-            <Stack.Screen name="Auth" component={AuthScreen} />
-          )}
-        </Stack.Navigator>
-        </NavigationContainer>
-      </StripeProvider>
+      {AppContent}
     </GestureHandlerRootView>
   );
 }
