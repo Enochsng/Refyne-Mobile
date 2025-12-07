@@ -4,11 +4,15 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 
+// Preload the logo image at module level for instant rendering
+const LOGO_IMAGE = require('../assets/Refyne Logo 1 (PNG).png');
+
 export default function SplashScreen({ onFinish }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.5)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const scaleAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
   
   // Animated values for floating particles
   const particles = useRef(
@@ -33,20 +37,7 @@ export default function SplashScreen({ onFinish }) {
       return;
     }
 
-    // Logo entrance animation
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        tension: 30,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    // Logo is already visible, no entrance animation needed
 
     // Continuous rotation for decorative circles
     const rotateAnimation = Animated.loop(
@@ -174,12 +165,26 @@ export default function SplashScreen({ onFinish }) {
   });
 
   return (
-    <LinearGradient
-      colors={['#FFFFFF', '#F0F4F8', '#E8F0F5']}
-      style={styles.container}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
+    <View style={styles.outerContainer}>
+      {/* Logo rendered FIRST for instant visibility and priority */}
+      <View style={styles.logoContainerAbsolute} pointerEvents="none">
+        <View style={styles.logoWrapper}>
+          <Image
+            source={LOGO_IMAGE}
+            style={styles.logo}
+            resizeMode="contain"
+            fadeDuration={0}
+          />
+        </View>
+      </View>
+      
+      <LinearGradient
+        colors={['#FFFFFF', '#F0F4F8', '#E8F0F5']}
+        style={styles.container}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+
       {/* Animated background circles */}
       {circles.map((circle, index) => {
         const circleRotate = circle.rotate.interpolate({
@@ -256,49 +261,33 @@ export default function SplashScreen({ onFinish }) {
           },
         ]}
       />
-
-      {/* Main logo container - on top */}
-      <Animated.View
-        style={[
-          styles.logoContainer,
-          {
-            opacity: fadeAnim,
-            transform: [
-              { scale: Animated.multiply(scaleAnim, pulseAnim) },
-            ],
-          },
-        ]}
-      >
-        {/* Subtle glow effect behind logo */}
-        <Animated.View
-          style={[
-            styles.glowEffect,
-            {
-              opacity: 0.03,
-              transform: [{ scale: pulseAnim }],
-            },
-          ]}
-        />
-        
-        {/* Logo with shadow for visibility */}
-        <View style={styles.logoWrapper}>
-          <Image
-            source={require('../assets/Refyne Logo Design Concept png 1.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-        </View>
-      </Animated.View>
-    </LinearGradient>
+      </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  outerContainer: {
+    flex: 1,
+    position: 'relative',
+  },
   container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+  },
+  logoContainerAbsolute: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+    elevation: 9999, // For Android
+    backgroundColor: 'transparent',
   },
   logoContainer: {
     alignItems: 'center',
