@@ -12,7 +12,15 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { useStripe } from '@stripe/stripe-react-native';
+// Conditionally import Stripe to prevent initialization errors
+let useStripe = null;
+try {
+  const stripeModule = require('@stripe/stripe-react-native');
+  useStripe = stripeModule.useStripe || (() => ({ initPaymentSheet: () => Promise.resolve({ error: null }), presentPaymentSheet: () => Promise.resolve({ error: { message: 'Stripe not available' } }) }));
+} catch (error) {
+  console.warn('Stripe hook not available:', error);
+  useStripe = () => ({ initPaymentSheet: () => Promise.resolve({ error: null }), presentPaymentSheet: () => Promise.resolve({ error: { message: 'Stripe not available' } }) });
+}
 import { STRIPE_CONFIG, getPriceInCents, formatPrice } from '../../stripeConfig';
 import { createCoachingSession } from '../../utils/sessionManager';
 import { createDestinationCharge, confirmPaymentIntent, attemptDirectPayment } from '../../services/paymentService';
