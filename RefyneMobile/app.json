@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/Refyne Logo 1 (PNG).png",
       "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
