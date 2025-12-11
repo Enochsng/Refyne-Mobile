@@ -13,6 +13,11 @@
     },
     "ios": {
       "supportsTablet": true,
+      "splash": {
+        "image": "./assets/Refyne Logo 1 (PNG).png",
+      "resizeMode": "contain",
+    "backgroundColor": "#FFFFFF"
+  },
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
