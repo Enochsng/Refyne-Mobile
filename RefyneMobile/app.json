@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "RefyneMobile",
+    "name": "Refyne",
     "slug": "RefyneMobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "description": "Connect with professional sports coaches for personalized training and feedback.",
     "splash": {
       "image": "./assets/Refyne Logo 1 (PNG).png",
       "resizeMode": "contain",
@@ -13,53 +14,49 @@
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.enoch.RefyneMobile",
+      "buildNumber": "1",
       "splash": {
         "image": "./assets/Refyne Logo 1 (PNG).png",
-      "resizeMode": "contain",
-    "backgroundColor": "#FFFFFF"
-  },
+        "resizeMode": "contain",
+        "backgroundColor": "#FFFFFF"
+      },
       "infoPlist": {
+        "NSCameraUsageDescription": "Refyne needs access to your camera to record videos for coaching feedback and tutorials.",
+        "NSMicrophoneUsageDescription": "Refyne needs access to your microphone to record audio with coaching videos.",
+        "NSPhotoLibraryUsageDescription": "Refyne needs access to your photo library to select and share coaching videos and images.",
+        "NSPhotoLibraryAddUsageDescription": "Refyne needs permission to save coaching videos and images to your photo library.",
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
-          "NSExceptionDomains": {
-            "localhost": {
-              "NSExceptionAllowsInsecureHTTPLoads": true
-            },
-            "10.0.0.50": {
-              "NSExceptionAllowsInsecureHTTPLoads": true
-            },
-            "192.168.1.79": {
-              "NSExceptionAllowsInsecureHTTPLoads": true
-            }
-          }
+          "NSAllowsArbitraryLoads": false
         }
       },
-      "bundleIdentifier": "com.anonymous.RefyneMobile"
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.enoch.RefyneMobile",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ],
       "edgeToEdgeEnabled": true,
-      "usesCleartextTraffic": true,
-      "networkSecurityConfig": {
-        "cleartextTrafficPermitted": true,
-        "domains": [
-          "localhost",
-          "10.0.0.50",
-          "192.168.1.79",
-          "10.0.2.2",
-          "localhost",
-          "10.0.0.50",
-          "192.168.1.79",
-          "10.0.2.2"
-        ]
-      },
-      "package": "com.anonymous.RefyneMobile"
+      "usesCleartextTraffic": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id-here"
+      }
     }
   }
 }

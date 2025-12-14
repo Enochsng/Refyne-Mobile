@@ -1,16 +1,23 @@
 // Stripe Configuration
 // Note: In production, these should be environment variables
-// For now, using test keys - replace with your actual Stripe keys
+// IMPORTANT: Replace test keys with production keys before App Store submission
 
 export const STRIPE_CONFIG = {
   // Your actual Stripe publishable key from Stripe Dashboard
-  publishableKey: 'pk_test_51SALeHPjC3F0lBjEUDnOFxXlS7oFyOj6LglGZBVQf5jEPEQ3ika3QbNacZ0aZSmFqJNWjLyKVVtMEqCCKBvvB1WI00WpCLOV9z',
+  // TODO: Replace with production key (pk_live_...) before App Store submission
+  publishableKey: __DEV__ 
+    ? 'pk_test_51SALeHPjC3F0lBjEUDnOFxXlS7oFyOj6LglGZBVQf5jEPEQ3ika3QbNacZ0aZSmFqJNWjLyKVVtMEqCCKBvvB1WI00WpCLOV9z'
+    : 'pk_test_51SALeHPjC3F0lBjEUDnOFxXlS7oFyOj6LglGZBVQf5jEPEQ3ika3QbNacZ0aZSmFqJNWjLyKVVtMEqCCKBvvB1WI00WpCLOV9z', // TODO: Replace with production key
   
   // Your backend URL for creating payment intents
-  backendUrl: 'http://167.160.184.214:3001', // Server IP address
+  // TODO: Replace with your production HTTPS backend URL
+  backendUrl: __DEV__
+    ? 'http://167.160.184.214:3001' // Development server
+    : 'https://your-production-api.com', // TODO: Replace with production HTTPS URL
   
   // Merchant identifier for Apple Pay (iOS)
-  merchantIdentifier: 'merchant.com.yourcompany.refynemobile',
+  // Must match your Apple Developer account merchant ID
+  merchantIdentifier: 'merchant.com.enoch.RefyneMobile',
   
   // URL scheme for deep linking
   urlScheme: 'refynemobile',
@@ -19,10 +26,14 @@ export const STRIPE_CONFIG = {
 // Stripe Connect configuration
 export const STRIPE_CONNECT_CONFIG = {
   // Your Stripe Connect application ID from Stripe Dashboard
+  // TODO: Replace with production Connect client ID if different
   clientId: 'ca_T6YmjebfrMSRht1lXHdEelDoXxI6JmY8',
   
   // Backend URL for API calls
-  backendUrl: 'http://167.160.184.214:3001', // Server IP address
+  // TODO: Replace with your production HTTPS backend URL
+  backendUrl: __DEV__
+    ? 'http://167.160.184.214:3001' // Development server
+    : 'https://your-production-api.com', // TODO: Replace with production HTTPS URL
   
   // Redirect URI for OAuth flow
   redirectUri: 'refynemobile://stripe-connect',
