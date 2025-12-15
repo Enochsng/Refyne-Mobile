@@ -8,7 +8,7 @@
     "userInterfaceStyle": "light",
     "description": "Connect with professional sports coaches for personalized training and feedback.",
     "splash": {
-      "image": "./assets/Refyne Logo 1 (PNG).png",
+      "image": "./assets/RefyneLogo.png",
       "resizeMode": "contain",
       "backgroundColor": "#E8F0F5"
     },
@@ -17,7 +17,7 @@
       "bundleIdentifier": "com.enoch.RefyneMobile",
       "buildNumber": "1",
       "splash": {
-        "image": "./assets/Refyne Logo 1 (PNG).png",
+        "image": "./assets/RefyneLogo.png",
         "resizeMode": "contain",
         "backgroundColor": "#E8F0F5"
       },

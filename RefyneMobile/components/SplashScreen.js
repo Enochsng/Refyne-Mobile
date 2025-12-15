@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 const { width, height } = Dimensions.get('window');
 
 // Preload the logo image at module level for instant rendering
-const LOGO_IMAGE = require('../assets/Refyne Logo 1 (PNG).png');
+const LOGO_IMAGE = require('../assets/RefyneLogo.png');
 
 export default function SplashScreen({ onFinish }) {
   const fadeAnim = useRef(new Animated.Value(1)).current;
