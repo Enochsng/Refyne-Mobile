@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/Refyne Logo 1 (PNG).png",
       "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
+      "backgroundColor": "#E8F0F5"
     },
     "ios": {
       "supportsTablet": true,
@@ -19,7 +19,7 @@
       "splash": {
         "image": "./assets/Refyne Logo 1 (PNG).png",
         "resizeMode": "contain",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#E8F0F5"
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Refyne needs access to your camera to record videos for coaching feedback and tutorials.",

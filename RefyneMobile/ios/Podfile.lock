@@ -9,7 +9,7 @@ PODS:
   - EXImageLoader (6.0.0):
     - ExpoModulesCore
     - React-Core
-  - Expo (54.0.27):
+  - Expo (54.0.28):
     - ExpoModulesCore
     - hermes-engine
     - RCTRequired
@@ -44,7 +44,7 @@ PODS:
     - ExpoModulesCore
   - ExpoFont (14.0.10):
     - ExpoModulesCore
-  - ExpoImagePicker (17.0.9):
+  - ExpoImagePicker (17.0.10):
     - ExpoModulesCore
   - ExpoKeepAwake (15.0.8):
     - ExpoModulesCore
@@ -76,6 +76,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - ExpoSplashScreen (31.0.12):
+    - ExpoModulesCore
   - FBLazyVector (0.81.5)
   - hermes-engine (0.81.5):
     - hermes-engine/Pre-built (= 0.81.5)
@@ -1998,6 +2000,7 @@ DEPENDENCIES:
   - ExpoLinearGradient (from `../node_modules/expo-linear-gradient/ios`)
   - ExpoMediaLibrary (from `../node_modules/expo-media-library/ios`)
   - ExpoModulesCore (from `../node_modules/expo-modules-core`)
+  - ExpoSplashScreen (from `../node_modules/expo-splash-screen/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -2114,6 +2117,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-media-library/ios"
   ExpoModulesCore:
     :path: "../node_modules/expo-modules-core"
+  ExpoSplashScreen:
+    :path: "../node_modules/expo-splash-screen/ios"
   FBLazyVector:
     :path: "../node_modules/react-native/Libraries/FBLazyVector"
   hermes-engine:
@@ -2267,16 +2272,17 @@ SPEC CHECKSUMS:
   EXAV: b60fcf142fae6684d295bc28cd7cfcb3335570ea
   EXConstants: c378c1b344ff1ecfbad27b90f0e48d1d0ead8cbb
   EXImageLoader: 189e3476581efe3ad4d1d3fb4735b7179eb26f05
-  Expo: 3d19389232751e415391827839a629100a3c6a64
+  Expo: e502d1f8830a34019d835f182fdce94fdba458c2
   ExpoAsset: 23a958e97d3d340919fe6774db35d563241e6c03
   ExpoCamera: 6a326deb45ba840749652e4c15198317aa78497e
   ExpoFileSystem: 3592defb5faa3c5866a2900eae87ceec8cc0489f
   ExpoFont: 35ac6191ed86bbf56b3ebd2d9154eda9fad5b509
-  ExpoImagePicker: e62bc7b6513d1fd0e098c907c64982fb953abb18
+  ExpoImagePicker: 1af3e4e31512d2f34c95c2a3018a3edc40aee748
   ExpoKeepAwake: 55f75eca6499bb9e4231ebad6f3e9cb8f99c0296
   ExpoLinearGradient: 809102bdb979f590083af49f7fa4805cd931bd58
   ExpoMediaLibrary: a3093b04365b245bb23b25b6eba84eb6ab55fecb
   ExpoModulesCore: ded694f230d03c59d919efe243911622fa169834
+  ExpoSplashScreen: 76af87337650d06926aa7d0157fe98b4fddca336
   FBLazyVector: e95a291ad2dadb88e42b06e0c5fb8262de53ec12
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
   RCTDeprecation: 943572d4be82d480a48f4884f670135ae30bf990
@@ -2360,6 +2366,6 @@ SPEC CHECKSUMS:
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
   ZXingObjC: 8898711ab495761b2dbbdec76d90164a6d7e14c5
 
-PODFILE CHECKSUM: 33aa5d802fa4c5f029c35e17f2f3bdefcb97d3d1
+PODFILE CHECKSUM: 60533046b4824de4dc8a3cac3215229a6ecf1046
 
 COCOAPODS: 1.16.2

@@ -174,6 +174,16 @@ export default function SplashScreen({ onFinish }) {
             style={styles.logo}
             resizeMode="contain"
             fadeDuration={0}
+            onError={(error) => {
+              console.error('Logo image failed to load:', error.nativeEvent?.error || error);
+            }}
+            onLoad={() => {
+              console.log('Logo image loaded successfully');
+            }}
+            onLoadStart={() => {
+              console.log('Logo image loading started');
+            }}
+            accessibilityLabel="Refyne Logo"
           />
         </View>
       </View>
