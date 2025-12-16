@@ -23,6 +23,18 @@ import PlayerNavigator from './navigation/PlayerNavigator';
 import CoachNavigator from './navigation/CoachNavigator';
 import CoachOnboardingNavigator from './navigation/CoachOnboardingNavigator';
 import SplashScreen from './components/SplashScreen';
+import { STRIPE_CONFIG } from './stripeConfig';
+
+// Conditionally import StripeProvider
+let StripeProvider = null;
+try {
+  const stripeModule = require('@stripe/stripe-react-native');
+  StripeProvider = stripeModule.StripeProvider;
+} catch (error) {
+  console.warn('Stripe Provider not available:', error);
+  // Create a no-op provider component
+  StripeProvider = ({ children }) => children;
+}
 
 const Stack = createNativeStackNavigator();
 
@@ -330,46 +342,48 @@ export default function App() {
 
   // Wrap content with StripeProvider only if Stripe is available and configured
   const AppContent = (
-    <NavigationContainer key={`nav-${initialRoute}-${refreshKey}`}>
-      <Stack.Navigator 
-        initialRouteName={initialRoute}
-        screenOptions={{ 
-          headerShown: false,
-          animation: 'slide_from_right',
-        }}
-      >
-        <Stack.Screen 
-          name="Auth" 
-          component={AuthScreen}
-          options={{
+    <StripeProvider publishableKey={STRIPE_CONFIG.publishableKey}>
+      <NavigationContainer key={`nav-${initialRoute}-${refreshKey}`}>
+        <Stack.Navigator 
+          initialRouteName={initialRoute}
+          screenOptions={{ 
             headerShown: false,
+            animation: 'slide_from_right',
           }}
-        />
-        <Stack.Screen 
-          name="PlayerApp" 
-          component={PlayerNavigator}
-          options={{
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen 
-          name="CoachApp" 
-          component={CoachNavigator}
-          options={{
-            headerShown: false,
-            animation: 'fade',
-          }}
-        />
-        <Stack.Screen 
-          name="CoachOnboarding" 
-          component={CoachOnboardingNavigator}
-          options={{
-            headerShown: false,
-            gestureEnabled: false,
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+        >
+          <Stack.Screen 
+            name="Auth" 
+            component={AuthScreen}
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen 
+            name="PlayerApp" 
+            component={PlayerNavigator}
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen 
+            name="CoachApp" 
+            component={CoachNavigator}
+            options={{
+              headerShown: false,
+              animation: 'fade',
+            }}
+          />
+          <Stack.Screen 
+            name="CoachOnboarding" 
+            component={CoachOnboardingNavigator}
+            options={{
+              headerShown: false,
+              gestureEnabled: false,
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </StripeProvider>
   );
 
   return (

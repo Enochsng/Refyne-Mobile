@@ -559,9 +559,28 @@ export default function PaywallScreen({ route, navigation }) {
         if (error.code === 'Canceled') {
           // User canceled the payment
           console.log('Payment canceled by user');
+          // Don't show an alert for user cancellation
         } else {
           console.error('Payment error:', error);
-          Alert.alert('Payment Error', error.message || 'Payment failed. Please try again.');
+          
+          // Provide user-friendly error messages
+          let errorMessage = 'Payment failed. Please try again.';
+          
+          if (error.message) {
+            // Check for specific error types and provide friendly messages
+            if (error.message.includes('API key') || error.message.includes('Authorization')) {
+              errorMessage = 'Payment service is not properly configured. Please contact support.';
+            } else if (error.message.includes('network') || error.message.includes('connection')) {
+              errorMessage = 'Network error. Please check your internet connection and try again.';
+            } else if (error.message.includes('card') || error.message.includes('payment method')) {
+              errorMessage = 'There was an issue with your payment method. Please try a different card.';
+            } else {
+              // For other errors, show a generic but friendly message
+              errorMessage = 'Unable to process payment. Please try again or contact support if the problem persists.';
+            }
+          }
+          
+          Alert.alert('Payment Error', errorMessage);
         }
       } else {
         // Payment succeeded
@@ -570,7 +589,19 @@ export default function PaywallScreen({ route, navigation }) {
       }
     } catch (error) {
       console.error('Payment error:', error);
-      Alert.alert('Error', 'Payment failed. Please try again.');
+      
+      // Provide user-friendly error messages for caught errors
+      let errorMessage = 'Payment failed. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('API key') || error.message.includes('Authorization')) {
+          errorMessage = 'Payment service is not properly configured. Please contact support.';
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          errorMessage = 'Network error. Please check your internet connection and try again.';
+        }
+      }
+      
+      Alert.alert('Payment Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -604,41 +635,9 @@ export default function PaywallScreen({ route, navigation }) {
               <View style={styles.headerContent}>
                 <Text style={styles.headerTitle}>Choose Your Package</Text>
                 <Text style={styles.headerSubtitle}>
-                  Select a coaching package to start your journey with {coach.name}
+                  Pick the perfect plan for your training journey
                 </Text>
               </View>
-            </View>
-          </View>
-        </Animated.View>
-
-        {/* Coach Info Section */}
-        <Animated.View 
-          style={[
-            styles.coachInfoContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
-          ]}
-        >
-          <View style={styles.coachInfoCard}>
-            <View style={styles.coachAvatar}>
-              {coach.profilePicture ? (
-                <Image 
-                  source={{ uri: coach.profilePicture }} 
-                  style={styles.coachProfileImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <Text style={styles.coachInitial}>{coach.name.charAt(0)}</Text>
-              )}
-            </View>
-            <View style={styles.coachDetails}>
-              <Text style={styles.coachName}>{coach.name}</Text>
-              <Text style={styles.coachSport}>{sport} Coach</Text>
-              <Text style={styles.coachExperience}>
-                {coach.experience} years of experience
-              </Text>
             </View>
           </View>
         </Animated.View>
@@ -652,11 +651,6 @@ export default function PaywallScreen({ route, navigation }) {
           <View style={styles.mainContent}>
             {/* Packages Section */}
             <View style={styles.packagesContainer}>
-              <Text style={styles.sectionTitle}>Available Packages</Text>
-              <Text style={styles.sectionSubtitle}>
-                Choose the package that best fits your training needs
-              </Text>
-              
               {coachingPackages.map((pkg, index) => (
                 <Animated.View
                   key={pkg.id}
@@ -807,10 +801,7 @@ export default function PaywallScreen({ route, navigation }) {
                   <View style={styles.purchaseButtonLeft}>
                     <Ionicons name="card" size={18} color="rgba(255, 255, 255, 0.95)" />
                     <Text style={styles.purchaseButtonText} numberOfLines={1}>
-                      {selectedSubscription 
-                        ? `Purchase Monthly Subscription with ${coach.name}`
-                        : `Purchase ${coachingPackages.find(pkg => pkg.id === selectedPackage)?.name || ''} with ${coach.name}`
-                      }
+                      {selectedSubscription ? 'Subscribe' : 'Purchase'}
                     </Text>
                   </View>
                   <Text style={styles.purchaseButtonPrice}>
@@ -832,21 +823,21 @@ export default function PaywallScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: '#F0F4F8',
   },
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: '#F0F4F8',
   },
   headerContainer: {
     marginBottom: 8,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: '#F0F4F8',
   },
   header: {
     paddingTop: Platform.OS === 'ios' ? 16 : 24,
     paddingBottom: 20,
     paddingHorizontal: 20,
-    backgroundColor: '#F8FAFF',
+    backgroundColor: '#F0F4F8',
   },
   headerInner: {
     flexDirection: 'row',
@@ -872,65 +863,6 @@ const styles = StyleSheet.create({
     color: '#64748B',
     lineHeight: 20,
   },
-  coachInfoContainer: {
-    paddingHorizontal: 24,
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  coachInfoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 16,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  coachAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: '#0C295C',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  coachInitial: {
-    fontSize: 24,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-  },
-  coachProfileImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-  },
-  coachDetails: {
-    flex: 1,
-  },
-  coachName: {
-    fontSize: width * 0.05,
-    fontFamily: 'Rubik-Bold',
-    color: '#0C295C',
-    marginBottom: 4,
-  },
-  coachSport: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Medium',
-    color: '#64748B',
-    marginBottom: 2,
-  },
-  coachExperience: {
-    fontSize: width * 0.035,
-    fontFamily: 'Manrope-Regular',
-    color: '#94A3B8',
-  },
   scrollView: {
     flex: 1,
   },
@@ -939,32 +871,17 @@ const styles = StyleSheet.create({
   },
   mainContent: {
     padding: 24,
-    paddingTop: 0,
+    paddingTop: 16,
   },
   packagesContainer: {
     marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: width * 0.06,
-    fontFamily: 'Rubik-Bold',
-    color: '#0C295C',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  sectionSubtitle: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Regular',
-    color: '#64748B',
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 22,
   },
   packageCardContainer: {
     marginBottom: 16,
   },
   packageCard: {
     backgroundColor: 'white',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
     paddingTop: 28,
     borderWidth: 2,
@@ -975,16 +892,18 @@ const styles = StyleSheet.create({
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
     elevation: 4,
     overflow: 'visible',
   },
   selectedPackageCard: {
     borderColor: '#0C295C',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
+    borderWidth: 3,
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
     elevation: 8,
+    backgroundColor: '#FAFBFF',
   },
   popularPackageCard: {
     borderColor: '#0C295C',
@@ -1079,17 +998,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    backgroundColor: 'rgba(248, 250, 255, 0.98)',
+    backgroundColor: 'rgba(240, 244, 248, 0.98)',
     borderTopWidth: 1,
-    borderTopColor: 'rgba(12, 41, 92, 0.1)',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopColor: 'rgba(12, 41, 92, 0.08)',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     shadowColor: '#0C295C',
     shadowOffset: {
       width: 0,
       height: -4,
     },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 8,
   },
@@ -1139,11 +1058,11 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   purchaseButtonText: {
-    fontSize: width * 0.038,
+    fontSize: width * 0.042,
     fontFamily: 'Rubik-Bold',
     color: 'white',
     textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.8,
     textShadowColor: 'rgba(0, 0, 0, 0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,

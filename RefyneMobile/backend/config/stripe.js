@@ -37,16 +37,16 @@ const calculateTransferAmount = (amount) => {
 // Package pricing configuration (in CAD cents)
 const PACKAGE_PRICING = {
   badminton: {
-    1: { price: 4725, clips: 5, days: 3 }, // $47.25 CAD, 5 clips, 3 days
-    2: { price: 5400, clips: 7, days: 5 }, // $54.00 CAD, 7 clips, 5 days
-    3: { price: 6075, clips: 10, days: 7 }, // $60.75 CAD, 10 clips, 7 days
-    subscription: { price: 9450, clips: 50, days: 30 } // $94.50 CAD, 50 clips, 30 days
+    1: { price: 3500, clips: 5, days: 3 }, // $35.00 CAD, 5 clips, 3 days
+    2: { price: 4000, clips: 7, days: 5 }, // $40.00 CAD, 7 clips, 5 days
+    3: { price: 4500, clips: 10, days: 7 }, // $45.00 CAD, 10 clips, 7 days
+    subscription: { price: 7000, clips: 50, days: 30 } // $70.00 CAD, 50 clips, 30 days
   },
   golf: {
-    1: { price: 5400, clips: 5, days: 3 }, // $54.00 CAD, 5 clips, 3 days
-    2: { price: 6075, clips: 7, days: 5 }, // $60.75 CAD, 7 clips, 5 days
-    3: { price: 6750, clips: 10, days: 7 }, // $67.50 CAD, 10 clips, 7 days
-    subscription: { price: 10125, clips: 50, days: 30 } // $101.25 CAD, 50 clips, 30 days
+    1: { price: 4000, clips: 5, days: 3 }, // $40.00 CAD, 5 clips, 3 days
+    2: { price: 4500, clips: 7, days: 5 }, // $45.00 CAD, 7 clips, 5 days
+    3: { price: 5000, clips: 10, days: 7 }, // $50.00 CAD, 10 clips, 7 days
+    subscription: { price: 7500, clips: 50, days: 30 } // $75.00 CAD, 50 clips, 30 days
   }
 };
 

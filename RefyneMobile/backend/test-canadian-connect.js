@@ -209,7 +209,7 @@ async function testPaymentDistribution(accountId) {
     
     console.log('📝 Test payment data prepared:');
     console.log('   Coach Account ID:', accountId);
-    console.log('   Package: Badminton Package 1 ($47.25 CAD)');
+    console.log('   Package: Badminton Package 1 ($35.00 CAD)');
     console.log('   Customer: testplayer@example.com');
     console.log('\n💡 To test payment distribution:');
     console.log('1. Complete the Stripe Connect onboarding first');
