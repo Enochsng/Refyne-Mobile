@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
 // Backend API configuration
 const API_BASE_URL = __DEV__ 
   ? 'http://192.168.1.79:3001'  // Development - Server IP address
-  : 'https://your-production-api.com';  // Production
+  : 'https://app.refyne-coaching.com';  // Production
 
 // Fallback URLs for development
 const FALLBACK_URLS = [

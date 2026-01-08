@@ -13,7 +13,7 @@ export const STRIPE_CONFIG = {
   // TODO: Replace with your production HTTPS backend URL
   backendUrl: __DEV__
     ? 'http://167.160.184.214:3001' // Development server
-    : 'https://your-production-api.com', // TODO: Replace with production HTTPS URL
+    : 'https://app.refyne-coaching.com', // Production
   
   // Merchant identifier for Apple Pay (iOS)
   // Must match your Apple Developer account merchant ID
@@ -33,7 +33,7 @@ export const STRIPE_CONNECT_CONFIG = {
   // TODO: Replace with your production HTTPS backend URL
   backendUrl: __DEV__
     ? 'http://167.160.184.214:3001' // Development server
-    : 'https://your-production-api.com', // TODO: Replace with production HTTPS URL
+    : 'https://app.refyne-coaching.com', // Production
   
   // Redirect URI for OAuth flow
   redirectUri: 'refynemobile://stripe-connect',
