@@ -8,8 +8,8 @@ const API_BASE_URL = __DEV__
   ? 'http://192.168.1.79:3001'  // Development - Server IP address
   : 'https://app.refyne-coaching.com';  // Production
 
-// Fallback URLs for development
-const FALLBACK_URLS = [
+// Fallback URLs for development only (empty in production)
+const FALLBACK_URLS = __DEV__ ? [
   'http://192.168.1.79:3001', // Current network IP
   'http://167.160.184.214:3001', // Previous server IP
   'http://10.0.0.51:3001', // Previous network IP
@@ -20,7 +20,7 @@ const FALLBACK_URLS = [
   'http://127.0.0.1:3001',
   'http://10.0.0.207:3001', // Alternative network
   'http://192.168.0.1:3001', // Router IP
-];
+] : []; // Empty array for production
 
 // Global variable to store the working URL
 let workingApiUrl = API_BASE_URL;
@@ -41,8 +41,11 @@ export const testBackendConnection = async () => {
   }
 
   lastConnectionAttempt = now;
-  // Remove duplicates from URLs to try
-  const uniqueUrls = [...new Set([API_BASE_URL, ...FALLBACK_URLS])];
+  // In production, only try the production URL
+  // In development, try primary URL and all fallbacks
+  const uniqueUrls = __DEV__
+    ? [...new Set([API_BASE_URL, ...FALLBACK_URLS])]
+    : [API_BASE_URL];
   console.log(`🔍 Testing ${uniqueUrls.length} backend URLs...`);
 
   const connectionErrors = [];

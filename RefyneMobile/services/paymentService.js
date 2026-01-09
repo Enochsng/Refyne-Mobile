@@ -9,8 +9,8 @@ const API_BASE_URL = __DEV__
   ? 'http://192.168.1.79:3001'  // Development - Server IP address
   : 'https://app.refyne-coaching.com';  // Production
 
-// Fallback URLs for development
-const FALLBACK_URLS = [
+// Fallback URLs for development only (empty in production)
+const FALLBACK_URLS = __DEV__ ? [
   'http://192.168.1.79:3001', // Current network IP
   'http://167.160.184.214:3001', // Previous server IP
   'http://10.0.0.51:3001', // Previous network IP
@@ -21,7 +21,7 @@ const FALLBACK_URLS = [
   'http://127.0.0.1:3001',
   'http://0.0.0.0:3001', // All interfaces
   'http://[::1]:3001' // IPv6 localhost
-];
+] : []; // Empty array for production
 
 // Global variable to store the working URL
 let workingApiUrl = API_BASE_URL;
@@ -32,10 +32,16 @@ let connectionSuccessful = false;
  * Test backend connectivity
  */
 export const testBackendConnection = async () => {
-  const urlsToTry = [
-    `${API_BASE_URL.replace('/api', '')}/health`,
-    ...FALLBACK_URLS.map(url => url.replace('/api', '') + '/health')
-  ];
+  // In production, only try the production URL
+  // In development, try primary URL and all fallbacks
+  const urlsToTry = __DEV__
+    ? [
+        `${API_BASE_URL.replace('/api', '')}/health`,
+        ...FALLBACK_URLS.map(url => url.replace('/api', '') + '/health')
+      ]
+    : [
+        `${API_BASE_URL.replace('/api', '')}/health`
+      ];
   
   console.log('Starting backend connection test with URLs:', urlsToTry);
   
@@ -68,8 +74,8 @@ export const testBackendConnection = async () => {
         console.log('Backend connection successful:', data);
         console.log('Using URL:', healthUrl);
         
-        // Store the working URL for future use
-        workingApiUrl = healthUrl.replace('/health', '/api');
+        // Store the working URL for future use (base URL without /api)
+        workingApiUrl = healthUrl.replace('/health', '');
         console.log('Working API URL set to:', workingApiUrl);
         
         // Set connection flags
@@ -118,16 +124,18 @@ export const attemptDirectPayment = async (paymentData) => {
   } catch (error) {
     console.log('Direct payment creation failed:', error.message);
     
-    // Try with fallback URLs
-    for (const fallbackUrl of FALLBACK_URLS) {
-      try {
-        console.log('Trying fallback URL:', fallbackUrl);
-        workingApiUrl = fallbackUrl;
-        const result = await createDestinationCharge(paymentData);
-        console.log('Payment creation successful with fallback URL:', fallbackUrl);
-        return result;
-      } catch (fallbackError) {
-        console.log('Fallback URL failed:', fallbackUrl, fallbackError.message);
+    // Only try fallback URLs in development
+    if (__DEV__) {
+      for (const fallbackUrl of FALLBACK_URLS) {
+        try {
+          console.log('Trying fallback URL:', fallbackUrl);
+          workingApiUrl = fallbackUrl;
+          const result = await createDestinationCharge(paymentData);
+          console.log('Payment creation successful with fallback URL:', fallbackUrl);
+          return result;
+        } catch (fallbackError) {
+          console.log('Fallback URL failed:', fallbackUrl, fallbackError.message);
+        }
       }
     }
     
@@ -155,7 +163,7 @@ export const createCheckoutSession = async (paymentData) => {
     };
 
     console.log('Creating checkout session with data:', requestBody);
-    console.log('API URL:', `${workingApiUrl}/payments/create-checkout-session`);
+    console.log('API URL:', `${workingApiUrl}/api/payments/create-checkout-session`);
 
     // Create a timeout promise
     const timeoutPromise = new Promise((_, reject) => {
@@ -229,7 +237,7 @@ export const createPaymentIntent = async (paymentData) => {
     };
 
     console.log('Creating payment intent with data:', requestBody);
-    console.log('API URL:', `${workingApiUrl}/payments/create-intent`);
+    console.log('API URL:', `${workingApiUrl}/api/payments/create-intent`);
 
     // Create a timeout promise
     const timeoutPromise = new Promise((_, reject) => {
