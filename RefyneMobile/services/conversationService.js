@@ -3,13 +3,17 @@
 
 import { Platform } from 'react-native';
 
+// Override to force production URL even in development mode
+// Set to true to always use production URL (useful for testing against deployed backend)
+const FORCE_PRODUCTION_URL = true;
+
 // Backend API configuration
-const API_BASE_URL = __DEV__ 
+const API_BASE_URL = (__DEV__ && !FORCE_PRODUCTION_URL)
   ? 'http://192.168.1.79:3001'  // Development - Server IP address
   : 'https://app.refyne-coaching.com';  // Production
 
-// Fallback URLs for development only (empty in production)
-const FALLBACK_URLS = __DEV__ ? [
+// Fallback URLs for development only (empty in production or when forcing production URL)
+const FALLBACK_URLS = (__DEV__ && !FORCE_PRODUCTION_URL) ? [
   'http://192.168.1.79:3001', // Current network IP
   'http://167.160.184.214:3001', // Previous server IP
   'http://10.0.0.51:3001', // Previous network IP
@@ -41,9 +45,9 @@ export const testBackendConnection = async () => {
   }
 
   lastConnectionAttempt = now;
-  // In production, only try the production URL
+  // In production or when forcing production URL, only try the production URL
   // In development, try primary URL and all fallbacks
-  const uniqueUrls = __DEV__
+  const uniqueUrls = (__DEV__ && !FORCE_PRODUCTION_URL)
     ? [...new Set([API_BASE_URL, ...FALLBACK_URLS])]
     : [API_BASE_URL];
   console.log(`🔍 Testing ${uniqueUrls.length} backend URLs...`);

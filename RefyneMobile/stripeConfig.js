@@ -2,6 +2,10 @@
 // Note: In production, these should be environment variables
 // IMPORTANT: Replace test keys with production keys before App Store submission
 
+// Override to force production URL even in development mode
+// Set to true to always use production URL (useful for testing against deployed backend)
+const FORCE_PRODUCTION_URL = true;
+
 export const STRIPE_CONFIG = {
   // Your actual Stripe publishable key from Stripe Dashboard
   // TODO: Replace with production key (pk_live_...) before App Store submission
@@ -11,7 +15,7 @@ export const STRIPE_CONFIG = {
   
   // Your backend URL for creating payment intents
   // TODO: Replace with your production HTTPS backend URL
-  backendUrl: __DEV__
+  backendUrl: (__DEV__ && !FORCE_PRODUCTION_URL)
     ? 'http://192.168.1.79:3001' // Development server (matches other services)
     : 'https://app.refyne-coaching.com', // Production
   
@@ -31,7 +35,7 @@ export const STRIPE_CONNECT_CONFIG = {
   
   // Backend URL for API calls
   // TODO: Replace with your production HTTPS backend URL
-  backendUrl: __DEV__
+  backendUrl: (__DEV__ && !FORCE_PRODUCTION_URL)
     ? 'http://192.168.1.79:3001' // Development server (matches other services)
     : 'https://app.refyne-coaching.com', // Production
   
