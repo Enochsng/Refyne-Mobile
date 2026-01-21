@@ -52,6 +52,15 @@ const LazyScreenWrapper = ({ ScreenComponent, ...props }) => (
   </Suspense>
 );
 
+// Wrapped components for lazy loading (fixes React Navigation warning)
+const PaywallScreenWrapped = (props) => (
+  <LazyScreenWrapper ScreenComponent={PaywallScreen} {...props} />
+);
+
+const StripePaymentScreenWrapped = (props) => (
+  <LazyScreenWrapper ScreenComponent={StripePaymentScreen} {...props} />
+);
+
 // Stack Navigator for Explore Sports
 function ExploreSportsStack() {
   return (
@@ -60,11 +69,11 @@ function ExploreSportsStack() {
       <Stack.Screen name="Coaches" component={CoachesScreen} />
       <Stack.Screen 
         name="Paywall" 
-        component={(props) => <LazyScreenWrapper ScreenComponent={PaywallScreen} {...props} />}
+        component={PaywallScreenWrapped}
       />
       <Stack.Screen 
         name="StripePayment" 
-        component={(props) => <LazyScreenWrapper ScreenComponent={StripePaymentScreen} {...props} />}
+        component={StripePaymentScreenWrapped}
       />
     </Stack.Navigator>
   );

@@ -195,14 +195,27 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
     // Find or update DM conversation between player and coach
     // If conversation already exists (e.g., player purchasing new package), update its session_id
     // This will reset the chat expiration countdown
+    // NOTE: This is a backup - conversation should already be created by /api/payments/confirm
+    // This ensures conversation is created even if the frontend call fails
     try {
+      console.log(`\n💬 [webhook] Attempting to create/update conversation via webhook:`);
+      console.log(`   - paymentIntentId: ${paymentIntent.id}`);
+      
       // Use player information from payment intent metadata
       const actualPlayerId = playerId || `player_${paymentIntent.customer || 'unknown'}`;
       const actualPlayerName = playerName || 'Player';
       
+      console.log(`   - playerId from metadata: ${playerId || 'not provided'}`);
+      console.log(`   - actualPlayerId: ${actualPlayerId}`);
+      console.log(`   - playerName: ${actualPlayerName}`);
+      console.log(`   - coachId: ${coachId}`);
+      console.log(`   - coachName: ${coachName}`);
+      console.log(`   - sport: ${sport}`);
+      console.log(`   - sessionId: ${sessionData.id}`);
+      
       // Skip conversation creation for temp users
       if (actualPlayerId === 'temp_user' || actualPlayerId === 'temp_player') {
-        console.log('Skipping conversation creation for temp user:', actualPlayerId);
+        console.log(`⚠️ [webhook] Skipping conversation creation for temp user: ${actualPlayerId}`);
         return;
       }
       
@@ -220,19 +233,28 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         lastMessageAt: null
       };
 
+      console.log(`   - conversationData:`, JSON.stringify(conversationData, null, 2));
+      
       const conversation = await findOrUpdateConversation(conversationData);
-      console.log('✅ Conversation found or updated:', conversation.id);
+      
+      console.log(`\n✅ [webhook] ==========================================`);
+      console.log(`✅ [webhook] Conversation found or updated: ${conversation.id}`);
       if (conversation.id === conversationId) {
-        console.log('   → New conversation created');
+        console.log(`✅ [webhook]   → New conversation created via webhook`);
       } else {
-        console.log('   → Existing conversation updated with new session_id');
-        console.log('   → Chat expiration countdown has been reset');
+        console.log(`✅ [webhook]   → Existing conversation updated with new session_id`);
+        console.log(`✅ [webhook]   → Chat expiration countdown has been reset`);
       }
+      console.log(`✅ [webhook] ==========================================\n`);
 
       // Note: Welcome message is now handled by the frontend to avoid duplicates
 
     } catch (conversationError) {
-      console.error('Error finding/updating DM conversation:', conversationError);
+      console.error('\n❌ [webhook] ==========================================');
+      console.error('❌ [webhook] Error finding/updating DM conversation:', conversationError);
+      console.error('❌ [webhook] Error message:', conversationError.message);
+      console.error('❌ [webhook] Error stack:', conversationError.stack);
+      console.error('❌ [webhook] ==========================================\n');
       // Don't fail the entire payment process if conversation update fails
     }
 

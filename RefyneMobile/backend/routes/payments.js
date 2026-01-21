@@ -318,6 +318,57 @@ router.post('/confirm', async (req, res) => {
         console.error(`❌ [confirm] Error verifying session:`, verifyError);
       }
       
+      // Create or update conversation between player and coach
+      // This ensures conversations are always created, even if webhooks fail
+      try {
+        const { playerId, playerName } = paymentIntent.metadata;
+        const actualPlayerId = playerId || `player_${paymentIntent.customer || 'unknown'}`;
+        const actualPlayerName = playerName || 'Player';
+        
+        console.log(`\n💬 [confirm] Attempting to create/update conversation:`);
+        console.log(`   - playerId: ${actualPlayerId}`);
+        console.log(`   - playerName: ${actualPlayerName}`);
+        console.log(`   - coachId: ${paymentIntent.metadata.coachId}`);
+        console.log(`   - sessionId: ${sessionId}`);
+        
+        // Skip conversation creation for temp users
+        if (actualPlayerId !== 'temp_user' && actualPlayerId !== 'temp_player') {
+          const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          const conversationData = {
+            id: conversationId,
+            playerId: actualPlayerId,
+            playerName: actualPlayerName,
+            coachId: paymentIntent.metadata.coachId,
+            coachName: paymentIntent.metadata.coachName,
+            sport: metadataSport,
+            sessionId: sessionId,
+            lastMessage: null,
+            lastMessageAt: null
+          };
+          
+          const conversation = await findOrUpdateConversation(conversationData);
+          console.log(`\n✅ [confirm] ==========================================`);
+          console.log(`✅ [confirm] Conversation created/updated: ${conversation.id}`);
+          if (conversation.id === conversationId) {
+            console.log(`✅ [confirm]   → New conversation created`);
+          } else {
+            console.log(`✅ [confirm]   → Existing conversation updated with new session_id`);
+            console.log(`✅ [confirm]   → Chat expiration countdown has been reset`);
+          }
+          console.log(`✅ [confirm] ==========================================\n`);
+        } else {
+          console.log(`⚠️ [confirm] Skipping conversation creation for temp user: ${actualPlayerId}`);
+        }
+      } catch (conversationError) {
+        console.error('\n❌ [confirm] ==========================================');
+        console.error('❌ [confirm] Error creating/updating conversation:', conversationError);
+        console.error('❌ [confirm] Error message:', conversationError.message);
+        console.error('❌ [confirm] Error stack:', conversationError.stack);
+        console.error('❌ [confirm] ==========================================\n');
+        // Don't fail payment confirmation if conversation creation fails
+      }
+      
       res.json({
         success: true,
         session: savedSession,
