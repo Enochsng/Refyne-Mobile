@@ -279,9 +279,8 @@ export default function PaywallScreen({ route, navigation }) {
         // Continue with the flow even if backend confirmation fails
       }
 
-      // Find existing conversation between player and coach
-      // The webhook should have already created/updated the conversation, but we'll find it here
-      // to get the conversation ID for navigation
+      // Create conversation between player and coach
+      // This ensures conversation is always created, even if backend/webhook fails
       let conversation = null;
       try {
         // Get the authenticated user
@@ -290,33 +289,40 @@ export default function PaywallScreen({ route, navigation }) {
         
         if (user) {
           const playerId = user.id;
-          console.log('Finding existing conversation for player:', playerId);
+          const playerName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
           
-          // Get conversations for this player
-          const { getConversations } = await import('../../services/conversationService');
-          const playerConversations = await getConversations(playerId, 'player');
+          console.log('Creating conversation after payment success...');
+          console.log('  - playerId:', playerId);
+          console.log('  - playerName:', playerName);
+          console.log('  - coachId:', coach.id);
+          console.log('  - coachName:', coach.name);
+          console.log('  - sport:', sport);
+          console.log('  - sessionId:', confirmedSession?.id || newSession.id);
           
-          // Find conversation with this coach
-          // Raw conversations from API have coach_id and coach_name (snake_case)
-          conversation = playerConversations.find(conv => 
-            (conv.coach_id === coach.id) || 
-            (conv.coach_name === coach.name)
-          );
+          const { createConversation } = await import('../../services/conversationService');
           
-          if (conversation) {
-            console.log('✅ Found existing conversation:', conversation.id);
-            console.log('   → Conversation will be updated by webhook with new session_id');
-          } else {
-            console.log('⚠️ No existing conversation found - webhook will create one');
-            console.log('   → Conversation will be created automatically by webhook');
-          }
+          const conversationData = {
+            playerId: playerId,
+            playerName: playerName,
+            coachId: coach.id,
+            coachName: coach.name,
+            sport: sport,
+            sessionId: confirmedSession?.id || newSession.id,
+          };
+          
+          conversation = await createConversation(conversationData);
+          console.log('✅ Conversation created successfully:', conversation.id);
         } else {
-          console.log('No authenticated user found - skipping conversation lookup');
+          console.log('No authenticated user found - skipping conversation creation');
         }
       } catch (conversationError) {
-        console.error('Error finding conversation (non-critical):', conversationError);
-        // Continue with the flow even if conversation lookup fails
-        // The webhook will handle conversation creation/update
+        console.error('Error creating conversation (non-critical):', conversationError);
+        console.error('Error details:', {
+          message: conversationError.message,
+          stack: conversationError.stack
+        });
+        // Don't block user flow if conversation creation fails
+        // Backend/webhook will try to create it as backup
       }
 
       // Always show success message regardless of conversation creation

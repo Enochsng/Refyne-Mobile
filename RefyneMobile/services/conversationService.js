@@ -2,6 +2,7 @@
 // This service handles all conversation and messaging operations
 
 import { Platform } from 'react-native';
+import apiService from './apiService';
 
 // Override to force production URL even in development mode
 // Set to true to always use production URL (useful for testing against deployed backend)
@@ -208,98 +209,39 @@ export const getConversations = async (userId, userType) => {
   try {
     console.log(`🔍 Starting getConversations for ${userType}: ${userId}`);
     
-    // Test connection and get working URL
-    const workingUrl = await testBackendConnection();
-    if (!workingUrl) {
-      console.warn('⚠️ No working backend URL found');
-      const troubleshootingMsg = `
-Unable to connect to the backend server. Please verify:
-1. Backend server is running (cd backend && node server.js)
-2. Your device and computer are on the same WiFi network
-3. Firewall is not blocking port 3001
-4. The correct IP address is configured in conversationService.js
-
-Current IP attempts: ${API_BASE_URL} and fallback URLs.
-      `.trim();
-      resetConnectionState();
-      throw new Error('No working backend URL found. ' + troubleshootingMsg);
-    }
-
-    console.log(`✅ Using working URL: ${workingUrl}`);
-    const fullUrl = `${workingUrl}/api/conversations/${userId}/${userType}`;
-    console.log(`🌐 Full URL: ${fullUrl}`);
-    
-    // Create a timeout promise with AbortController for better cancellation
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
-    try {
-      const fetchPromise = fetch(fullUrl, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-        },
-        // Add additional fetch options for better network handling
-        cache: 'no-cache',
-        mode: 'cors',
-        signal: controller.signal,
-      });
-      
-      console.log(`⏳ Making request to: ${fullUrl}`);
-      const response = await fetchPromise;
-      clearTimeout(timeoutId);
-
-      console.log(`📡 Response status: ${response.status}`);
-      console.log(`✅ Response ok: ${response.ok}`);
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = await response.json();
-        } catch (parseError) {
-          console.error('Failed to parse error response:', parseError);
-          errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
-        }
-        console.error('❌ API Error Response:', errorData);
-        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log(`✅ Retrieved ${data.conversations?.length || 0} conversations`);
-      return data.conversations || [];
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError' || fetchError.message.includes('aborted')) {
-        throw new Error('Request timed out after 15 seconds. The server may be slow or unreachable.');
-      }
-      throw fetchError;
-    }
+    // Use apiService for rate-limited requests
+    const data = await apiService.get(`/api/conversations/${userId}/${userType}`);
+    console.log(`✅ Retrieved ${data.conversations?.length || 0} conversations`);
+    return data.conversations || [];
   } catch (error) {
+    // Handle 429 rate limit errors gracefully
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+      console.log(`⏳ Rate limited getting conversations - returning empty array`);
+      return [];
+    }
+    
+    // Handle rate limit exceeded message
+    if (error.message && error.message.includes('Rate limit exceeded')) {
+      console.log(`⏳ Rate limit exceeded - returning empty array`);
+      return [];
+    }
+    
     // Use console.warn instead of console.error to avoid triggering React Native error overlay
     console.warn('⚠️ Error getting conversations:', error.message);
-    if (__DEV__) {
-      console.log('Error type:', error.constructor?.name || 'Unknown');
-      console.log('Error message:', error.message || 'Unknown error');
-      console.log('Error stack:', error.stack);
-    }
     
     // Provide more helpful error messages based on error type
     if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-      // This is the most common error - network connectivity issue
       resetConnectionState();
       throw new Error('Network request failed. Unable to reach the backend server. Please check:\n• Backend server is running (node backend/server.js)\n• Device and computer are on the same network\n• Firewall allows connections on port 3001');
     } else if (error.message.includes('No working backend URL found')) {
-      // Reset connection state to allow retry
       resetConnectionState();
-      throw error; // Re-throw with the detailed message we created above
+      throw error;
     } else if (error.message.includes('Request timeout') || error.message.includes('timed out')) {
       throw new Error('Request timed out. The server is taking too long to respond. Please check if the backend server is running and try again.');
     } else if (error.message.includes('Network request failed')) {
       resetConnectionState();
       throw new Error('Network request failed. Please check your internet connection and ensure the backend server is running.');
     } else {
-      // Preserve original error message but add context if needed
       const errorMsg = error.message || 'Failed to get conversations';
       throw new Error(errorMsg);
     }
@@ -334,17 +276,35 @@ export const getConversation = async (conversationId) => {
     console.log(`Response ok: ${response.ok}`);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
+      // Handle 429 rate limit errors gracefully
+      if (response.status === 429) {
+        const errorText = await response.text().catch(() => 'Too Many Requests');
+        console.log(`⏳ Rate limited (429): ${errorText}`);
+        // Return null instead of throwing - don't block user flow
+        return null;
+      }
+      
+      // For other errors, try to parse JSON
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (parseError) {
+        const errorText = await response.text().catch(() => response.statusText);
+        errorData = { message: `HTTP ${response.status}: ${errorText}` };
+      }
+      console.warn('⚠️ API Error Response:', errorData);
       throw new Error(errorData.message || 'Failed to get conversation');
     }
 
     const data = await response.json();
     return data.conversation;
   } catch (error) {
-    console.error('Error getting conversation:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Don't log stack traces for expected errors
+    if (error.message && error.message.includes('429')) {
+      console.log('⚠️ Rate limited getting conversation');
+      return null;
+    }
+    console.warn('⚠️ Error getting conversation:', error.message || 'Unknown error');
     throw new Error(error.message || 'Failed to get conversation');
   }
 };
@@ -386,8 +346,23 @@ export const createConversation = async (conversationData) => {
     console.log(`Response ok: ${response.ok}`);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
+      // Handle 429 rate limit errors gracefully
+      if (response.status === 429) {
+        const errorText = await response.text().catch(() => 'Too Many Requests');
+        console.log(`⏳ Rate limited (429): ${errorText}`);
+        // Still throw for createConversation - this is critical
+        throw new Error('Rate limited. Please try again in a moment.');
+      }
+      
+      // For other errors, try to parse JSON
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (parseError) {
+        const errorText = await response.text().catch(() => response.statusText);
+        errorData = { message: `HTTP ${response.status}: ${errorText}` };
+      }
+      console.warn('⚠️ API Error Response:', errorData);
       throw new Error(errorData.message || 'Failed to create conversation');
     }
 
@@ -395,9 +370,12 @@ export const createConversation = async (conversationData) => {
     console.log('Conversation created successfully:', data.conversation.id);
     return data.conversation;
   } catch (error) {
-    console.error('Error creating conversation:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Don't log stack traces for expected errors
+    if (error.message && error.message.includes('429')) {
+      console.log('⚠️ Rate limited creating conversation - will retry');
+    } else {
+      console.warn('⚠️ Error creating conversation:', error.message || 'Unknown error');
+    }
     throw new Error(error.message || 'Failed to create conversation');
   }
 };
@@ -435,8 +413,23 @@ export const getConversationMessages = async (conversationId, limit = 50, offset
     console.log(`Response ok: ${response.ok}`);
 
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
+      // Handle 429 rate limit errors gracefully
+      if (response.status === 429) {
+        const errorText = await response.text().catch(() => 'Too Many Requests');
+        console.log(`⏳ Rate limited (429): ${errorText}`);
+        // Return empty array instead of throwing - don't block user flow
+        return [];
+      }
+      
+      // For other errors, try to parse JSON
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (parseError) {
+        const errorText = await response.text().catch(() => response.statusText);
+        errorData = { message: `HTTP ${response.status}: ${errorText}` };
+      }
+      console.warn('⚠️ API Error Response:', errorData);
       throw new Error(errorData.message || 'Failed to get messages');
     }
 
@@ -444,9 +437,12 @@ export const getConversationMessages = async (conversationId, limit = 50, offset
     console.log(`Retrieved ${data.messages.length} messages`);
     return data.messages;
   } catch (error) {
-    console.error('Error getting messages:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Don't log stack traces for expected errors
+    if (error.message && error.message.includes('429')) {
+      console.log('⚠️ Rate limited getting messages');
+      return [];
+    }
+    console.warn('⚠️ Error getting messages:', error.message || 'Unknown error');
     throw new Error(error.message || 'Failed to get messages');
   }
 };
@@ -494,7 +490,21 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
     console.log(`Response ok: ${response.ok}`);
 
     if (!response.ok) {
-      const errorData = await response.json();
+      // Handle 429 rate limit errors gracefully
+      if (response.status === 429) {
+        const errorText = await response.text().catch(() => 'Too Many Requests');
+        console.log(`⏳ Rate limited (429): ${errorText}`);
+        throw new Error('Rate limited. Please try again in a moment.');
+      }
+      
+      // Try to parse JSON error response
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch (parseError) {
+        const errorText = await response.text().catch(() => response.statusText);
+        errorData = { message: `HTTP ${response.status}: ${errorText}` };
+      }
       
       // For daily message limit errors, throw error without logging
       if (errorData.error === 'Daily message limit reached' || errorData.dailyLimitReached) {
@@ -508,8 +518,8 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
         throw new Error(errorData.message || 'This chat has expired and is now read-only. Please purchase a new package to continue messaging.');
       }
       
-      // For other errors, log and throw
-      console.error('API Error Response:', JSON.stringify(errorData, null, 2));
+      // For other errors, use warn instead of error
+      console.warn('⚠️ API Error Response:', errorData);
       throw new Error(errorData.message || 'Failed to send message');
     }
 
@@ -537,9 +547,10 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
     
     if (!isDailyLimitError && !isChatExpiredError) {
       // Only log errors that are not daily limit or chat expiry
-      console.error('Error sending message:', error);
-      console.error('Error type:', error.constructor?.name || 'Unknown');
-      console.error('Error message:', error.message || 'Unknown error');
+      // Use warn instead of error to reduce spam
+      if (error.message && !error.message.includes('429') && !error.message.includes('Rate limit')) {
+        console.warn('⚠️ Error sending message:', error.message || 'Unknown error');
+      }
     }
     
     // Re-throw the error so it can be handled by the caller
@@ -552,46 +563,28 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
  */
 export const markConversationAsRead = async (conversationId, userType) => {
   try {
-    // Test connection and get working URL
-    const workingUrl = await testBackendConnection();
-    if (!workingUrl) {
-      throw new Error('No working backend URL found');
-    }
-
     console.log(`Marking conversation as read: ${conversationId} for ${userType}`);
-    console.log(`Using working URL: ${workingUrl}`);
     
-    const fullUrl = `${workingUrl}/api/conversations/${conversationId}/read`;
-    console.log(`Full URL: ${fullUrl}`);
-    
-    const response = await fetch(fullUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({
-        userType
-      }),
-    });
-
-    console.log(`Response status: ${response.status}`);
-    console.log(`Response ok: ${response.ok}`);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
-      throw new Error(errorData.message || 'Failed to mark conversation as read');
-    }
-
-    const data = await response.json();
+    // Use apiService for rate-limited requests
+    const data = await apiService.post(`/api/conversations/${conversationId}/read`, { userType });
     console.log('Conversation marked as read');
     return data.conversation;
   } catch (error) {
-    console.error('Error marking conversation as read:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
-    throw new Error(error.message || 'Failed to mark conversation as read');
+    // Handle 429 rate limit errors gracefully - marking as read is not critical
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+      console.log(`⏳ Rate limited marking conversation as read - skipping`);
+      return null;
+    }
+    
+    // Handle rate limit exceeded message
+    if (error.message && error.message.includes('Rate limit exceeded')) {
+      console.log(`⏳ Rate limit exceeded - skipping mark as read`);
+      return null;
+    }
+    
+    // Don't log errors for marking as read - it's not critical
+    // Return null instead of throwing - marking as read is not critical
+    return null;
   }
 };
 
@@ -600,36 +593,10 @@ export const markConversationAsRead = async (conversationId, userType) => {
  */
 export const getRemainingDailyMessages = async (conversationId) => {
   try {
-    // Test connection and get working URL
-    const workingUrl = await testBackendConnection();
-    if (!workingUrl) {
-      throw new Error('No working backend URL found');
-    }
-
     console.log(`Getting remaining daily messages for conversation: ${conversationId}`);
-    console.log(`Using working URL: ${workingUrl}`);
     
-    const fullUrl = `${workingUrl}/api/conversations/${conversationId}/daily-messages`;
-    console.log(`Full URL: ${fullUrl}`);
-    
-    const response = await fetch(fullUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    console.log(`Response status: ${response.status}`);
-    console.log(`Response ok: ${response.ok}`);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
-      // Return default values if there's an error
-      return { remaining: 5, total: 5, used: 0, error: errorData.message || 'Failed to get daily messages' };
-    }
-
-    const data = await response.json();
+    // Use apiService for rate-limited requests
+    const data = await apiService.get(`/api/conversations/${conversationId}/daily-messages`);
     console.log(`📊 [getRemainingDailyMessages] Retrieved daily message info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
     const messageInfo = {
@@ -642,9 +609,19 @@ export const getRemainingDailyMessages = async (conversationId) => {
     console.log(`📊 [getRemainingDailyMessages] Returning message info:`, messageInfo);
     return messageInfo;
   } catch (error) {
-    console.error('Error getting remaining daily messages:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Handle 429 rate limit errors gracefully
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+      console.log(`⏳ Rate limited getting daily messages - returning defaults`);
+      return { remaining: 5, total: 5, used: 0, error: 'Rate limited' };
+    }
+    
+    // Handle rate limit exceeded message
+    if (error.message && error.message.includes('Rate limit exceeded')) {
+      console.log(`⏳ Rate limit exceeded - returning defaults`);
+      return { remaining: 5, total: 5, used: 0, error: 'Rate limited' };
+    }
+    
+    // Don't log stack traces - just return defaults
     // Return default values on error
     return { remaining: 5, total: 5, used: 0, error: error.message || 'Failed to get daily messages' };
   }
@@ -655,37 +632,10 @@ export const getRemainingDailyMessages = async (conversationId) => {
  */
 export const getRemainingClips = async (conversationId) => {
   try {
-    // Test connection and get working URL
-    const workingUrl = await testBackendConnection();
-    if (!workingUrl) {
-      throw new Error('No working backend URL found');
-    }
-
     console.log(`Getting remaining clips for conversation: ${conversationId}`);
-    console.log(`Using working URL: ${workingUrl}`);
     
-    const fullUrl = `${workingUrl}/api/conversations/${conversationId}/clips`;
-    console.log(`Full URL: ${fullUrl}`);
-    
-    const response = await fetch(fullUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-
-    console.log(`Response status: ${response.status}`);
-    console.log(`Response ok: ${response.ok}`);
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error('API Error Response:', errorData);
-      // Return default values if there's an error (e.g., no session found)
-      return { remaining: 0, total: 0, used: 0, error: errorData.message || 'Failed to get clips' };
-    }
-
-    const data = await response.json();
-    console.log(`📊 [getRemainingClips] Full API response:`, JSON.stringify(data, null, 2));
+    // Use apiService for rate-limited requests
+    const data = await apiService.get(`/api/conversations/${conversationId}/clips`);
     console.log(`📊 [getRemainingClips] Retrieved clip info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
     // The backend returns { success: true, remaining, total, used, chatExpiry }
@@ -700,11 +650,21 @@ export const getRemainingClips = async (conversationId) => {
     console.log(`📊 [getRemainingClips] Returning clip info:`, clipInfo);
     return clipInfo;
   } catch (error) {
-    console.error('Error getting remaining clips:', error);
-    console.error('Error type:', error.constructor?.name || 'Unknown');
-    console.error('Error message:', error.message || 'Unknown error');
+    // Handle 429 rate limit errors gracefully
+    if (error.status === 429 || (error.message && error.message.includes('429'))) {
+      console.log(`⏳ Rate limited getting clips - returning defaults`);
+      return { remaining: 0, total: 0, used: 0, error: 'Rate limited', chatExpiry: null };
+    }
+    
+    // Handle rate limit exceeded message
+    if (error.message && error.message.includes('Rate limit exceeded')) {
+      console.log(`⏳ Rate limit exceeded - returning defaults`);
+      return { remaining: 0, total: 0, used: 0, error: 'Rate limited', chatExpiry: null };
+    }
+    
+    // Don't log stack traces - just return defaults
     // Return default values on error
-    return { remaining: 0, total: 0, used: 0, error: error.message || 'Failed to get clips' };
+    return { remaining: 0, total: 0, used: 0, error: error.message || 'Failed to get clips', chatExpiry: null };
   }
 };
 
