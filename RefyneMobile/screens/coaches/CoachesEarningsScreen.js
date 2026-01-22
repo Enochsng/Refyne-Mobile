@@ -292,9 +292,41 @@ export default function CoachesEarningsScreen({ navigation }) {
       }
     } catch (error) {
       console.error('Error connecting to Stripe:', error);
+      console.error('Error details:', {
+        message: error.message,
+        status: error.status,
+        details: error.details
+      });
+      
+      // More specific error handling
+      let errorMessage = 'An unexpected error occurred while starting Stripe onboarding.';
+      let errorTitle = 'Connection Error';
+      
+      if (error.status === 500) {
+        errorTitle = 'Server Error';
+        errorMessage = error.message || 'The server encountered an error while processing your request. This could be due to:\n\n• Stripe API configuration issue\n• Database connection problem\n• Missing required information\n\nPlease try again or contact support if the issue persists.';
+      } else if (error.status === 400) {
+        errorTitle = 'Validation Error';
+        errorMessage = error.message || 'Please check that all required information is provided correctly.';
+      } else if (error.message.includes('No working backend URL found')) {
+        errorMessage = 'Backend server is not accessible. Please check your network connection and ensure the backend server is running.';
+      } else if (error.message.includes('Request timeout')) {
+        errorMessage = 'Request timed out. Please check your internet connection and try again.';
+      } else if (error.message.includes('Network request failed')) {
+        errorMessage = 'Network connection failed. Please check your internet connection and ensure the backend server is running.';
+      } else if (error.message.includes('Server error')) {
+        errorTitle = 'Server Error';
+        errorMessage = error.message;
+      } else if (error.message.includes('Validation error')) {
+        errorTitle = 'Validation Error';
+        errorMessage = error.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       Alert.alert(
-        'Backend Connection Required',
-        'Unable to connect to the payment server. Please ensure:\n\n1. The backend server is running\n2. Your device is connected to the same network\n3. The server is accessible at the configured URL\n\nYou can also try again later when the server is available.',
+        errorTitle,
+        errorMessage,
         [
           {
             text: 'Try Again',

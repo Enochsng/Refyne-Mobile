@@ -29,7 +29,8 @@ const FALLBACK_URLS = [
   'http://192.168.1.79:3001/api',   // Alternative IP
   'http://localhost:3001/api',       // Localhost (for simulator)
   'http://10.0.2.2:3001/api',       // Android emulator
-  'http://127.0.0.1:3001/api',      // Loopback
+  'http://127.0.0.1:3001/api',
+  'https://app.refyne-coaching.com'      // Loopback
 ];
 ```
 
@@ -58,7 +59,7 @@ Use Working URL for All API Calls → Success!
 ```
 
 ### Fallback System:
-1. **Primary**: `http://10.0.0.50:3001/api` (Your computer's IP)
+1. **Primary**: `https://app.refyne-coaching.com` (Your computer's IP)
 2. **Fallback 1**: `http://192.168.1.79:3001/api` (Alternative IP)
 3. **Fallback 2**: `http://localhost:3001/api` (iOS Simulator)
 4. **Fallback 3**: `http://10.0.2.2:3001/api` (Android Emulator)
@@ -82,7 +83,7 @@ Use Working URL for All API Calls → Success!
 ## 🧪 Testing Results
 
 The backend API is confirmed working:
-- ✅ **Backend accessible**: `http://10.0.0.50:3001/api` is reachable
+- ✅ **Backend accessible**: `https://app.refyne-coaching.com` is reachable
 - ✅ **Conversations endpoint**: Returns data successfully
 - ✅ **CORS configured**: Allows mobile app connections
 - ✅ **Rate limiting**: Properly configured

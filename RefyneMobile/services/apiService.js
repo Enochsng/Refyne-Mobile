@@ -69,9 +69,30 @@ class APIService {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Try to extract error message from response body
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          let errorDetails = null;
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+            errorDetails = errorData;
+          } catch (parseError) {
+            // If response is not JSON, try to get text
+            try {
+              const errorText = await response.text();
+              if (errorText) {
+                errorMessage = errorText;
+              }
+            } catch (textError) {
+              // Use default error message
+            }
+          }
+          
+          const error = new Error(errorMessage);
           error.status = response.status;
           error.response = response;
+          error.details = errorDetails;
           throw error;
         }
 
@@ -121,9 +142,30 @@ class APIService {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Try to extract error message from response body
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          let errorDetails = null;
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+            errorDetails = errorData;
+          } catch (parseError) {
+            // If response is not JSON, try to get text
+            try {
+              const errorText = await response.text();
+              if (errorText) {
+                errorMessage = errorText;
+              }
+            } catch (textError) {
+              // Use default error message
+            }
+          }
+          
+          const error = new Error(errorMessage);
           error.status = response.status;
           error.response = response;
+          error.details = errorDetails;
           throw error;
         }
 
@@ -173,9 +215,30 @@ class APIService {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Try to extract error message from response body
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          let errorDetails = null;
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+            errorDetails = errorData;
+          } catch (parseError) {
+            // If response is not JSON, try to get text
+            try {
+              const errorText = await response.text();
+              if (errorText) {
+                errorMessage = errorText;
+              }
+            } catch (textError) {
+              // Use default error message
+            }
+          }
+          
+          const error = new Error(errorMessage);
           error.status = response.status;
           error.response = response;
+          error.details = errorDetails;
           throw error;
         }
 
@@ -223,9 +286,30 @@ class APIService {
         clearTimeout(timeoutId);
 
         if (!response.ok) {
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Try to extract error message from response body
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          let errorDetails = null;
+          
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.message || errorData.error || errorMessage;
+            errorDetails = errorData;
+          } catch (parseError) {
+            // If response is not JSON, try to get text
+            try {
+              const errorText = await response.text();
+              if (errorText) {
+                errorMessage = errorText;
+              }
+            } catch (textError) {
+              // Use default error message
+            }
+          }
+          
+          const error = new Error(errorMessage);
           error.status = response.status;
           error.response = response;
+          error.details = errorDetails;
           throw error;
         }
 

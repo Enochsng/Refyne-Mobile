@@ -191,13 +191,37 @@ class StripeConnectService {
   async startOnboarding(onboardingData) {
     try {
       console.log('🚀 Starting Stripe Connect onboarding...');
+      console.log('📤 Onboarding data:', onboardingData);
       
       const result = await apiService.post('/api/connect/start-onboarding', onboardingData);
       
       console.log('✅ Onboarding started successfully');
+      console.log('📥 Response:', result);
+      
+      // Validate response structure
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to start onboarding');
+      }
+      
+      if (!result.onboardingLink || !result.onboardingLink.url) {
+        throw new Error('Onboarding link not received from server');
+      }
+      
       return result;
     } catch (error) {
       console.error('❌ Error starting onboarding:', error);
+      
+      // Provide more helpful error messages
+      if (error.status === 500) {
+        const errorMsg = error.message || error.details?.message || 'Server error occurred. Please try again later.';
+        throw new Error(`Server error: ${errorMsg}`);
+      } else if (error.status === 400) {
+        const errorMsg = error.message || error.details?.details || 'Invalid request data. Please check your information.';
+        throw new Error(`Validation error: ${errorMsg}`);
+      } else if (error.message.includes('No working backend URL')) {
+        throw new Error('Unable to connect to server. Please check your internet connection.');
+      }
+      
       throw error;
     }
   }

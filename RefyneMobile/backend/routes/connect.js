@@ -6,6 +6,16 @@ const { supabase } = require('../services/database');
 
 const router = express.Router();
 
+// Helper function to ensure APP_URL has a protocol
+function getAppUrl() {
+  let appUrl = process.env.APP_URL || 'https://app.refyne-coaching.com';
+  if (!appUrl.startsWith('http://') && !appUrl.startsWith('https://')) {
+    // If no protocol, default to https for production
+    appUrl = `https://${appUrl}`;
+  }
+  return appUrl;
+}
+
 // Validation schemas
 const createAccountSchema = Joi.object({
   coachId: Joi.string().required(),
@@ -257,8 +267,8 @@ router.post('/account/:id/onboarding-link', async (req, res) => {
     
     const accountLink = await stripe.accountLinks.create({
       account: id,
-      refresh_url: refresh_url || `${process.env.APP_URL}/coach/earnings?refresh=true`,
-      return_url: return_url || `${process.env.APP_URL}/coach/earnings?success=true`,
+      refresh_url: refresh_url || `${getAppUrl()}/coach/earnings?refresh=true`,
+      return_url: return_url || `${getAppUrl()}/coach/earnings?success=true`,
       type: 'account_onboarding',
     });
     
@@ -326,11 +336,23 @@ router.post('/start-onboarding', async (req, res) => {
       }
     });
 
+    // Get app URL with protocol
+    const appUrl = getAppUrl();
+    const refreshUrl = `${appUrl}/coach/earnings?refresh=true`;
+    const returnUrl = `${appUrl}/coach/earnings?success=true&accountId=${account.id}`;
+    
+    // Log URLs for debugging
+    console.log('🔍 Creating onboarding link with URLs:');
+    console.log('   APP_URL from env:', process.env.APP_URL);
+    console.log('   Final appUrl:', appUrl);
+    console.log('   refresh_url:', refreshUrl);
+    console.log('   return_url:', returnUrl);
+
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: account.id,
-      refresh_url: `${process.env.APP_URL}/coach/earnings?refresh=true`,
-      return_url: `${process.env.APP_URL}/coach/earnings?success=true&accountId=${account.id}`,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
       type: 'account_onboarding',
     });
 
@@ -532,8 +554,8 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: dbAccount.stripe_account_id,
-      refresh_url: refresh_url || `${process.env.APP_URL}/coach/earnings?refresh=true`,
-      return_url: return_url || `${process.env.APP_URL}/coach/earnings?success=true&accountId=${dbAccount.stripe_account_id}`,
+      refresh_url: refresh_url || `${getAppUrl()}/coach/earnings?refresh=true`,
+      return_url: return_url || `${getAppUrl()}/coach/earnings?success=true&accountId=${dbAccount.stripe_account_id}`,
       type: 'account_onboarding',
     });
     
