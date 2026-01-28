@@ -16,6 +16,36 @@ function getAppUrl() {
   return appUrl;
 }
 
+// Helper function to validate Stripe account ID format
+function isValidStripeAccountId(accountId) {
+  if (!accountId || typeof accountId !== 'string') {
+    return false;
+  }
+  // Stripe account IDs start with "acct_" followed by alphanumeric characters
+  // Format: acct_xxxxxxxxxxxxx
+  const stripeAccountIdPattern = /^acct_[a-zA-Z0-9]{14,}$/;
+  return stripeAccountIdPattern.test(accountId);
+}
+
+// Helper function to normalize redirect URLs to ensure they have http:// or https:// protocol
+function normalizeRedirectUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return null;
+  }
+  
+  // Trim whitespace
+  url = url.trim();
+  
+  // If URL already has protocol, return as is
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+  
+  // If URL doesn't have protocol, default to https://
+  // This handles cases like "example.com/path" -> "https://example.com/path"
+  return `https://${url}`;
+}
+
 // Validation schemas
 const createAccountSchema = Joi.object({
   coachId: Joi.string().required(),
@@ -136,7 +166,7 @@ router.post('/create-account', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error creating Connect account:', err);
+    console.error('Error creating Connect account:', err.message);
     res.status(500).json({
       error: 'Failed to create Connect account',
       message: err.message
@@ -151,6 +181,14 @@ router.post('/create-account', async (req, res) => {
 router.get('/account/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Validate account ID format
+    if (!isValidStripeAccountId(id)) {
+      return res.status(400).json({
+        error: 'Invalid account ID format',
+        message: 'Stripe account ID must start with "acct_" followed by alphanumeric characters'
+      });
+    }
     
     const account = await stripe.accounts.retrieve(id);
     
@@ -170,7 +208,16 @@ router.get('/account/:id', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error retrieving Connect account:', err);
+    // Handle Stripe invalid_request_error specifically
+    if (err.type === 'StripeInvalidRequestError' || err.rawType === 'invalid_request_error') {
+      console.error('Error retrieving Connect account: Invalid account ID or account does not exist:', err.message);
+      return res.status(400).json({
+        error: 'Account not found',
+        message: 'The Stripe account does not exist or is invalid. Please verify the account ID.'
+      });
+    }
+    
+    console.error('Error retrieving Connect account:', err.message);
     res.status(500).json({
       error: 'Failed to retrieve Connect account',
       message: err.message
@@ -221,7 +268,7 @@ router.put('/account/:id', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error updating Connect account:', err);
+    console.error('Error updating Connect account:', err.message);
     res.status(500).json({
       error: 'Failed to update Connect account',
       message: err.message
@@ -248,7 +295,7 @@ router.post('/account/:id/login-link', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error creating login link:', err);
+    console.error('Error creating login link:', err.message);
     res.status(500).json({
       error: 'Failed to create login link',
       message: err.message
@@ -265,10 +312,29 @@ router.post('/account/:id/onboarding-link', async (req, res) => {
     const { id } = req.params;
     const { refresh_url, return_url } = req.body;
     
+    // Normalize redirect URLs to ensure they have proper protocol
+    const normalizedRefreshUrl = normalizeRedirectUrl(refresh_url) || `${getAppUrl()}/coach/earnings?refresh=true`;
+    const normalizedReturnUrl = normalizeRedirectUrl(return_url) || `${getAppUrl()}/coach/earnings?success=true`;
+    
+    // Validate that URLs have proper protocol
+    if (!normalizedRefreshUrl.startsWith('http://') && !normalizedRefreshUrl.startsWith('https://')) {
+      return res.status(400).json({
+        error: 'Invalid refresh URL',
+        message: 'Refresh URL must begin with http:// or https://'
+      });
+    }
+    
+    if (!normalizedReturnUrl.startsWith('http://') && !normalizedReturnUrl.startsWith('https://')) {
+      return res.status(400).json({
+        error: 'Invalid return URL',
+        message: 'Return URL must begin with http:// or https://'
+      });
+    }
+    
     const accountLink = await stripe.accountLinks.create({
       account: id,
-      refresh_url: refresh_url || `${getAppUrl()}/coach/earnings?refresh=true`,
-      return_url: return_url || `${getAppUrl()}/coach/earnings?success=true`,
+      refresh_url: normalizedRefreshUrl,
+      return_url: normalizedReturnUrl,
       type: 'account_onboarding',
     });
     
@@ -281,7 +347,18 @@ router.post('/account/:id/onboarding-link', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error creating onboarding link:', err);
+    // Handle Stripe redirect URL errors specifically
+    if (err.type === 'StripeInvalidRequestError' || err.rawType === 'invalid_request_error') {
+      if (err.message && err.message.includes('Redirect urls must begin with HTTP or HTTPS')) {
+        console.error('Error creating onboarding link: Invalid redirect URL format:', err.message);
+        return res.status(400).json({
+          error: 'Invalid redirect URL',
+          message: 'Redirect URLs must begin with http:// or https://. Please check the URLs provided.'
+        });
+      }
+    }
+    
+    console.error('Error creating onboarding link:', err.message);
     res.status(500).json({
       error: 'Failed to create onboarding link',
       message: err.message
@@ -341,18 +418,39 @@ router.post('/start-onboarding', async (req, res) => {
     const refreshUrl = `${appUrl}/coach/earnings?refresh=true`;
     const returnUrl = `${appUrl}/coach/earnings?success=true&accountId=${account.id}`;
     
+    // Normalize and validate URLs to ensure they have proper protocol
+    const normalizedRefreshUrl = normalizeRedirectUrl(refreshUrl);
+    const normalizedReturnUrl = normalizeRedirectUrl(returnUrl);
+    
+    // Validate that URLs have proper protocol
+    if (!normalizedRefreshUrl || (!normalizedRefreshUrl.startsWith('http://') && !normalizedRefreshUrl.startsWith('https://'))) {
+      console.error('❌ Invalid refresh URL format:', refreshUrl);
+      return res.status(500).json({
+        error: 'Invalid URL configuration',
+        message: 'Refresh URL must begin with http:// or https://. Please check APP_URL environment variable.'
+      });
+    }
+    
+    if (!normalizedReturnUrl || (!normalizedReturnUrl.startsWith('http://') && !normalizedReturnUrl.startsWith('https://'))) {
+      console.error('❌ Invalid return URL format:', returnUrl);
+      return res.status(500).json({
+        error: 'Invalid URL configuration',
+        message: 'Return URL must begin with http:// or https://. Please check APP_URL environment variable.'
+      });
+    }
+    
     // Log URLs for debugging
     console.log('🔍 Creating onboarding link with URLs:');
     console.log('   APP_URL from env:', process.env.APP_URL);
     console.log('   Final appUrl:', appUrl);
-    console.log('   refresh_url:', refreshUrl);
-    console.log('   return_url:', returnUrl);
+    console.log('   refresh_url:', normalizedRefreshUrl);
+    console.log('   return_url:', normalizedReturnUrl);
 
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: account.id,
-      refresh_url: refreshUrl,
-      return_url: returnUrl,
+      refresh_url: normalizedRefreshUrl,
+      return_url: normalizedReturnUrl,
       type: 'account_onboarding',
     });
 
@@ -397,7 +495,18 @@ router.post('/start-onboarding', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error starting Connect onboarding:', err);
+    // Handle Stripe redirect URL errors specifically
+    if (err.type === 'StripeInvalidRequestError' || err.rawType === 'invalid_request_error') {
+      if (err.message && err.message.includes('Redirect urls must begin with HTTP or HTTPS')) {
+        console.error('Error starting Connect onboarding: Invalid redirect URL format:', err.message);
+        return res.status(400).json({
+          error: 'Invalid redirect URL',
+          message: 'Redirect URLs must begin with http:// or https://. Please check APP_URL environment variable.'
+        });
+      }
+    }
+    
+    console.error('Error starting Connect onboarding:', err.message);
     res.status(500).json({
       error: 'Failed to start Connect onboarding',
       message: err.message
@@ -452,7 +561,7 @@ router.post('/transfer', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error creating transfer:', err);
+    console.error('Error creating transfer:', err.message);
     res.status(500).json({
       error: 'Failed to create transfer',
       message: err.message
@@ -482,7 +591,7 @@ router.get('/account/:id/balance', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error retrieving account balance:', err);
+    console.error('Error retrieving account balance:', err.message);
     res.status(500).json({
       error: 'Failed to retrieve account balance',
       message: err.message
@@ -521,7 +630,7 @@ router.get('/account/:id/payouts', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error retrieving payouts:', err);
+    console.error('Error retrieving payouts:', err.message);
     res.status(500).json({
       error: 'Failed to retrieve payouts',
       message: err.message
@@ -551,11 +660,30 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
       });
     }
     
+    // Normalize redirect URLs to ensure they have proper protocol
+    const normalizedRefreshUrl = normalizeRedirectUrl(refresh_url) || `${getAppUrl()}/coach/earnings?refresh=true`;
+    const normalizedReturnUrl = normalizeRedirectUrl(return_url) || `${getAppUrl()}/coach/earnings?success=true&accountId=${dbAccount.stripe_account_id}`;
+    
+    // Validate that URLs have proper protocol
+    if (!normalizedRefreshUrl.startsWith('http://') && !normalizedRefreshUrl.startsWith('https://')) {
+      return res.status(400).json({
+        error: 'Invalid refresh URL',
+        message: 'Refresh URL must begin with http:// or https://'
+      });
+    }
+    
+    if (!normalizedReturnUrl.startsWith('http://') && !normalizedReturnUrl.startsWith('https://')) {
+      return res.status(400).json({
+        error: 'Invalid return URL',
+        message: 'Return URL must begin with http:// or https://'
+      });
+    }
+    
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: dbAccount.stripe_account_id,
-      refresh_url: refresh_url || `${getAppUrl()}/coach/earnings?refresh=true`,
-      return_url: return_url || `${getAppUrl()}/coach/earnings?success=true&accountId=${dbAccount.stripe_account_id}`,
+      refresh_url: normalizedRefreshUrl,
+      return_url: normalizedReturnUrl,
       type: 'account_onboarding',
     });
     
@@ -576,7 +704,18 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error getting onboarding link:', err);
+    // Handle Stripe redirect URL errors specifically
+    if (err.type === 'StripeInvalidRequestError' || err.rawType === 'invalid_request_error') {
+      if (err.message && err.message.includes('Redirect urls must begin with HTTP or HTTPS')) {
+        console.error('Error getting onboarding link: Invalid redirect URL format:', err.message);
+        return res.status(400).json({
+          error: 'Invalid redirect URL',
+          message: 'Redirect URLs must begin with http:// or https://. Please check the URLs provided.'
+        });
+      }
+    }
+    
+    console.error('Error getting onboarding link:', err.message);
     res.status(500).json({
       error: 'Failed to get onboarding link',
       message: err.message
@@ -852,7 +991,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
         console.log(`✅ Found ${uniqueCustomers} unique customers from conversations`);
       }
     } catch (error) {
-      console.error('Error counting customers from conversations:', error);
+      console.error('Error counting customers from conversations:', error.message);
       // Fallback to payment-based counting
       uniqueCustomers = new Set(
         uniqueTransfers
@@ -883,7 +1022,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
     });
     
   } catch (err) {
-    console.error('Error fetching coach transfers:', err);
+    console.error('Error fetching coach transfers:', err.message);
     res.status(500).json({
       error: 'Failed to fetch transfers',
       message: err.message
@@ -948,6 +1087,31 @@ router.get('/coach/:coachId/status', async (req, res) => {
       });
     }
     
+    // Validate account ID format before making API call
+    if (!isValidStripeAccountId(dbAccount.stripe_account_id)) {
+      console.error('❌ Invalid Stripe account ID format:', dbAccount.stripe_account_id);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID format',
+        message: 'The Stripe account ID stored in the database is invalid. Please contact support.',
+        account: {
+          coachId: dbAccount.coach_id,
+          stripeAccountId: dbAccount.stripe_account_id,
+          accountType: 'express',
+          country: 'CA',
+          email: dbAccount.email,
+          chargesEnabled: dbAccount.charges_enabled,
+          payoutsEnabled: dbAccount.payouts_enabled,
+          detailsSubmitted: dbAccount.details_submitted,
+          onboardingCompleted: dbAccount.onboarding_completed,
+          businessProfile: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        warning: 'Using cached data - account ID is invalid'
+      });
+    }
+    
     // Fetch current status from Stripe API
     let stripeAccount;
     try {
@@ -959,8 +1123,32 @@ router.get('/coach/:coachId/status', async (req, res) => {
         details_submitted: stripeAccount.details_submitted
       });
     } catch (stripeError) {
+      // Handle Stripe invalid_request_error specifically
+      if (stripeError.type === 'StripeInvalidRequestError' || stripeError.rawType === 'invalid_request_error') {
+        console.error('❌ Error fetching from Stripe API: Account does not exist or is invalid:', stripeError.message);
+        // If account doesn't exist in Stripe, return database data with warning
+        return res.json({
+          success: true,
+          account: {
+            coachId: dbAccount.coach_id,
+            stripeAccountId: dbAccount.stripe_account_id,
+            accountType: 'express',
+            country: 'CA',
+            email: dbAccount.email,
+            chargesEnabled: dbAccount.charges_enabled,
+            payoutsEnabled: dbAccount.payouts_enabled,
+            detailsSubmitted: dbAccount.details_submitted,
+            onboardingCompleted: dbAccount.onboarding_completed,
+            businessProfile: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          warning: 'Account not found in Stripe - using cached data. The account may have been deleted or never created.'
+        });
+      }
+      
       console.error('❌ Error fetching from Stripe API:', stripeError.message);
-      // If Stripe API fails, return database data
+      // If Stripe API fails for other reasons, return database data
       return res.json({
         success: true,
         account: {
@@ -1001,7 +1189,7 @@ router.get('/coach/:coachId/status', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error in temporary status endpoint:', error);
+    console.error('❌ Error in temporary status endpoint:', error.message);
     return res.status(500).json({
       error: 'Failed to retrieve coach account status',
       message: error.message
@@ -1098,6 +1286,31 @@ router.get('/coach/:coachId/status-original', async (req, res) => {
       });
     }
     
+    // Validate account ID format before making API call
+    if (!isValidStripeAccountId(dbAccount.stripe_account_id)) {
+      console.error('❌ Invalid Stripe account ID format:', dbAccount.stripe_account_id);
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid account ID format',
+        message: 'The Stripe account ID stored in the database is invalid. Please contact support.',
+        account: {
+          coachId: dbAccount.coach_id,
+          stripeAccountId: dbAccount.stripe_account_id,
+          accountType: dbAccount.account_type,
+          country: dbAccount.country,
+          email: dbAccount.email,
+          chargesEnabled: dbAccount.charges_enabled,
+          payoutsEnabled: dbAccount.payouts_enabled,
+          detailsSubmitted: dbAccount.details_submitted,
+          onboardingCompleted: dbAccount.onboarding_completed,
+          businessProfile: dbAccount.business_profile || null,
+          createdAt: dbAccount.created_at,
+          updatedAt: dbAccount.updated_at
+        },
+        warning: 'Using cached data - account ID is invalid'
+      });
+    }
+    
     // Fetch current status from Stripe API
     let stripeAccount;
     try {
@@ -1114,8 +1327,32 @@ router.get('/coach/:coachId/status-original', async (req, res) => {
         business_profile: stripeAccount.business_profile?.name
       });
     } catch (stripeError) {
-      console.error('Error fetching from Stripe API:', stripeError);
-      // If Stripe API fails, return database data
+      // Handle Stripe invalid_request_error specifically
+      if (stripeError.type === 'StripeInvalidRequestError' || stripeError.rawType === 'invalid_request_error') {
+        console.error('Error fetching from Stripe API: Account does not exist or is invalid:', stripeError.message);
+        // If account doesn't exist in Stripe, return database data with warning
+        return res.json({
+          success: true,
+          account: {
+            coachId: dbAccount.coach_id,
+            stripeAccountId: dbAccount.stripe_account_id,
+            accountType: dbAccount.account_type,
+            country: dbAccount.country,
+            email: dbAccount.email,
+            chargesEnabled: dbAccount.charges_enabled,
+            payoutsEnabled: dbAccount.payouts_enabled,
+            detailsSubmitted: dbAccount.details_submitted,
+            onboardingCompleted: dbAccount.onboarding_completed,
+            businessProfile: dbAccount.business_profile || null,
+            createdAt: dbAccount.created_at,
+            updatedAt: dbAccount.updated_at
+          },
+          warning: 'Account not found in Stripe - using cached data. The account may have been deleted or never created.'
+        });
+      }
+      
+      console.error('Error fetching from Stripe API:', stripeError.message);
+      // If Stripe API fails for other reasons, return database data
       return res.json({
         success: true,
         account: {
@@ -1189,7 +1426,7 @@ router.get('/coach/:coachId/status-original', async (req, res) => {
     res.json(finalStatus);
 
   } catch (err) {
-    console.error('Error retrieving coach account status:', err);
+    console.error('Error retrieving coach account status:', err.message);
     res.status(500).json({
       error: 'Failed to retrieve coach account status',
       message: err.message
@@ -1212,7 +1449,7 @@ router.get('/coaches/list', async (req, res) => {
       .order('created_at', { ascending: false });
     
     if (error) {
-      console.error('Database error:', error);
+      console.error('Database error:', error.message);
       return res.status(500).json({
         error: 'Database error',
         message: error.message
@@ -1237,7 +1474,7 @@ router.get('/coaches/list', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error listing coach accounts:', err);
+    console.error('Error listing coach accounts:', err.message);
     res.status(500).json({
       error: 'Failed to list coach accounts',
       message: err.message
