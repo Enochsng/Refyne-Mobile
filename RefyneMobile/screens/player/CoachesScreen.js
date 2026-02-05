@@ -195,25 +195,27 @@ export default function CoachesScreen({ route, navigation }) {
   // Optimized animation configuration for buttery smooth swipes with enhanced bounce
   const animationConfig = useRef({
     spring: {
-      tension: 300,
-      friction: 7,
+      tension: 400,
+      friction: 8,
       useNativeDriver: true,
     },
     bouncySpring: {
-      tension: 200,
-      friction: 5,
+      tension: 300,
+      friction: 6,
       useNativeDriver: true,
     },
     timing: {
-      duration: 350,
-      easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+      duration: 400,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother ease-in-out
       useNativeDriver: true,
     },
     quickTiming: {
-      duration: 200,
-      easing: Easing.out(Easing.quad),
+      duration: 250,
+      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material design easing
       useNativeDriver: true,
-    }
+    },
+    smoothEasing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material design standard easing
+    smoothOut: Easing.bezier(0.0, 0.0, 0.2, 1), // Smooth exit
   }).current;
   
 
@@ -329,7 +331,7 @@ export default function CoachesScreen({ route, navigation }) {
     }
   };
 
-  // Enhanced gesture handler for fun, dynamic swipes
+  // Enhanced gesture handler for smooth, fluid swipes
   const onGestureEvent = useCallback(Animated.event(
     [{ nativeEvent: { translationX: translateX } }],
     { 
@@ -337,48 +339,58 @@ export default function CoachesScreen({ route, navigation }) {
       listener: (event) => {
         const { translationX } = event.nativeEvent;
         const absTranslationX = Math.abs(translationX);
-        const progress = Math.min(absTranslationX / (width * 0.3), 1);
+        const normalizedProgress = Math.min(absTranslationX / (width * 0.4), 1);
         
-        // Subtle vertical movement for dynamic feel (very minimal)
-        const verticalOffset = Math.sin(progress * Math.PI) * 3; // Very subtle bounce
+        // Smooth easing function for more natural feel
+        const smoothProgress = 1 - Math.pow(1 - normalizedProgress, 3); // Cubic ease-out
+        
+        // Subtle vertical movement with smoother curve
+        const verticalOffset = Math.sin(normalizedProgress * Math.PI) * 2; // Reduced for smoother feel
         translateY.setValue(verticalOffset);
-        nextCardTranslateY.setValue(verticalOffset * 0.3);
-        prevCardTranslateY.setValue(verticalOffset * 0.3);
+        nextCardTranslateY.setValue(verticalOffset * 0.25);
+        prevCardTranslateY.setValue(verticalOffset * 0.25);
         
-        // More pronounced scale effect for better visual feedback
-        const scaleValue = 1 - (progress * 0.12); // More pronounced scale down
-        scale.setValue(Math.max(scaleValue, 0.88));
+        // Smoother scale effect with better curve
+        const scaleValue = 1 - (smoothProgress * 0.1); // Slightly reduced for smoother transition
+        scale.setValue(Math.max(scaleValue, 0.9));
         
-        // Enhanced opacity effect
-        const opacityValue = 1 - (progress * 0.4); // More pronounced fade
-        opacity.setValue(Math.max(opacityValue, 0.6));
+        // Smoother opacity fade
+        const opacityValue = 1 - (smoothProgress * 0.35);
+        opacity.setValue(Math.max(opacityValue, 0.65));
         
-        // Subtle rotation effect for visual feedback during swipe
+        // Smoother rotation with better interpolation
         const rotationProgress = Math.min(absTranslationX / width, 1);
-        const rotationValue = (translationX / width) * 8; // Subtle 2D rotation (max 8 degrees)
+        const smoothRotationProgress = 1 - Math.pow(1 - rotationProgress, 2);
+        const rotationValue = (translationX / width) * 6; // Slightly reduced rotation
         rotate.setValue(rotationValue);
         
-        // Move next/prev cards during swipe for smoother transition
+        // Move next/prev cards during swipe with smoother transitions
         const currentNextCoach = coaches[currentIndex + 1];
         const currentPrevCoach = coaches[currentIndex - 1];
         
         if (translationX < 0 && currentNextCoach) {
-          // Swiping left - move next card in from right with enhanced flip
+          // Swiping left - move next card in from right with smooth easing
           const nextCardProgress = Math.min(absTranslationX / width, 1);
-          // Simple easing function for smoother feel
-          const easedProgress = 1 - Math.pow(1 - nextCardProgress, 2);
-          nextCardTranslateX.setValue(width + translationX);
-          nextCardOpacity.setValue(easedProgress * 0.8); // Increased fade-in
-          // Enhanced flip in from right with smoother easing
+          // Cubic ease-out for smoother feel
+          const easedProgress = 1 - Math.pow(1 - nextCardProgress, 3);
+          // Smooth interpolation for position
+          const nextCardX = width + translationX;
+          nextCardTranslateX.setValue(nextCardX);
+          // Smoother fade-in with better curve
+          nextCardOpacity.setValue(easedProgress * 0.9);
+          // Smoother flip animation
           nextCardRotateY.setValue(90 - (easedProgress * 90));
         } else if (translationX > 0 && currentPrevCoach) {
-          // Swiping right - move prev card in from left with enhanced flip
+          // Swiping right - move prev card in from left with smooth easing
           const prevCardProgress = Math.min(absTranslationX / width, 1);
-          // Simple easing function for smoother feel
-          const easedProgress = 1 - Math.pow(1 - prevCardProgress, 2);
-          prevCardTranslateX.setValue(-width + translationX);
-          prevCardOpacity.setValue(easedProgress * 0.8); // Increased fade-in
-          // Enhanced flip in from left with smoother easing
+          // Cubic ease-out for smoother feel
+          const easedProgress = 1 - Math.pow(1 - prevCardProgress, 3);
+          // Smooth interpolation for position
+          const prevCardX = -width + translationX;
+          prevCardTranslateX.setValue(prevCardX);
+          // Smoother fade-in with better curve
+          prevCardOpacity.setValue(easedProgress * 0.9);
+          // Smoother flip animation
           prevCardRotateY.setValue(-90 + (easedProgress * 90));
         } else {
           // Reset next/prev cards when not swiping in their direction
@@ -414,120 +426,181 @@ export default function CoachesScreen({ route, navigation }) {
       if (shouldSwipe) {
         // Check boundaries
         if (translationX < 0 && currentIndex >= coaches.length - 1) {
-          // Enhanced snap back with bouncy spring
+          // Smooth snap back with optimized spring
           Animated.parallel([
-            Animated.spring(translateX, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(opacity, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(rotate, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring })
+            Animated.spring(translateX, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(translateY, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(scale, { 
+              toValue: 1, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(opacity, { 
+              toValue: 1, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(rotate, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            })
           ]).start();
           return;
         }
 
         if (translationX > 0 && currentIndex <= 0) {
-          // Enhanced snap back with bouncy spring
+          // Smooth snap back with optimized spring
           Animated.parallel([
-            Animated.spring(translateX, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(opacity, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-            Animated.spring(rotate, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring })
+            Animated.spring(translateX, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(translateY, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(scale, { 
+              toValue: 1, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(opacity, { 
+              toValue: 1, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            }),
+            Animated.spring(rotate, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 350,
+              friction: 7,
+              velocity: 0,
+            })
           ]).start();
           return;
         }
 
         setIsAnimating(true);
         
-        // Enhanced card transition with more dynamic animations
+        // Enhanced card transition with smoother animations
         const isSwipeLeft = translationX < 0;
-        const toValue = isSwipeLeft ? -width * 1.3 : width * 1.3; // Slightly further for more dramatic exit
-        const velocityFactor = Math.min(Math.abs(velocityX) / 1000, 1);
-        const duration = Math.max(350 - velocityFactor * 100, 280); // Slightly longer for smoother feel
+        const toValue = isSwipeLeft ? -width * 1.2 : width * 1.2; // Adjusted for smoother exit
+        const velocityFactor = Math.min(Math.abs(velocityX) / 1200, 1);
+        const baseDuration = 400;
+        const duration = Math.max(baseDuration - velocityFactor * 120, 300); // Smoother duration calculation
         
-        // Animate current card out and next card in simultaneously with enhanced flip effect
+        // Animate current card out and next card in simultaneously with smooth transitions
         Animated.parallel([
-          // Current card out with enhanced flip and bounce
+          // Current card out with smooth exit
           Animated.timing(translateX, {
             toValue,
             duration,
             useNativeDriver: true,
-            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+            easing: animationConfig.smoothOut,
           }),
           Animated.timing(translateY, {
-            toValue: isSwipeLeft ? -15 : -15, // Slight upward movement on exit
+            toValue: isSwipeLeft ? -10 : -10, // Subtle upward movement
             duration,
             useNativeDriver: true,
-            easing: Easing.out(Easing.quad),
+            easing: animationConfig.smoothEasing,
           }),
           Animated.timing(scale, {
-            toValue: 0.8, // More pronounced scale down
+            toValue: 0.85, // Smoother scale down
             duration,
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: animationConfig.smoothEasing,
           }),
           Animated.timing(opacity, {
             toValue: 0,
-            duration,
+            duration: duration * 0.9, // Slightly faster fade
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: animationConfig.smoothEasing,
           }),
           Animated.timing(rotate, {
-            toValue: isSwipeLeft ? -8 : 8,
+            toValue: isSwipeLeft ? -6 : 6, // Reduced rotation for smoother feel
             duration,
             useNativeDriver: true,
-            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+            easing: animationConfig.smoothEasing,
           }),
-          // Next card in (from the side) with enhanced flip and bounce
+          // Next card in with smooth entrance
           isSwipeLeft ? Animated.parallel([
             Animated.timing(nextCardTranslateX, {
               toValue: 0,
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing, // Smooth entrance
             }),
             Animated.timing(nextCardOpacity, {
               toValue: 1,
-              duration: duration * 0.8, // Faster fade-in
+              duration: duration * 0.85, // Smooth fade-in
               useNativeDriver: true,
-              easing: Easing.out(Easing.quad),
+              easing: animationConfig.smoothEasing,
             }),
             Animated.timing(nextCardTranslateY, {
               toValue: 0,
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing,
             }),
             Animated.timing(nextCardRotateY, {
-              toValue: 0, // Flip in from 90 to 0
+              toValue: 0, // Smooth flip in from 90 to 0
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing,
             })
           ]) : Animated.parallel([
             Animated.timing(prevCardTranslateX, {
               toValue: 0,
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing, // Smooth entrance
             }),
             Animated.timing(prevCardOpacity, {
               toValue: 1,
-              duration: duration * 0.8, // Faster fade-in
+              duration: duration * 0.85, // Smooth fade-in
               useNativeDriver: true,
-              easing: Easing.out(Easing.quad),
+              easing: animationConfig.smoothEasing,
             }),
             Animated.timing(prevCardTranslateY, {
               toValue: 0,
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing,
             }),
             Animated.timing(prevCardRotateY, {
-              toValue: 0, // Flip in from -90 to 0
+              toValue: 0, // Smooth flip in from -90 to 0
               duration,
               useNativeDriver: true,
-              easing: Easing.bezier(0.34, 1.56, 0.64, 1), // Bouncy entrance
+              easing: animationConfig.smoothEasing,
             })
           ])
         ]).start(() => {
@@ -565,30 +638,100 @@ export default function CoachesScreen({ route, navigation }) {
           });
         });
       } else {
-        // Enhanced snap back to center with bouncy spring
+        // Smooth snap back to center with optimized spring
         const snapBackAnimations = [
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring }),
-          Animated.spring(scale, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-          Animated.spring(opacity, { toValue: 1, useNativeDriver: true, ...animationConfig.bouncySpring }),
-          Animated.spring(rotate, { toValue: 0, useNativeDriver: true, ...animationConfig.bouncySpring })
+          Animated.spring(translateX, { 
+            toValue: 0, 
+            useNativeDriver: true, 
+            tension: 350,
+            friction: 7,
+            velocity: 0,
+          }),
+          Animated.spring(translateY, { 
+            toValue: 0, 
+            useNativeDriver: true, 
+            tension: 350,
+            friction: 7,
+            velocity: 0,
+          }),
+          Animated.spring(scale, { 
+            toValue: 1, 
+            useNativeDriver: true, 
+            tension: 350,
+            friction: 7,
+            velocity: 0,
+          }),
+          Animated.spring(opacity, { 
+            toValue: 1, 
+            useNativeDriver: true, 
+            tension: 350,
+            friction: 7,
+            velocity: 0,
+          }),
+          Animated.spring(rotate, { 
+            toValue: 0, 
+            useNativeDriver: true, 
+            tension: 350,
+            friction: 7,
+            velocity: 0,
+          })
         ];
         
-        // Reset next/prev cards if they exist with rotation
+        // Reset next/prev cards if they exist with smooth spring
         if (nextCoach) {
           snapBackAnimations.push(
-            Animated.spring(nextCardTranslateX, { toValue: width, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(nextCardTranslateY, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(nextCardOpacity, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(nextCardRotateY, { toValue: 90, useNativeDriver: true, ...animationConfig.spring })
+            Animated.spring(nextCardTranslateX, { 
+              toValue: width, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(nextCardTranslateY, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(nextCardOpacity, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(nextCardRotateY, { 
+              toValue: 90, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            })
           );
         }
         if (previousCoach) {
           snapBackAnimations.push(
-            Animated.spring(prevCardTranslateX, { toValue: -width, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(prevCardTranslateY, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(prevCardOpacity, { toValue: 0, useNativeDriver: true, ...animationConfig.spring }),
-            Animated.spring(prevCardRotateY, { toValue: -90, useNativeDriver: true, ...animationConfig.spring })
+            Animated.spring(prevCardTranslateX, { 
+              toValue: -width, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(prevCardTranslateY, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(prevCardOpacity, { 
+              toValue: 0, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            }),
+            Animated.spring(prevCardRotateY, { 
+              toValue: -90, 
+              useNativeDriver: true, 
+              tension: 400,
+              friction: 8,
+            })
           );
         }
         
@@ -602,63 +745,63 @@ export default function CoachesScreen({ route, navigation }) {
     if (currentIndex < coaches.length - 1 && !isAnimating) {
       setIsAnimating(true);
       
-      // Enhanced animation for current card out to the left and next card in
+      // Smooth animation for current card out to the left and next card in
       Animated.parallel([
-        // Current card out with enhanced flip
+        // Current card out with smooth exit
         Animated.timing(translateX, {
-          toValue: -width * 1.3,
-          duration: 350,
+          toValue: -width * 1.2,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+          easing: animationConfig.smoothOut,
         }),
         Animated.timing(translateY, {
-          toValue: -15,
-          duration: 350,
+          toValue: -10,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.out(Easing.quad),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(scale, {
-          toValue: 0.8,
-          duration: 350,
+          toValue: 0.85,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 350,
+          duration: 360,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(rotate, {
-          toValue: -8, // Rotate out to the left
-          duration: 350,
+          toValue: -6, // Reduced rotation for smoother feel
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+          easing: animationConfig.smoothEasing,
         }),
-        // Next card in with bouncy flip
+        // Next card in with smooth entrance
         Animated.timing(nextCardTranslateX, {
           toValue: 0,
-          duration: 350,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(nextCardOpacity, {
           toValue: 1,
-          duration: 280,
+          duration: 340,
           useNativeDriver: true,
-          easing: Easing.out(Easing.quad),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(nextCardTranslateY, {
           toValue: 0,
-          duration: 350,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(nextCardRotateY, {
-          toValue: 0, // Flip in from 90 to 0
-          duration: 350,
+          toValue: 0, // Smooth flip in from 90 to 0
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         })
       ]).start(() => {
         // Update index and reset animations
@@ -702,63 +845,63 @@ export default function CoachesScreen({ route, navigation }) {
     if (currentIndex > 0 && !isAnimating) {
       setIsAnimating(true);
       
-      // Enhanced animation for current card out to the right and previous card in
+      // Smooth animation for current card out to the right and previous card in
       Animated.parallel([
-        // Current card out with enhanced flip
+        // Current card out with smooth exit
         Animated.timing(translateX, {
-          toValue: width * 1.3,
-          duration: 350,
+          toValue: width * 1.2,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+          easing: animationConfig.smoothOut,
         }),
         Animated.timing(translateY, {
-          toValue: -15,
-          duration: 350,
+          toValue: -10,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.out(Easing.quad),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(scale, {
-          toValue: 0.8,
-          duration: 350,
+          toValue: 0.85,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 350,
+          duration: 360,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(rotate, {
-          toValue: 8, // Rotate out to the right
-          duration: 350,
+          toValue: 6, // Reduced rotation for smoother feel
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+          easing: animationConfig.smoothEasing,
         }),
-        // Previous card in with bouncy flip
+        // Previous card in with smooth entrance
         Animated.timing(prevCardTranslateX, {
           toValue: 0,
-          duration: 350,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(prevCardOpacity, {
           toValue: 1,
-          duration: 280,
+          duration: 340,
           useNativeDriver: true,
-          easing: Easing.out(Easing.quad),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(prevCardTranslateY, {
           toValue: 0,
-          duration: 350,
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         }),
         Animated.timing(prevCardRotateY, {
-          toValue: 0, // Flip in from -90 to 0
-          duration: 350,
+          toValue: 0, // Smooth flip in from -90 to 0
+          duration: 400,
           useNativeDriver: true,
-          easing: Easing.bezier(0.34, 1.56, 0.64, 1),
+          easing: animationConfig.smoothEasing,
         })
       ]).start(() => {
         // Update index and reset animations
@@ -863,7 +1006,8 @@ export default function CoachesScreen({ route, navigation }) {
                       { translateY: prevCardTranslateY },
                       { rotateY: prevCardRotateY.interpolate({
                         inputRange: [-90, 0],
-                        outputRange: ['-90deg', '0deg']
+                        outputRange: ['-90deg', '0deg'],
+                        extrapolate: 'clamp',
                       }) },
                     ],
                     opacity: prevCardOpacity,
@@ -887,7 +1031,8 @@ export default function CoachesScreen({ route, navigation }) {
                       { translateY: nextCardTranslateY },
                       { rotateY: nextCardRotateY.interpolate({
                         inputRange: [0, 90],
-                        outputRange: ['0deg', '90deg']
+                        outputRange: ['0deg', '90deg'],
+                        extrapolate: 'clamp',
                       }) },
                     ],
                     opacity: nextCardOpacity,
@@ -905,8 +1050,8 @@ export default function CoachesScreen({ route, navigation }) {
               onHandlerStateChange={onHandlerStateChange}
               minPointers={1}
               maxPointers={1}
-              activeOffsetX={[-10, 10]} // Threshold for horizontal swipe activation
-              failOffsetY={[-8, 8]} // Fail if vertical movement is too much
+              activeOffsetX={[-8, 8]} // Lower threshold for more responsive swipes
+              failOffsetY={[-10, 10]} // Slightly more lenient vertical threshold
               simultaneousHandlers={scrollViewRef ? [scrollViewRef] : []}
               shouldCancelWhenOutside={false}
               enabled={!isAnimating}
@@ -921,8 +1066,9 @@ export default function CoachesScreen({ route, navigation }) {
                       { translateY: translateY },
                       { scale: scale },
                       { rotate: rotate.interpolate({
-                        inputRange: [-8, 0, 8],
-                        outputRange: ['-8deg', '0deg', '8deg']
+                        inputRange: [-6, 0, 6],
+                        outputRange: ['-6deg', '0deg', '6deg'],
+                        extrapolate: 'clamp',
                       }) },
                     ],
                     opacity: opacity,
