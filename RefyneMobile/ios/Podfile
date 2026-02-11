@@ -27,7 +27,10 @@ target 'Refyne' do
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
   else
     config_command = [
-      'npx',
+      'node',
+      '--no-warnings',
+      '--eval',
+      'require(\'expo/bin/autolinking\')',
       'expo-modules-autolinking',
       'react-native-config',
       '--json',
@@ -56,5 +59,40 @@ target 'Refyne' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
+    
+    # Fix for React Native 0.81+ with prebuilt frameworks
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        # Ensure modules are enabled for proper framework imports
+        config.build_settings['CLANG_ENABLE_MODULES'] = 'YES'
+        
+        # Ensure proper SDK path resolution
+        if config.build_settings['SDKROOT'].nil? || config.build_settings['SDKROOT'].empty?
+          config.build_settings['SDKROOT'] = 'iphoneos'
+        end
+        
+        # Fix framework search paths to include React xcframework
+        framework_search_paths = config.build_settings['FRAMEWORK_SEARCH_PATHS'] ||= ['$(inherited)']
+        framework_search_paths << '"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64_x86_64-simulator"'
+        framework_search_paths << '"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64"'
+        config.build_settings['FRAMEWORK_SEARCH_PATHS'] = framework_search_paths.uniq
+        
+        # For BVLinearGradient specifically, ensure it can import React framework headers
+        if target.name == 'BVLinearGradient'
+          # The React framework module map should handle React/ imports
+          # But we need to ensure the framework is linked
+          config.build_settings['OTHER_LDFLAGS'] ||= ['$(inherited)']
+          # Don't add -framework React here as it should come from React-Core dependency
+          
+          # Ensure header search includes React framework headers for module resolution
+          header_search_paths = config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+          react_headers_sim = '"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64_x86_64-simulator/React.framework/Headers"'
+          react_headers_device = '"${PODS_ROOT}/React-Core-prebuilt/React.xcframework/ios-arm64/React.framework/Headers"'
+          header_search_paths << react_headers_sim
+          header_search_paths << react_headers_device
+          config.build_settings['HEADER_SEARCH_PATHS'] = header_search_paths.uniq
+        end
+      end
+    end
   end
 end

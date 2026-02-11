@@ -8,11 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		15FE087E003C023ED1980F03 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = CDD4DC6D59FD98524214F7F2 /* PrivacyInfo.xcprivacy */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		8E39630A2FFC256EC8680B2D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 54959BD4FE9E325CDFC376EC /* PrivacyInfo.xcprivacy */; };
-		931272540F6AB750519799E8 /* libPods-Refyne.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E7D8AC836F0D1858B5EFEE90 /* libPods-Refyne.a */; };
-		A65BCA18231E53F469073C1C /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9625C059483BF2E0972979A /* ExpoModulesProvider.swift */; };
+		A9624F7776E28F4C88AD3D73 /* libPods-Refyne.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 521D6AE6C9A2A6AA68428F9C /* libPods-Refyne.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		DE7531C8A99B309C6CFC0D53 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C6C0320EDB036AEBB34F660 /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -20,16 +20,16 @@
 		13B07F961A680F5B00A75B9A /* Refyne.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Refyne.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Refyne/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Refyne/Info.plist; sourceTree = "<group>"; };
-		216986E2952769B1228E0D3E /* Pods-Refyne.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Refyne.debug.xcconfig"; path = "Target Support Files/Pods-Refyne/Pods-Refyne.debug.xcconfig"; sourceTree = "<group>"; };
-		54959BD4FE9E325CDFC376EC /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Refyne/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		73EFED1698B0671BCAC1DFD0 /* Pods-Refyne.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Refyne.release.xcconfig"; path = "Target Support Files/Pods-Refyne/Pods-Refyne.release.xcconfig"; sourceTree = "<group>"; };
-		A9625C059483BF2E0972979A /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Refyne/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		1C6C0320EDB036AEBB34F660 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Refyne/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		521D6AE6C9A2A6AA68428F9C /* libPods-Refyne.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Refyne.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Refyne/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		E7D8AC836F0D1858B5EFEE90 /* libPods-Refyne.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Refyne.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		BECFF22E4DA30C0754B7B003 /* Pods-Refyne.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Refyne.release.xcconfig"; path = "Target Support Files/Pods-Refyne/Pods-Refyne.release.xcconfig"; sourceTree = "<group>"; };
+		CDD4DC6D59FD98524214F7F2 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Refyne/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Refyne/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Refyne-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Refyne-Bridging-Header.h"; path = "Refyne/Refyne-Bridging-Header.h"; sourceTree = "<group>"; };
+		F197D1AA034E9F11865A2E73 /* Pods-Refyne.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Refyne.debug.xcconfig"; path = "Target Support Files/Pods-Refyne/Pods-Refyne.debug.xcconfig"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -37,7 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				931272540F6AB750519799E8 /* libPods-Refyne.a in Frameworks */,
+				A9624F7776E28F4C88AD3D73 /* libPods-Refyne.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -53,7 +53,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				54959BD4FE9E325CDFC376EC /* PrivacyInfo.xcprivacy */,
+				CDD4DC6D59FD98524214F7F2 /* PrivacyInfo.xcprivacy */,
 			);
 			name = Refyne;
 			sourceTree = "<group>";
@@ -62,16 +62,16 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				E7D8AC836F0D1858B5EFEE90 /* libPods-Refyne.a */,
+				521D6AE6C9A2A6AA68428F9C /* libPods-Refyne.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		5AC816B8CF6D500829F17BB4 /* Pods */ = {
+		82EB3372940B363448F11785 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				216986E2952769B1228E0D3E /* Pods-Refyne.debug.xcconfig */,
-				73EFED1698B0671BCAC1DFD0 /* Pods-Refyne.release.xcconfig */,
+				F197D1AA034E9F11865A2E73 /* Pods-Refyne.debug.xcconfig */,
+				BECFF22E4DA30C0754B7B003 /* Pods-Refyne.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -90,8 +90,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				5AC816B8CF6D500829F17BB4 /* Pods */,
-				DC98D0DF6C99E29A32F6CC4F /* ExpoModulesProviders */,
+				C7DD8B6FAA570B5FD7643F5C /* ExpoModulesProviders */,
+				82EB3372940B363448F11785 /* Pods */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -106,6 +106,14 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		858B0E69BF950914DF6B6A25 /* Refyne */ = {
+			isa = PBXGroup;
+			children = (
+				1C6C0320EDB036AEBB34F660 /* ExpoModulesProvider.swift */,
+			);
+			name = Refyne;
+			sourceTree = "<group>";
+		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -115,20 +123,12 @@
 			path = Refyne/Supporting;
 			sourceTree = "<group>";
 		};
-		DC98D0DF6C99E29A32F6CC4F /* ExpoModulesProviders */ = {
+		C7DD8B6FAA570B5FD7643F5C /* ExpoModulesProviders */ = {
 			isa = PBXGroup;
 			children = (
-				DF086E90D6970AA66B9D98F9 /* Refyne */,
+				858B0E69BF950914DF6B6A25 /* Refyne */,
 			);
 			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
-		DF086E90D6970AA66B9D98F9 /* Refyne */ = {
-			isa = PBXGroup;
-			children = (
-				A9625C059483BF2E0972979A /* ExpoModulesProvider.swift */,
-			);
-			name = Refyne;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -138,14 +138,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Refyne" */;
 			buildPhases = (
-				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				A753C2A97E095F11F92DCA23 /* [Expo] Configure project */,
+				81F65EC4A968C00F8CD77E1E /* [CP] Check Pods Manifest.lock */,
+				7EB68FA65994B03C3C10F608 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				C1C5658C73AECF416EC7B35F /* [CP] Embed Pods Frameworks */,
+				55A87D27B36FD0FBE4181129 /* [CP] Embed Pods Frameworks */,
+				E3F047C3C9894205388B76BA /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -195,7 +195,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				8E39630A2FFC256EC8680B2D /* PrivacyInfo.xcprivacy in Resources */,
+				15FE087E003C023ED1980F03 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -219,7 +219,53 @@
 			shellPath = /bin/sh;
 			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
-		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
+		55A87D27B36FD0FBE4181129 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Refyne/Pods-Refyne-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Refyne/Pods-Refyne-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		7EB68FA65994B03C3C10F608 /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/.xcode.env",
+				"$(SRCROOT)/.xcode.env.local",
+				"$(SRCROOT)/Refyne/Refyne.entitlements",
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Refyne/expo-configure-project.sh",
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Pods/Target Support Files/Pods-Refyne/ExpoModulesProvider.swift",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Refyne/expo-configure-project.sh\"\n";
+		};
+		81F65EC4A968C00F8CD77E1E /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -241,7 +287,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
+		E3F047C3C9894205388B76BA /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -325,52 +371,6 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Refyne/Pods-Refyne-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		A753C2A97E095F11F92DCA23 /* [Expo] Configure project */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/.xcode.env",
-				"$(SRCROOT)/.xcode.env.local",
-				"$(SRCROOT)/Refyne/Refyne.entitlements",
-				"$(SRCROOT)/Pods/Target Support Files/Pods-Refyne/expo-configure-project.sh",
-			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(SRCROOT)/Pods/Target Support Files/Pods-Refyne/ExpoModulesProvider.swift",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Refyne/expo-configure-project.sh\"\n";
-		};
-		C1C5658C73AECF416EC7B35F /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Refyne/Pods-Refyne-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Refyne/Pods-Refyne-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -379,7 +379,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				A65BCA18231E53F469073C1C /* ExpoModulesProvider.swift in Sources */,
+				DE7531C8A99B309C6CFC0D53 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -388,7 +388,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 216986E2952769B1228E0D3E /* Pods-Refyne.debug.xcconfig */;
+			baseConfigurationReference = F197D1AA034E9F11865A2E73 /* Pods-Refyne.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -429,7 +429,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 73EFED1698B0671BCAC1DFD0 /* Pods-Refyne.release.xcconfig */;
+			baseConfigurationReference = BECFF22E4DA30C0754B7B003 /* Pods-Refyne.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -514,7 +514,10 @@
 					/usr/lib/swift,
 					"$(inherited)",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
+					"$(inherited)",
+				);
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
@@ -570,7 +573,10 @@
 					/usr/lib/swift,
 					"$(inherited)",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SDKROOT)/usr/lib/swift\"$(inherited)\"";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SDKROOT)/usr/lib/swift",
+					"$(inherited)",
+				);
 				MTL_ENABLE_DEBUG_INFO = NO;
 				REACT_NATIVE_PATH = "${PODS_ROOT}/../../node_modules/react-native";
 				SDKROOT = iphoneos;

@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { PanGestureHandler, State, GestureHandlerRootView, NativeViewGestureHandler } from 'react-native-gesture-handler';
+import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { getCoachesBySport, formatExperience, formatExpertise, cleanupDeletedProfiles, migrateCoachNames } from '../../utils/coachData';
 
 const { width, height } = Dimensions.get('window');
@@ -95,15 +95,15 @@ const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
       
       {/* White Body Section with enhanced styling */}
       <View style={styles.coachBody}>
-        <NativeViewGestureHandler ref={scrollViewRef} simultaneousHandlers={[]}>
-          <ScrollView 
-            style={styles.coachDetailsScroll}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.coachDetailsContent}
-            scrollEnabled={true}
-            nestedScrollEnabled={true}
-            bounces={true}
-          >
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.coachDetailsScroll}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.coachDetailsContent}
+          scrollEnabled={true}
+          nestedScrollEnabled={true}
+          bounces={true}
+        >
           <View style={styles.coachDetail}>
             <Text style={styles.detailLabel}>Coaching Experience:</Text>
             <Text style={styles.detailValue}>{formatExperience(coach.experience)}</Text>
@@ -129,7 +129,6 @@ const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
             <Text style={styles.detailValue}>{coach.bio}</Text>
           </View>
         </ScrollView>
-        </NativeViewGestureHandler>
         
         <TouchableOpacity 
           style={styles.selectCoachButton}
@@ -176,15 +175,13 @@ export default function CoachesScreen({ route, navigation }) {
   const opacity = useRef(new Animated.Value(1)).current;
   const rotate = useRef(new Animated.Value(0)).current; // Subtle 2D rotation for swipe feedback
   
-  // Next and previous card animations for smooth transitions
-  const nextCardTranslateX = useRef(new Animated.Value(width)).current;
+  // Next and previous card animations for Tinder-like smooth transitions
+  const nextCardTranslateX = useRef(new Animated.Value(0)).current;
   const nextCardOpacity = useRef(new Animated.Value(0)).current;
-  const nextCardTranslateY = useRef(new Animated.Value(0)).current;
-  const nextCardRotateY = useRef(new Animated.Value(90)).current; // Start rotated for flip-in effect
-  const prevCardTranslateX = useRef(new Animated.Value(-width)).current;
+  const nextCardScale = useRef(new Animated.Value(0.95)).current; // Start scaled down (behind current card)
+  const prevCardTranslateX = useRef(new Animated.Value(0)).current;
   const prevCardOpacity = useRef(new Animated.Value(0)).current;
-  const prevCardTranslateY = useRef(new Animated.Value(0)).current;
-  const prevCardRotateY = useRef(new Animated.Value(-90)).current; // Start rotated for flip-in effect
+  const prevCardScale = useRef(new Animated.Value(0.95)).current; // Start scaled down (behind current card)
   
   // Current card translateY to prevent vertical movement
   const translateY = useRef(new Animated.Value(0)).current;
@@ -192,30 +189,23 @@ export default function CoachesScreen({ route, navigation }) {
   // Single card animation system - no preview cards
   const cardTransition = useRef(new Animated.Value(0)).current;
   
-  // Optimized animation configuration for buttery smooth swipes with enhanced bounce
+  // Tinder-like animation configuration for buttery smooth swipes
   const animationConfig = useRef({
     spring: {
-      tension: 400,
+      tension: 300,
       friction: 8,
       useNativeDriver: true,
     },
-    bouncySpring: {
+    snapBack: {
       tension: 300,
-      friction: 6,
+      friction: 7,
       useNativeDriver: true,
     },
     timing: {
-      duration: 400,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother ease-in-out
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     },
-    quickTiming: {
-      duration: 250,
-      easing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material design easing
-      useNativeDriver: true,
-    },
-    smoothEasing: Easing.bezier(0.4, 0.0, 0.2, 1), // Material design standard easing
-    smoothOut: Easing.bezier(0.0, 0.0, 0.2, 1), // Smooth exit
   }).current;
   
 
@@ -241,15 +231,13 @@ export default function CoachesScreen({ route, navigation }) {
       opacity.setValue(1);
       rotate.setValue(0);
       cardTransition.setValue(0);
-      // Position next/prev cards off-screen with rotation
-      nextCardTranslateX.setValue(width);
+      // Position next/prev cards behind current card (Tinder style)
+      nextCardTranslateX.setValue(0);
       nextCardOpacity.setValue(0);
-      nextCardTranslateY.setValue(0);
-      nextCardRotateY.setValue(90);
-      prevCardTranslateX.setValue(-width);
+      nextCardScale.setValue(0.95);
+      prevCardTranslateX.setValue(0);
       prevCardOpacity.setValue(0);
-      prevCardTranslateY.setValue(0);
-      prevCardRotateY.setValue(-90);
+      prevCardScale.setValue(0.95);
     } catch (error) {
       console.error('Error loading coaches:', error);
     } finally {
@@ -283,32 +271,38 @@ export default function CoachesScreen({ route, navigation }) {
     ]).start();
   }, []);
 
-  // Update next/prev card positions when index changes (for smooth transitions)
-  // Use useLayoutEffect to run synchronously before paint to prevent layout shifts
+  // Update next/prev card positions when index changes (Tinder style - cards behind)
+  // CRITICAL: Only update when NOT animating to prevent glitches
   useLayoutEffect(() => {
-    if (coaches.length > 0) {
-      // Lock all vertical positions immediately to prevent any layout shifts
-      translateY.setValue(0);
-      nextCardTranslateY.setValue(0);
-      prevCardTranslateY.setValue(0);
-      
-      // Only update positions if not animating to prevent glitches
-      if (!isAnimating) {
-        // Position next card off-screen to the right with rotation
-        if (currentIndex < coaches.length - 1) {
-          nextCardTranslateX.setValue(width);
-          nextCardOpacity.setValue(0);
-          nextCardRotateY.setValue(90);
-        }
-        // Position prev card off-screen to the left with rotation
-        if (currentIndex > 0) {
-          prevCardTranslateX.setValue(-width);
-          prevCardOpacity.setValue(0);
-          prevCardRotateY.setValue(-90);
-        }
+    // Skip if animating - positions are managed by animation callbacks
+    if (isAnimating || coaches.length === 0) return;
+    
+    // CRITICAL: Ensure next/prev cards are always centered (translateX: 0)
+    // This prevents position jumps when cards become current
+    // Use a longer delay to ensure animation callbacks have finished
+    const timer = setTimeout(() => {
+      // Position next card behind current - ALWAYS at translateX: 0 (centered)
+      if (currentIndex < coaches.length - 1) {
+        // Ensure next card is centered and behind
+        nextCardTranslateX.setValue(0);
+        nextCardOpacity.setValue(0);
+        nextCardScale.setValue(0.95);
       }
-    }
-  }, [currentIndex, coaches.length, isAnimating, nextCardTranslateX, prevCardTranslateX, nextCardOpacity, prevCardOpacity, nextCardTranslateY, prevCardTranslateY, translateY]);
+      
+      // Position prev card behind current - ALWAYS at translateX: 0 (centered)
+      if (currentIndex > 0) {
+        prevCardTranslateX.setValue(0);
+        prevCardOpacity.setValue(0);
+        prevCardScale.setValue(0.95);
+      }
+      
+      // Ensure current card is centered
+      translateY.setValue(0);
+      translateX.setValue(0);
+    }, 100); // Longer delay to ensure all animations have settled
+    
+    return () => clearTimeout(timer);
+  }, [currentIndex, coaches.length, isAnimating]);
 
   const handleCoachSelect = (coach) => {
     setSelectedCoach(coach);
@@ -331,7 +325,7 @@ export default function CoachesScreen({ route, navigation }) {
     }
   };
 
-  // Enhanced gesture handler for smooth, fluid swipes
+  // Tinder-like gesture handler - card follows finger directly with natural rotation
   const onGestureEvent = useCallback(Animated.event(
     [{ nativeEvent: { translationX: translateX } }],
     { 
@@ -339,75 +333,65 @@ export default function CoachesScreen({ route, navigation }) {
       listener: (event) => {
         const { translationX } = event.nativeEvent;
         const absTranslationX = Math.abs(translationX);
-        const normalizedProgress = Math.min(absTranslationX / (width * 0.4), 1);
         
-        // Smooth easing function for more natural feel
-        const smoothProgress = 1 - Math.pow(1 - normalizedProgress, 3); // Cubic ease-out
+        // Tinder-style: Direct 1:1 translation - card follows finger exactly
+        // No easing during drag for instant responsiveness
         
-        // Subtle vertical movement with smoother curve
-        const verticalOffset = Math.sin(normalizedProgress * Math.PI) * 2; // Reduced for smoother feel
-        translateY.setValue(verticalOffset);
-        nextCardTranslateY.setValue(verticalOffset * 0.25);
-        prevCardTranslateY.setValue(verticalOffset * 0.25);
-        
-        // Smoother scale effect with better curve
-        const scaleValue = 1 - (smoothProgress * 0.1); // Slightly reduced for smoother transition
-        scale.setValue(Math.max(scaleValue, 0.9));
-        
-        // Smoother opacity fade
-        const opacityValue = 1 - (smoothProgress * 0.35);
-        opacity.setValue(Math.max(opacityValue, 0.65));
-        
-        // Smoother rotation with better interpolation
-        const rotationProgress = Math.min(absTranslationX / width, 1);
-        const smoothRotationProgress = 1 - Math.pow(1 - rotationProgress, 2);
-        const rotationValue = (translationX / width) * 6; // Slightly reduced rotation
+        // Natural rotation based on horizontal position (Tinder style)
+        // Max rotation ~20 degrees for natural tilt
+        const rotationValue = (translationX / width) * 20;
         rotate.setValue(rotationValue);
         
-        // Move next/prev cards during swipe with smoother transitions
+        // Scale down as card moves away (Tinder style)
+        // More pronounced scale effect
+        const scaleProgress = Math.min(absTranslationX / (width * 0.5), 1);
+        const scaleValue = 1 - (scaleProgress * 0.15); // Scale down to 0.85
+        scale.setValue(Math.max(scaleValue, 0.85));
+        
+        // Opacity fade as card moves away
+        const opacityProgress = Math.min(absTranslationX / (width * 0.6), 1);
+        const opacityValue = 1 - (opacityProgress * 0.5); // Fade to 0.5
+        opacity.setValue(Math.max(opacityValue, 0.5));
+        
+        // Next/prev card animations (Tinder style - cards scale up from behind)
         const currentNextCoach = coaches[currentIndex + 1];
         const currentPrevCoach = coaches[currentIndex - 1];
         
+        // CRITICAL: Always keep next/prev cards at translateX: 0 (centered)
+        // This prevents position jumps when they become current
         if (translationX < 0 && currentNextCoach) {
-          // Swiping left - move next card in from right with smooth easing
-          const nextCardProgress = Math.min(absTranslationX / width, 1);
-          // Cubic ease-out for smoother feel
-          const easedProgress = 1 - Math.pow(1 - nextCardProgress, 3);
-          // Smooth interpolation for position
-          const nextCardX = width + translationX;
-          nextCardTranslateX.setValue(nextCardX);
-          // Smoother fade-in with better curve
-          nextCardOpacity.setValue(easedProgress * 0.9);
-          // Smoother flip animation
-          nextCardRotateY.setValue(90 - (easedProgress * 90));
+          // Swiping left - reveal next card from behind
+          const progress = Math.min(absTranslationX / (width * 0.5), 1);
+          // Next card scales up and fades in as current card moves away
+          // CRITICAL: Keep translateX at 0 - never change it
+          nextCardTranslateX.setValue(0); // Always centered
+          nextCardScale.setValue(0.95 + (progress * 0.05)); // Scale from 0.95 to 1.0
+          nextCardOpacity.setValue(progress * 0.8); // Fade in
         } else if (translationX > 0 && currentPrevCoach) {
-          // Swiping right - move prev card in from left with smooth easing
-          const prevCardProgress = Math.min(absTranslationX / width, 1);
-          // Cubic ease-out for smoother feel
-          const easedProgress = 1 - Math.pow(1 - prevCardProgress, 3);
-          // Smooth interpolation for position
-          const prevCardX = -width + translationX;
-          prevCardTranslateX.setValue(prevCardX);
-          // Smoother fade-in with better curve
-          prevCardOpacity.setValue(easedProgress * 0.9);
-          // Smoother flip animation
-          prevCardRotateY.setValue(-90 + (easedProgress * 90));
+          // Swiping right - reveal prev card from behind
+          const progress = Math.min(absTranslationX / (width * 0.5), 1);
+          // Prev card scales up and fades in as current card moves away
+          // CRITICAL: Keep translateX at 0 - never change it
+          prevCardTranslateX.setValue(0); // Always centered
+          prevCardScale.setValue(0.95 + (progress * 0.05)); // Scale from 0.95 to 1.0
+          prevCardOpacity.setValue(progress * 0.8); // Fade in
         } else {
           // Reset next/prev cards when not swiping in their direction
+          // CRITICAL: Always keep translateX at 0
           if (currentNextCoach) {
-            nextCardTranslateX.setValue(width);
+            nextCardTranslateX.setValue(0); // Always centered
+            nextCardScale.setValue(0.95);
             nextCardOpacity.setValue(0);
-            nextCardRotateY.setValue(90);
           }
           if (currentPrevCoach) {
-            prevCardTranslateX.setValue(-width);
+            prevCardTranslateX.setValue(0); // Always centered
+            prevCardScale.setValue(0.95);
             prevCardOpacity.setValue(0);
-            prevCardRotateY.setValue(-90);
           }
         }
       }
     }
-  ), [translateX, translateY, scale, opacity, rotate, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, currentIndex, coaches, width]);
+  ), [translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, currentIndex, coaches, width]);
 
   // Memoize the current coach to prevent unnecessary re-renders
   const currentCoach = coaches[currentIndex];
@@ -419,91 +403,64 @@ export default function CoachesScreen({ route, navigation }) {
       if (isAnimating) return;
       
       const { translationX, velocityX } = event.nativeEvent;
-      const swipeThreshold = width * 0.25;
-      const velocityThreshold = 400;
+      // Tinder-style thresholds - more sensitive for better UX
+      const swipeThreshold = width * 0.2; // Lower threshold
+      const velocityThreshold = 500; // Higher velocity threshold for quick swipes
       const shouldSwipe = Math.abs(translationX) > swipeThreshold || Math.abs(velocityX) > velocityThreshold;
 
       if (shouldSwipe) {
         // Check boundaries
         if (translationX < 0 && currentIndex >= coaches.length - 1) {
-          // Smooth snap back with optimized spring
+          // Tinder-style snap back with velocity
           Animated.parallel([
             Animated.spring(translateX, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
-            }),
-            Animated.spring(translateY, { 
-              toValue: 0, 
-              useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
+              velocity: velocityX / 1000, // Use velocity for natural momentum
             }),
             Animated.spring(scale, { 
               toValue: 1, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             }),
             Animated.spring(opacity, { 
               toValue: 1, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             }),
             Animated.spring(rotate, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             })
           ]).start();
           return;
         }
 
         if (translationX > 0 && currentIndex <= 0) {
-          // Smooth snap back with optimized spring
+          // Tinder-style snap back with velocity
           Animated.parallel([
             Animated.spring(translateX, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
-            }),
-            Animated.spring(translateY, { 
-              toValue: 0, 
-              useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
+              velocity: velocityX / 1000, // Use velocity for natural momentum
             }),
             Animated.spring(scale, { 
               toValue: 1, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             }),
             Animated.spring(opacity, { 
               toValue: 1, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             }),
             Animated.spring(rotate, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 350,
-              friction: 7,
-              velocity: 0,
+              ...animationConfig.snapBack,
             })
           ]).start();
           return;
@@ -511,226 +468,170 @@ export default function CoachesScreen({ route, navigation }) {
 
         setIsAnimating(true);
         
-        // Enhanced card transition with smoother animations
+        // Tinder-style card transition with velocity-based momentum
         const isSwipeLeft = translationX < 0;
-        const toValue = isSwipeLeft ? -width * 1.2 : width * 1.2; // Adjusted for smoother exit
-        const velocityFactor = Math.min(Math.abs(velocityX) / 1200, 1);
-        const baseDuration = 400;
-        const duration = Math.max(baseDuration - velocityFactor * 120, 300); // Smoother duration calculation
+        const toValue = isSwipeLeft ? -width * 1.5 : width * 1.5; // Further exit for smooth feel
+        // Use velocity to determine animation speed (Tinder style)
+        const velocityFactor = Math.min(Math.abs(velocityX) / 1000, 1.5);
+        const baseDuration = 300;
+        const duration = Math.max(baseDuration - velocityFactor * 100, 200);
         
-        // Animate current card out and next card in simultaneously with smooth transitions
+        // Animate current card out and next card in (Tinder style)
         Animated.parallel([
-          // Current card out with smooth exit
+          // Current card exits with rotation and scale
           Animated.timing(translateX, {
             toValue,
             duration,
             useNativeDriver: true,
-            easing: animationConfig.smoothOut,
-          }),
-          Animated.timing(translateY, {
-            toValue: isSwipeLeft ? -10 : -10, // Subtle upward movement
-            duration,
-            useNativeDriver: true,
-            easing: animationConfig.smoothEasing,
+            easing: Easing.out(Easing.cubic),
           }),
           Animated.timing(scale, {
-            toValue: 0.85, // Smoother scale down
+            toValue: 0.8,
             duration,
             useNativeDriver: true,
-            easing: animationConfig.smoothEasing,
+            easing: Easing.out(Easing.cubic),
           }),
           Animated.timing(opacity, {
             toValue: 0,
-            duration: duration * 0.9, // Slightly faster fade
+            duration: duration * 0.8,
             useNativeDriver: true,
-            easing: animationConfig.smoothEasing,
+            easing: Easing.out(Easing.cubic),
           }),
           Animated.timing(rotate, {
-            toValue: isSwipeLeft ? -6 : 6, // Reduced rotation for smoother feel
+            toValue: isSwipeLeft ? -25 : 25, // More pronounced rotation (Tinder style)
             duration,
             useNativeDriver: true,
-            easing: animationConfig.smoothEasing,
+            easing: Easing.out(Easing.cubic),
           }),
-          // Next card in with smooth entrance
+          // Next card scales up from behind (Tinder style)
+          // CRITICAL: Animate smoothly to final values
           isSwipeLeft ? Animated.parallel([
-            Animated.timing(nextCardTranslateX, {
-              toValue: 0,
+            Animated.timing(nextCardScale, {
+              toValue: 1,
               duration,
               useNativeDriver: true,
-              easing: animationConfig.smoothEasing, // Smooth entrance
+              easing: Easing.out(Easing.cubic),
             }),
             Animated.timing(nextCardOpacity, {
               toValue: 1,
-              duration: duration * 0.85, // Smooth fade-in
+              duration: duration * 0.9,
               useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
-            }),
-            Animated.timing(nextCardTranslateY, {
-              toValue: 0,
-              duration,
-              useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
-            }),
-            Animated.timing(nextCardRotateY, {
-              toValue: 0, // Smooth flip in from 90 to 0
-              duration,
-              useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
+              easing: Easing.out(Easing.cubic),
             })
           ]) : Animated.parallel([
-            Animated.timing(prevCardTranslateX, {
-              toValue: 0,
+            Animated.timing(prevCardScale, {
+              toValue: 1,
               duration,
               useNativeDriver: true,
-              easing: animationConfig.smoothEasing, // Smooth entrance
+              easing: Easing.out(Easing.cubic),
             }),
             Animated.timing(prevCardOpacity, {
               toValue: 1,
-              duration: duration * 0.85, // Smooth fade-in
+              duration: duration * 0.9,
               useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
-            }),
-            Animated.timing(prevCardTranslateY, {
-              toValue: 0,
-              duration,
-              useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
-            }),
-            Animated.timing(prevCardRotateY, {
-              toValue: 0, // Smooth flip in from -90 to 0
-              duration,
-              useNativeDriver: true,
-              easing: animationConfig.smoothEasing,
+              easing: Easing.out(Easing.cubic),
             })
           ])
-        ]).start(() => {
-          // Update index after animation completes
+        ]).start((finished) => {
+          // Only proceed if animation completed successfully
+          if (!finished) return;
+          
           const newIndex = isSwipeLeft ? currentIndex + 1 : currentIndex - 1;
           
-          // Reset animations for new card positions BEFORE state update
-          // Lock all vertical positions first to prevent glitches
-          translateY.setValue(0);
-          nextCardTranslateY.setValue(0);
-          prevCardTranslateY.setValue(0);
+          // CRITICAL: The card that just became current is already at:
+          // - translateX: 0 (centered, because nextCardTranslateX was 0)
+          // - scale: 1.0 (from animation)
+          // - opacity: 1.0 (from animation)
+          // We need to ensure current card values match these exactly
           
-          translateX.setValue(0);
-          scale.setValue(1);
-          opacity.setValue(1);
+          // Set current card values to match the card that just became current
+          // This ensures NO position jump - the card stays exactly where it is
+          translateY.setValue(0);
+          translateX.setValue(0); // CRITICAL: Must be 0 to match nextCardTranslateX
+          scale.setValue(1); // Already 1.0 from animation, but ensure it
+          opacity.setValue(1); // Already 1.0 from animation, but ensure it
           rotate.setValue(0);
           
-          // Reset next/prev card positions based on new index with rotation
-          if (newIndex < coaches.length - 1) {
-            nextCardTranslateX.setValue(width);
-            nextCardOpacity.setValue(0);
-            nextCardRotateY.setValue(90);
-          }
-          if (newIndex > 0) {
-            prevCardTranslateX.setValue(-width);
-            prevCardOpacity.setValue(0);
-            prevCardRotateY.setValue(-90);
-          }
+          // CRITICAL: Update state FIRST
+          // The card that was "next" is now "current" and is already perfectly positioned
+          setCurrentIndex(newIndex);
           
-          // Use requestAnimationFrame to ensure state update happens after layout
+          // Reset NEW next/prev cards after state update
+          // Use requestAnimationFrame to ensure smooth transition
           requestAnimationFrame(() => {
-            // Update state after positions are locked
-            setCurrentIndex(newIndex);
-            setIsAnimating(false);
+            requestAnimationFrame(() => {
+              // Reset NEW next card (the one that will be next after transition)
+              // CRITICAL: Always set translateX to 0 to keep it centered
+              if (newIndex < coaches.length - 1) {
+                nextCardTranslateX.setValue(0);
+                nextCardOpacity.setValue(0);
+                nextCardScale.setValue(0.95);
+              }
+              
+              // Reset NEW prev card (the one that will be prev after transition)
+              // CRITICAL: Always set translateX to 0 to keep it centered
+              if (newIndex > 0) {
+                prevCardTranslateX.setValue(0);
+                prevCardOpacity.setValue(0);
+                prevCardScale.setValue(0.95);
+              }
+              
+              setIsAnimating(false);
+            });
           });
         });
       } else {
-        // Smooth snap back to center with optimized spring
+        // Tinder-style snap back to center with velocity
         const snapBackAnimations = [
           Animated.spring(translateX, { 
             toValue: 0, 
             useNativeDriver: true, 
-            tension: 350,
-            friction: 7,
-            velocity: 0,
-          }),
-          Animated.spring(translateY, { 
-            toValue: 0, 
-            useNativeDriver: true, 
-            tension: 350,
-            friction: 7,
-            velocity: 0,
+            ...animationConfig.snapBack,
+            velocity: velocityX / 1000, // Use velocity for natural momentum
           }),
           Animated.spring(scale, { 
             toValue: 1, 
             useNativeDriver: true, 
-            tension: 350,
-            friction: 7,
-            velocity: 0,
+            ...animationConfig.snapBack,
           }),
           Animated.spring(opacity, { 
             toValue: 1, 
             useNativeDriver: true, 
-            tension: 350,
-            friction: 7,
-            velocity: 0,
+            ...animationConfig.snapBack,
           }),
           Animated.spring(rotate, { 
             toValue: 0, 
             useNativeDriver: true, 
-            tension: 350,
-            friction: 7,
-            velocity: 0,
+            ...animationConfig.snapBack,
           })
         ];
         
-        // Reset next/prev cards if they exist with smooth spring
+        // Reset next/prev cards behind current (Tinder style)
         if (nextCoach) {
           snapBackAnimations.push(
-            Animated.spring(nextCardTranslateX, { 
-              toValue: width, 
+            Animated.spring(nextCardScale, { 
+              toValue: 0.95, 
               useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
-            }),
-            Animated.spring(nextCardTranslateY, { 
-              toValue: 0, 
-              useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
+              ...animationConfig.spring,
             }),
             Animated.spring(nextCardOpacity, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
-            }),
-            Animated.spring(nextCardRotateY, { 
-              toValue: 90, 
-              useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
+              ...animationConfig.spring,
             })
           );
         }
         if (previousCoach) {
           snapBackAnimations.push(
-            Animated.spring(prevCardTranslateX, { 
-              toValue: -width, 
+            Animated.spring(prevCardScale, { 
+              toValue: 0.95, 
               useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
-            }),
-            Animated.spring(prevCardTranslateY, { 
-              toValue: 0, 
-              useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
+              ...animationConfig.spring,
             }),
             Animated.spring(prevCardOpacity, { 
               toValue: 0, 
               useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
-            }),
-            Animated.spring(prevCardRotateY, { 
-              toValue: -90, 
-              useNativeDriver: true, 
-              tension: 400,
-              friction: 8,
+              ...animationConfig.spring,
             })
           );
         }
@@ -738,208 +639,168 @@ export default function CoachesScreen({ route, navigation }) {
         Animated.parallel(snapBackAnimations).start();
       }
     }
-  }, [isAnimating, currentIndex, coaches.length, translateX, translateY, scale, opacity, rotate, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, nextCardRotateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, prevCardRotateY, nextCoach, previousCoach, animationConfig, width]);
+  }, [isAnimating, currentIndex, coaches.length, translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, nextCoach, previousCoach, animationConfig, width]);
 
-  // Navigation arrow handlers
+  // Navigation arrow handlers (Tinder-style)
   const handleNextCoach = useCallback(() => {
     if (currentIndex < coaches.length - 1 && !isAnimating) {
       setIsAnimating(true);
       
-      // Smooth animation for current card out to the left and next card in
+      // Tinder-style animation for current card out and next card in
       Animated.parallel([
-        // Current card out with smooth exit
+        // Current card exits
         Animated.timing(translateX, {
-          toValue: -width * 1.2,
-          duration: 400,
+          toValue: -width * 1.5,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothOut,
-        }),
-        Animated.timing(translateY, {
-          toValue: -10,
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(scale, {
-          toValue: 0.85,
-          duration: 400,
+          toValue: 0.8,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 360,
+          duration: 240,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(rotate, {
-          toValue: -6, // Reduced rotation for smoother feel
-          duration: 400,
+          toValue: -25, // Tinder-style rotation
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
-        // Next card in with smooth entrance
-        Animated.timing(nextCardTranslateX, {
-          toValue: 0,
-          duration: 400,
+        // Next card scales up from behind
+        Animated.timing(nextCardScale, {
+          toValue: 1,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(nextCardOpacity, {
           toValue: 1,
-          duration: 340,
+          duration: 270,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
-        }),
-        Animated.timing(nextCardTranslateY, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
-        }),
-        Animated.timing(nextCardRotateY, {
-          toValue: 0, // Smooth flip in from 90 to 0
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         })
       ]).start(() => {
-        // Update index and reset animations
         const newIndex = currentIndex + 1;
         
-        // Reset animations BEFORE state update
-        // Lock all vertical positions first to prevent glitches
+        // CRITICAL: Ensure current card values match the card that just became current
+        // The next card was at translateX: 0, scale: 1.0, opacity: 1.0
         translateY.setValue(0);
-        nextCardTranslateY.setValue(0);
-        prevCardTranslateY.setValue(0);
-        
-        translateX.setValue(0);
+        translateX.setValue(0); // CRITICAL: Must be 0 to prevent position jump
         scale.setValue(1);
         opacity.setValue(1);
         rotate.setValue(0);
         
-        // Reset next card position if there's still a next card with rotation
-        if (newIndex < coaches.length - 1) {
-          nextCardTranslateX.setValue(width);
-          nextCardOpacity.setValue(0);
-          nextCardRotateY.setValue(90);
-        }
-        // Reset prev card position with rotation
-        if (newIndex > 0) {
-          prevCardTranslateX.setValue(-width);
-          prevCardOpacity.setValue(0);
-          prevCardRotateY.setValue(-90);
-        }
+        // Update state FIRST
+        setCurrentIndex(newIndex);
         
-        // Use requestAnimationFrame to ensure state update happens after layout
+        // Reset NEW next/prev cards after state update
         requestAnimationFrame(() => {
-          // Update state after positions are locked
-          setCurrentIndex(newIndex);
-          setIsAnimating(false);
+          requestAnimationFrame(() => {
+            if (newIndex < coaches.length - 1) {
+              nextCardTranslateX.setValue(0);
+              nextCardOpacity.setValue(0);
+              nextCardScale.setValue(0.95);
+            }
+            
+            if (newIndex > 0) {
+              prevCardTranslateX.setValue(0);
+              prevCardOpacity.setValue(0);
+              prevCardScale.setValue(0.95);
+            }
+            
+            setIsAnimating(false);
+          });
         });
       });
     }
-  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, nextCardRotateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, prevCardRotateY, width]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width]);
 
   const handlePreviousCoach = useCallback(() => {
     if (currentIndex > 0 && !isAnimating) {
       setIsAnimating(true);
       
-      // Smooth animation for current card out to the right and previous card in
+      // Tinder-style animation for current card out and previous card in
       Animated.parallel([
-        // Current card out with smooth exit
+        // Current card exits
         Animated.timing(translateX, {
-          toValue: width * 1.2,
-          duration: 400,
+          toValue: width * 1.5,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothOut,
-        }),
-        Animated.timing(translateY, {
-          toValue: -10,
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(scale, {
-          toValue: 0.85,
-          duration: 400,
+          toValue: 0.8,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 360,
+          duration: 240,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(rotate, {
-          toValue: 6, // Reduced rotation for smoother feel
-          duration: 400,
+          toValue: 25, // Tinder-style rotation
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
-        // Previous card in with smooth entrance
-        Animated.timing(prevCardTranslateX, {
-          toValue: 0,
-          duration: 400,
+        // Previous card scales up from behind
+        Animated.timing(prevCardScale, {
+          toValue: 1,
+          duration: 300,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         }),
         Animated.timing(prevCardOpacity, {
           toValue: 1,
-          duration: 340,
+          duration: 270,
           useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
-        }),
-        Animated.timing(prevCardTranslateY, {
-          toValue: 0,
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
-        }),
-        Animated.timing(prevCardRotateY, {
-          toValue: 0, // Smooth flip in from -90 to 0
-          duration: 400,
-          useNativeDriver: true,
-          easing: animationConfig.smoothEasing,
+          easing: Easing.out(Easing.cubic),
         })
       ]).start(() => {
-        // Update index and reset animations
         const newIndex = currentIndex - 1;
         
-        // Reset animations BEFORE state update
-        // Lock all vertical positions first to prevent glitches
+        // CRITICAL: Ensure current card values match the card that just became current
+        // The prev card was at translateX: 0, scale: 1.0, opacity: 1.0
         translateY.setValue(0);
-        nextCardTranslateY.setValue(0);
-        prevCardTranslateY.setValue(0);
-        
-        translateX.setValue(0);
+        translateX.setValue(0); // CRITICAL: Must be 0 to prevent position jump
         scale.setValue(1);
         opacity.setValue(1);
         rotate.setValue(0);
         
-        // Reset prev card position if there's still a prev card with rotation
-        if (newIndex > 0) {
-          prevCardTranslateX.setValue(-width);
-          prevCardOpacity.setValue(0);
-          prevCardRotateY.setValue(-90);
-        }
-        // Reset next card position with rotation
-        if (newIndex < coaches.length - 1) {
-          nextCardTranslateX.setValue(width);
-          nextCardOpacity.setValue(0);
-          nextCardRotateY.setValue(90);
-        }
+        // Update state FIRST
+        setCurrentIndex(newIndex);
         
-        // Use requestAnimationFrame to ensure state update happens after layout
+        // Reset NEW next/prev cards after state update
         requestAnimationFrame(() => {
-          // Update state after positions are locked
-          setCurrentIndex(newIndex);
-          setIsAnimating(false);
+          requestAnimationFrame(() => {
+            if (newIndex > 0) {
+              prevCardTranslateX.setValue(0);
+              prevCardOpacity.setValue(0);
+              prevCardScale.setValue(0.95);
+            }
+            
+            if (newIndex < coaches.length - 1) {
+              nextCardTranslateX.setValue(0);
+              nextCardOpacity.setValue(0);
+              nextCardScale.setValue(0.95);
+            }
+            
+            setIsAnimating(false);
+          });
         });
       });
     }
-  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardTranslateX, nextCardOpacity, nextCardTranslateY, nextCardRotateY, prevCardTranslateX, prevCardOpacity, prevCardTranslateY, prevCardRotateY, width]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width]);
 
 
 
@@ -994,7 +855,7 @@ export default function CoachesScreen({ route, navigation }) {
         ) : currentCoach ? (
           /* Single Card Swipe System with Navigation Arrows */
           <View style={styles.swipeContainer}>
-            {/* Previous Card - positioned off-screen to the left */}
+            {/* Previous Card - positioned behind current (Tinder style) */}
             {previousCoach && (
               <Animated.View
                 style={[
@@ -1003,14 +864,10 @@ export default function CoachesScreen({ route, navigation }) {
                   {
                     transform: [
                       { translateX: prevCardTranslateX },
-                      { translateY: prevCardTranslateY },
-                      { rotateY: prevCardRotateY.interpolate({
-                        inputRange: [-90, 0],
-                        outputRange: ['-90deg', '0deg'],
-                        extrapolate: 'clamp',
-                      }) },
+                      { scale: prevCardScale },
                     ],
                     opacity: prevCardOpacity,
+                    zIndex: 0, // Behind current card
                   }
                 ]}
                 pointerEvents="none"
@@ -1019,7 +876,7 @@ export default function CoachesScreen({ route, navigation }) {
               </Animated.View>
             )}
             
-            {/* Next Card - positioned off-screen to the right */}
+            {/* Next Card - positioned behind current (Tinder style) */}
             {nextCoach && (
               <Animated.View
                 style={[
@@ -1028,14 +885,10 @@ export default function CoachesScreen({ route, navigation }) {
                   {
                     transform: [
                       { translateX: nextCardTranslateX },
-                      { translateY: nextCardTranslateY },
-                      { rotateY: nextCardRotateY.interpolate({
-                        inputRange: [0, 90],
-                        outputRange: ['0deg', '90deg'],
-                        extrapolate: 'clamp',
-                      }) },
+                      { scale: nextCardScale },
                     ],
                     opacity: nextCardOpacity,
+                    zIndex: 0, // Behind current card
                   }
                 ]}
                 pointerEvents="none"
@@ -1052,7 +905,7 @@ export default function CoachesScreen({ route, navigation }) {
               maxPointers={1}
               activeOffsetX={[-8, 8]} // Lower threshold for more responsive swipes
               failOffsetY={[-10, 10]} // Slightly more lenient vertical threshold
-              simultaneousHandlers={scrollViewRef ? [scrollViewRef] : []}
+              simultaneousHandlers={scrollViewRef?.current ? [scrollViewRef] : []}
               shouldCancelWhenOutside={false}
               enabled={!isAnimating}
             >
@@ -1066,8 +919,8 @@ export default function CoachesScreen({ route, navigation }) {
                       { translateY: translateY },
                       { scale: scale },
                       { rotate: rotate.interpolate({
-                        inputRange: [-6, 0, 6],
-                        outputRange: ['-6deg', '0deg', '6deg'],
+                        inputRange: [-25, 0, 25],
+                        outputRange: ['-25deg', '0deg', '25deg'],
                         extrapolate: 'clamp',
                       }) },
                     ],
@@ -1193,8 +1046,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
     position: 'relative',
     alignSelf: 'center',
-    // Use relative positioning for current card to ensure transforms work properly
-    // The container's justifyContent: 'center' will center it vertically
+    // Current card appears on top (Tinder style)
   },
   navigationContainer: {
     flexDirection: 'row',
