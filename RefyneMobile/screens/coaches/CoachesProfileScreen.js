@@ -51,7 +51,7 @@ export default function CoachesProfileScreen({ navigation }) {
   const [newLanguage, setNewLanguage] = useState('');
   const [newName, setNewName] = useState('');
   const [newBio, setNewBio] = useState('');
-  const availableSports = ['Badminton', 'Golf', 'Weight lifting'];
+  const availableSports = ['Badminton', 'Golf', 'Weight lifting', 'Volleyball'];
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -130,7 +130,8 @@ export default function CoachesProfileScreen({ navigation }) {
                 const sportNames = {
                   'golf': 'Golf',
                   'badminton': 'Badminton', 
-                  'weightlifting': 'Weight Lifting'
+                  'weightlifting': 'Weight Lifting',
+                  'volleyball': 'Volleyball'
                 };
                 const sportName = sportNames[onboardingData.sport] || onboardingData.sport;
                 

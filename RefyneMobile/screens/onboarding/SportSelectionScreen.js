@@ -18,6 +18,7 @@ const SPORTS = [
   { id: 'golf', name: 'Golf' },
   { id: 'badminton', name: 'Badminton' },
   { id: 'weightlifting', name: 'Weight Lifting' },
+  { id: 'volleyball', name: 'Volleyball' },
 ];
 
 export default function SportSelectionScreen({ navigation }) {

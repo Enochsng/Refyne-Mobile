@@ -38,6 +38,13 @@ const sports = [
     image: require('../../assets/weightliftingphoto.jpg'),
     gradient: ['#607D8B', '#37474F'],
   },
+  {
+    id: 4,
+    name: 'Volleyball',
+    description: 'Master the fundamentals and advanced techniques with expert volleyball coaching',
+    image: require('../../assets/volleyballpic.webp'),
+    gradient: ['#FF6B6B', '#EE5A6F'],
+  },
 ];
 
 export default function ExploreSportsScreen({ navigation }) {
