@@ -319,7 +319,8 @@ export default function CoachesEarningsScreen({ navigation }) {
         errorMessage = error.message;
       } else if (error.message.includes('Validation error')) {
         errorTitle = 'Validation Error';
-        errorMessage = error.message;
+        // Use the actual error message, which should now contain the real validation details
+        errorMessage = error.message || 'Please check that all required information is provided correctly.';
       } else if (error.message) {
         errorMessage = error.message;
       }

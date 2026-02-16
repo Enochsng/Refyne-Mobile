@@ -216,8 +216,8 @@ class StripeConnectService {
         const errorMsg = error.message || error.details?.message || 'Server error occurred. Please try again later.';
         throw new Error(`Server error: ${errorMsg}`);
       } else if (error.status === 400) {
-        const errorMsg = error.message || error.details?.details || 'Invalid request data. Please check your information.';
-        throw new Error(`Validation error: ${errorMsg}`);
+        const errorMsg = error.details || error.message || 'Invalid request data. Please check your information.';
+        throw new Error(errorMsg); // Don't prefix with "Validation error:" since errorMsg already contains it
       } else if (error.message.includes('No working backend URL')) {
         throw new Error('Unable to connect to server. Please check your internet connection.');
       }

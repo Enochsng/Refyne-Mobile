@@ -36,6 +36,11 @@ function normalizeRedirectUrl(url) {
   // Trim whitespace
   url = url.trim();
   
+  // If URL is empty after trimming, return null
+  if (url === '') {
+    return null;
+  }
+  
   // If URL already has protocol, return as is
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
@@ -422,20 +427,28 @@ router.post('/start-onboarding', async (req, res) => {
     const normalizedRefreshUrl = normalizeRedirectUrl(refreshUrl);
     const normalizedReturnUrl = normalizeRedirectUrl(returnUrl);
     
-    // Validate that URLs have proper protocol
-    if (!normalizedRefreshUrl || (!normalizedRefreshUrl.startsWith('http://') && !normalizedRefreshUrl.startsWith('https://'))) {
-      console.error('❌ Invalid refresh URL format:', refreshUrl);
+    // Validate that URLs have proper protocol and are not just protocols
+    if (!normalizedRefreshUrl || 
+        normalizedRefreshUrl === 'https://' || 
+        normalizedRefreshUrl === 'http://' ||
+        (!normalizedRefreshUrl.startsWith('http://') && !normalizedRefreshUrl.startsWith('https://'))) {
+      console.error('❌ Invalid refresh URL format:', refreshUrl, '->', normalizedRefreshUrl);
       return res.status(500).json({
         error: 'Invalid URL configuration',
-        message: 'Refresh URL must begin with http:// or https://. Please check APP_URL environment variable.'
+        message: 'Refresh URL must be a valid URL. Please check APP_URL environment variable.',
+        details: `Invalid URL: ${normalizedRefreshUrl || 'null'}`
       });
     }
     
-    if (!normalizedReturnUrl || (!normalizedReturnUrl.startsWith('http://') && !normalizedReturnUrl.startsWith('https://'))) {
-      console.error('❌ Invalid return URL format:', returnUrl);
+    if (!normalizedReturnUrl || 
+        normalizedReturnUrl === 'https://' || 
+        normalizedReturnUrl === 'http://' ||
+        (!normalizedReturnUrl.startsWith('http://') && !normalizedReturnUrl.startsWith('https://'))) {
+      console.error('❌ Invalid return URL format:', returnUrl, '->', normalizedReturnUrl);
       return res.status(500).json({
         error: 'Invalid URL configuration',
-        message: 'Return URL must begin with http:// or https://. Please check APP_URL environment variable.'
+        message: 'Return URL must be a valid URL. Please check APP_URL environment variable.',
+        details: `Invalid URL: ${normalizedReturnUrl || 'null'}`
       });
     }
     
@@ -682,8 +695,8 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
     // Create onboarding link
     const accountLink = await stripe.accountLinks.create({
       account: dbAccount.stripe_account_id,
-      refresh_url: normalizedRefreshUrl,
-      return_url: normalizedReturnUrl,
+      refresh_url: 'https://refyne-coaching.com',
+      return_url: 'https://refyne-coaching.com',
       type: 'account_onboarding',
     });
     

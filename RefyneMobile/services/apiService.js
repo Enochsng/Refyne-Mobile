@@ -75,7 +75,8 @@ class APIService {
           
           try {
             const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
+            // Prioritize details field for validation errors, then message, then error
+            errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
             errorDetails = errorData;
           } catch (parseError) {
             // If response is not JSON, try to get text
@@ -148,7 +149,8 @@ class APIService {
           
           try {
             const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
+            // Prioritize details field for validation errors, then message, then error
+            errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
             errorDetails = errorData;
           } catch (parseError) {
             // If response is not JSON, try to get text
@@ -221,7 +223,8 @@ class APIService {
           
           try {
             const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
+            // Prioritize details field for validation errors, then message, then error
+            errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
             errorDetails = errorData;
           } catch (parseError) {
             // If response is not JSON, try to get text
@@ -292,7 +295,8 @@ class APIService {
           
           try {
             const errorData = await response.json();
-            errorMessage = errorData.message || errorData.error || errorMessage;
+            // Prioritize details field for validation errors, then message, then error
+            errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
             errorDetails = errorData;
           } catch (parseError) {
             // If response is not JSON, try to get text
