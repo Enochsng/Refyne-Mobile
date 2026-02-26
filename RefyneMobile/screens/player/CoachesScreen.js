@@ -20,6 +20,21 @@ import { getCoachesBySport, formatExperience, formatExpertise, cleanupDeletedPro
 
 const { width, height } = Dimensions.get('window');
 
+// Calculate card centering margin
+// Card width is width - 40 with maxWidth 400, so margin is half of that
+// Account for the actual rendered card width
+const actualCardWidth = Math.min(width - 40, 400);
+const cardMarginLeft = -actualCardWidth / 2;
+// Calculate navigation container width and margin
+const navWidth = Math.min(width - 40, 400);
+const navMarginLeft = -navWidth / 2;
+// Navigation container height: paddingTop (20) + button height (44) + paddingBottom (10) + spacing (20) = ~94px
+const navContainerHeight = 94;
+// Card height is 580px (290px half)
+// Position cards to be centered in available space between header and navigation
+// Use a balanced offset that centers the card without covering header or overlapping navigation
+const cardTopOffset = -290; // Half card height - will be adjusted by paddingBottom in container
+
 // CoachCard Component with 3D and interactive effects
 const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
   const [isPressed, setIsPressed] = useState(false);
@@ -192,18 +207,18 @@ export default function CoachesScreen({ route, navigation }) {
   // Tinder-like animation configuration for buttery smooth swipes
   const animationConfig = useRef({
     spring: {
-      tension: 300,
-      friction: 8,
+      tension: 280,
+      friction: 9,
       useNativeDriver: true,
     },
     snapBack: {
-      tension: 300,
-      friction: 7,
+      tension: 280,
+      friction: 8,
       useNativeDriver: true,
     },
     timing: {
       duration: 300,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
       useNativeDriver: true,
     },
   }).current;
@@ -277,10 +292,11 @@ export default function CoachesScreen({ route, navigation }) {
     // Skip if animating - positions are managed by animation callbacks
     if (isAnimating || coaches.length === 0) return;
     
-    // CRITICAL: Ensure next/prev cards are always centered (translateX: 0)
-    // This prevents position jumps when cards become current
-    // Use a longer delay to ensure animation callbacks have finished
-    const timer = setTimeout(() => {
+    // Use InteractionManager to ensure this runs after animations complete
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      // CRITICAL: Ensure next/prev cards are always centered (translateX: 0)
+      // This prevents position jumps when cards become current
+      
       // Position next card behind current - ALWAYS at translateX: 0 (centered)
       if (currentIndex < coaches.length - 1) {
         // Ensure next card is centered and behind
@@ -299,9 +315,11 @@ export default function CoachesScreen({ route, navigation }) {
       // Ensure current card is centered
       translateY.setValue(0);
       translateX.setValue(0);
-    }, 100); // Longer delay to ensure all animations have settled
+    });
     
-    return () => clearTimeout(timer);
+    return () => {
+      interaction.cancel();
+    };
   }, [currentIndex, coaches.length, isAnimating]);
 
   const handleCoachSelect = (coach) => {
@@ -331,6 +349,8 @@ export default function CoachesScreen({ route, navigation }) {
     { 
       useNativeDriver: true,
       listener: (event) => {
+        if (isAnimating) return; // Prevent updates during animation
+        
         const { translationX } = event.nativeEvent;
         const absTranslationX = Math.abs(translationX);
         
@@ -366,7 +386,7 @@ export default function CoachesScreen({ route, navigation }) {
           // CRITICAL: Keep translateX at 0 - never change it
           nextCardTranslateX.setValue(0); // Always centered
           nextCardScale.setValue(0.95 + (progress * 0.05)); // Scale from 0.95 to 1.0
-          nextCardOpacity.setValue(progress * 0.8); // Fade in
+          nextCardOpacity.setValue(Math.min(progress * 0.9, 0.9)); // Fade in more smoothly
         } else if (translationX > 0 && currentPrevCoach) {
           // Swiping right - reveal prev card from behind
           const progress = Math.min(absTranslationX / (width * 0.5), 1);
@@ -374,7 +394,7 @@ export default function CoachesScreen({ route, navigation }) {
           // CRITICAL: Keep translateX at 0 - never change it
           prevCardTranslateX.setValue(0); // Always centered
           prevCardScale.setValue(0.95 + (progress * 0.05)); // Scale from 0.95 to 1.0
-          prevCardOpacity.setValue(progress * 0.8); // Fade in
+          prevCardOpacity.setValue(Math.min(progress * 0.9, 0.9)); // Fade in more smoothly
         } else {
           // Reset next/prev cards when not swiping in their direction
           // CRITICAL: Always keep translateX at 0
@@ -391,7 +411,7 @@ export default function CoachesScreen({ route, navigation }) {
         }
       }
     }
-  ), [translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, currentIndex, coaches, width]);
+  ), [translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, currentIndex, coaches, width, isAnimating]);
 
   // Memoize the current coach to prevent unnecessary re-renders
   const currentCoach = coaches[currentIndex];
@@ -483,25 +503,25 @@ export default function CoachesScreen({ route, navigation }) {
             toValue,
             duration,
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
           }),
           Animated.timing(scale, {
             toValue: 0.8,
             duration,
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
           }),
           Animated.timing(opacity, {
             toValue: 0,
-            duration: duration * 0.8,
+            duration: duration * 0.85,
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
           }),
           Animated.timing(rotate, {
             toValue: isSwipeLeft ? -25 : 25, // More pronounced rotation (Tinder style)
             duration,
             useNativeDriver: true,
-            easing: Easing.out(Easing.cubic),
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
           }),
           // Next card scales up from behind (Tinder style)
           // CRITICAL: Animate smoothly to final values
@@ -510,31 +530,34 @@ export default function CoachesScreen({ route, navigation }) {
               toValue: 1,
               duration,
               useNativeDriver: true,
-              easing: Easing.out(Easing.cubic),
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
             }),
             Animated.timing(nextCardOpacity, {
               toValue: 1,
-              duration: duration * 0.9,
+              duration: duration * 0.95,
               useNativeDriver: true,
-              easing: Easing.out(Easing.cubic),
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
             })
           ]) : Animated.parallel([
             Animated.timing(prevCardScale, {
               toValue: 1,
               duration,
               useNativeDriver: true,
-              easing: Easing.out(Easing.cubic),
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
             }),
             Animated.timing(prevCardOpacity, {
               toValue: 1,
-              duration: duration * 0.9,
+              duration: duration * 0.95,
               useNativeDriver: true,
-              easing: Easing.out(Easing.cubic),
+              easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
             })
           ])
         ]).start((finished) => {
           // Only proceed if animation completed successfully
-          if (!finished) return;
+          if (!finished) {
+            setIsAnimating(false);
+            return;
+          }
           
           const newIndex = isSwipeLeft ? currentIndex + 1 : currentIndex - 1;
           
@@ -557,27 +580,25 @@ export default function CoachesScreen({ route, navigation }) {
           setCurrentIndex(newIndex);
           
           // Reset NEW next/prev cards after state update
-          // Use requestAnimationFrame to ensure smooth transition
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              // Reset NEW next card (the one that will be next after transition)
-              // CRITICAL: Always set translateX to 0 to keep it centered
-              if (newIndex < coaches.length - 1) {
-                nextCardTranslateX.setValue(0);
-                nextCardOpacity.setValue(0);
-                nextCardScale.setValue(0.95);
-              }
-              
-              // Reset NEW prev card (the one that will be prev after transition)
-              // CRITICAL: Always set translateX to 0 to keep it centered
-              if (newIndex > 0) {
-                prevCardTranslateX.setValue(0);
-                prevCardOpacity.setValue(0);
-                prevCardScale.setValue(0.95);
-              }
-              
-              setIsAnimating(false);
-            });
+          // Use InteractionManager to ensure smooth transition after animation completes
+          InteractionManager.runAfterInteractions(() => {
+            // Reset NEW next card (the one that will be next after transition)
+            // CRITICAL: Always set translateX to 0 to keep it centered
+            if (newIndex < coaches.length - 1) {
+              nextCardTranslateX.setValue(0);
+              nextCardOpacity.setValue(0);
+              nextCardScale.setValue(0.95);
+            }
+            
+            // Reset NEW prev card (the one that will be prev after transition)
+            // CRITICAL: Always set translateX to 0 to keep it centered
+            if (newIndex > 0) {
+              prevCardTranslateX.setValue(0);
+              prevCardOpacity.setValue(0);
+              prevCardScale.setValue(0.95);
+            }
+            
+            setIsAnimating(false);
           });
         });
       } else {
@@ -653,38 +674,38 @@ export default function CoachesScreen({ route, navigation }) {
           toValue: -width * 1.5,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(scale, {
           toValue: 0.8,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 240,
+          duration: 255,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(rotate, {
           toValue: -25, // Tinder-style rotation
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         // Next card scales up from behind
         Animated.timing(nextCardScale, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(nextCardOpacity, {
           toValue: 1,
-          duration: 270,
+          duration: 285,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         })
       ]).start(() => {
         const newIndex = currentIndex + 1;
@@ -701,22 +722,21 @@ export default function CoachesScreen({ route, navigation }) {
         setCurrentIndex(newIndex);
         
         // Reset NEW next/prev cards after state update
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (newIndex < coaches.length - 1) {
-              nextCardTranslateX.setValue(0);
-              nextCardOpacity.setValue(0);
-              nextCardScale.setValue(0.95);
-            }
-            
-            if (newIndex > 0) {
-              prevCardTranslateX.setValue(0);
-              prevCardOpacity.setValue(0);
-              prevCardScale.setValue(0.95);
-            }
-            
-            setIsAnimating(false);
-          });
+        // Use InteractionManager to ensure smooth transition after animation completes
+        InteractionManager.runAfterInteractions(() => {
+          if (newIndex < coaches.length - 1) {
+            nextCardTranslateX.setValue(0);
+            nextCardOpacity.setValue(0);
+            nextCardScale.setValue(0.95);
+          }
+          
+          if (newIndex > 0) {
+            prevCardTranslateX.setValue(0);
+            prevCardOpacity.setValue(0);
+            prevCardScale.setValue(0.95);
+          }
+          
+          setIsAnimating(false);
         });
       });
     }
@@ -733,38 +753,38 @@ export default function CoachesScreen({ route, navigation }) {
           toValue: width * 1.5,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(scale, {
           toValue: 0.8,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(opacity, {
           toValue: 0,
-          duration: 240,
+          duration: 255,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(rotate, {
           toValue: 25, // Tinder-style rotation
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         // Previous card scales up from behind
         Animated.timing(prevCardScale, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         }),
         Animated.timing(prevCardOpacity, {
           toValue: 1,
-          duration: 270,
+          duration: 285,
           useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
+          easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         })
       ]).start(() => {
         const newIndex = currentIndex - 1;
@@ -781,22 +801,21 @@ export default function CoachesScreen({ route, navigation }) {
         setCurrentIndex(newIndex);
         
         // Reset NEW next/prev cards after state update
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (newIndex > 0) {
-              prevCardTranslateX.setValue(0);
-              prevCardOpacity.setValue(0);
-              prevCardScale.setValue(0.95);
-            }
-            
-            if (newIndex < coaches.length - 1) {
-              nextCardTranslateX.setValue(0);
-              nextCardOpacity.setValue(0);
-              nextCardScale.setValue(0.95);
-            }
-            
-            setIsAnimating(false);
-          });
+        // Use InteractionManager to ensure smooth transition after animation completes
+        InteractionManager.runAfterInteractions(() => {
+          if (newIndex > 0) {
+            prevCardTranslateX.setValue(0);
+            prevCardOpacity.setValue(0);
+            prevCardScale.setValue(0.95);
+          }
+          
+          if (newIndex < coaches.length - 1) {
+            nextCardTranslateX.setValue(0);
+            nextCardOpacity.setValue(0);
+            nextCardScale.setValue(0.95);
+          }
+          
+          setIsAnimating(false);
         });
       });
     }
@@ -1028,37 +1047,41 @@ const styles = StyleSheet.create({
   },
   swipeContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
     position: 'relative',
     minHeight: 650, // Minimum height to prevent layout shifts during transitions
     overflow: 'visible', // Changed to visible to see cards during swipe
+    paddingTop: 0, // No top padding - cards will be positioned relative to container
+    paddingBottom: navContainerHeight + 20, // Reserve space for navigation container plus spacing
   },
   absoluteCard: {
     position: 'absolute',
     zIndex: 1,
-    alignSelf: 'center',
+    left: '50%',
+    marginLeft: cardMarginLeft, // Center horizontally
     top: '50%',
-    marginTop: -290, // Half of card height (580/2) to center it vertically
+    marginTop: cardTopOffset + 10, // Half card height plus small adjustment - moved up to add space above navigation
   },
   currentCard: {
     zIndex: 2,
-    position: 'relative',
-    alignSelf: 'center',
+    position: 'absolute',
+    left: '50%',
+    marginLeft: cardMarginLeft, // Center horizontally
+    top: '50%',
+    marginTop: cardTopOffset + 10, // Half card height plus small adjustment - moved up to add space above navigation
     // Current card appears on top (Tinder style)
   },
   navigationContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    width: '100%',
-    maxWidth: 400,
-    marginTop: 'auto',
+    position: 'absolute',
+    bottom: 10,
+    left: '50%',
+    marginLeft: navMarginLeft, // Center horizontally
+    width: navWidth, // Full width minus padding, but max 400
     paddingTop: 20,
     paddingBottom: 10,
     paddingHorizontal: 10,
-    position: 'relative',
     zIndex: 10,
   },
   navButton: {
