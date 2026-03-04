@@ -47,6 +47,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
+  const isLoadingConversationsRef = useRef(false);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -70,9 +71,20 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   };
 
   // Load conversations function
-  const loadConversations = async () => {
+  const loadConversations = async (options = {}) => {
+    const { preserveSelectedConversation = true, showLoader = true } = options;
+
+    if (isLoadingConversationsRef.current) {
+      console.log('⏭️ Skipping conversation load - request already in progress');
+      return;
+    }
+
+    isLoadingConversationsRef.current = true;
+
     try {
-      setLoading(true);
+      if (showLoader) {
+        setLoading(true);
+      }
       setConnectionError(false);
       
       console.log('🔄 Starting to load conversations...');
@@ -107,7 +119,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       
       // If we have a selected conversation, update it with the latest data
       // This ensures chat expiration is refreshed after a new package purchase
-      if (selectedConversation) {
+      if (preserveSelectedConversation && selectedConversation) {
         const updatedConversation = formattedConversations.find(
           conv => conv.id === selectedConversation.id
         );
@@ -120,20 +132,6 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
       }
       
-      // If we have route params for a specific conversation, select it and load messages
-      if (route?.params?.conversationId) {
-        const targetConversation = formattedConversations.find(
-          conv => conv.id === route.params.conversationId
-        );
-        if (targetConversation) {
-          setSelectedConversation(targetConversation);
-          // Load messages for the selected conversation
-          loadMessages(targetConversation.id);
-          // Also refresh clips and daily messages to get updated chat expiry
-          loadRemainingClips(targetConversation.id);
-          loadRemainingDailyMessages(targetConversation.id);
-        }
-      }
     } catch (error) {
       // Log error details but don't use console.error to avoid triggering React Native error overlay
       console.warn('⚠️ Error loading conversations:', error.message);
@@ -149,7 +147,10 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       // Don't show Alert - let the UI error state handle the display
       // This prevents duplicate error messages
     } finally {
-      setLoading(false);
+      if (showLoader) {
+        setLoading(false);
+      }
+      isLoadingConversationsRef.current = false;
     }
   };
 
@@ -161,41 +162,38 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   // Handle route params when screen comes into focus (for tab navigator)
   useFocusEffect(
     React.useCallback(() => {
-      // If isNewSession is true, force reload conversations to get updated session_id and chat expiration
-      // This happens when a player purchases a new package for the same coach
-      if (route?.params?.isNewSession) {
-        console.log('🔄 New session detected - reloading conversations to refresh chat expiration');
-        console.log('   This will update the conversation with the new session_id and reset chat expiration');
-        loadConversations();
-      }
-      
-      // Only auto-select conversation if we have a conversationId in route params AND no conversation is currently selected
-      // This prevents re-selection when navigating back to the list view
-      if (route?.params?.conversationId && !selectedConversation) {
-        if (conversations.length > 0) {
-          // Conversations already loaded, find and select the target conversation
-          const targetConversation = conversations.find(
-            conv => conv.id === route.params.conversationId
-          );
-          if (targetConversation) {
-            setSelectedConversation(targetConversation);
-            loadMessages(targetConversation.id);
+      let isActive = true;
+
+      const refreshOnFocus = async () => {
+        const isNewSession = route?.params?.isNewSession;
+
+        // A new purchase should trigger one refresh, then clear the param to prevent focus loops.
+        if (isNewSession) {
+          console.log('🔄 New session detected - reloading conversations once');
+          await loadConversations();
+
+          if (isActive) {
+            navigation.setParams({ conversationId: undefined, isNewSession: undefined });
           }
-        } else {
-          // Conversations not loaded yet, load them first (they will handle selection in loadConversations)
-          loadConversations();
+          return;
         }
-      }
-      
-      // Refresh clip counter, daily messages, and chat expiry when screen comes into focus (e.g., after returning from purchase)
-      // Only if we have a selected conversation
-      if (selectedConversation?.id) {
+
+        if (!selectedConversation) {
+          await loadConversations();
+          return;
+        }
+
+        // If user is actively in chat, refresh counters when screen regains focus.
         loadRemainingClips(selectedConversation.id);
         loadRemainingDailyMessages(selectedConversation.id);
-        // Also reload the conversation to get updated chatExpiry
-        // This is handled by loadRemainingClips which returns chatExpiry, but we should also check it directly
-      }
-    }, [route?.params?.conversationId, route?.params?.isNewSession, conversations, selectedConversation])
+      };
+
+      refreshOnFocus();
+
+      return () => {
+        isActive = false;
+      };
+    }, [navigation, route?.params?.isNewSession, selectedConversation?.id])
   );
 
   // Refresh clip counter and daily messages when selected conversation changes
@@ -828,7 +826,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               setRemainingClips({ remaining: 0, total: 0, used: 0 });
               setChatExpiry(null);
               // Clear route params to prevent auto-selection when navigating back
-              navigation.setParams({ conversationId: undefined });
+              navigation.setParams({ conversationId: undefined, isNewSession: undefined });
+              // Keep cards visible instantly; refresh list silently in the background.
+              loadConversations({ preserveSelectedConversation: false, showLoader: false });
             }}
           >
             <Ionicons name="arrow-back" size={24} color="#0C295C" />

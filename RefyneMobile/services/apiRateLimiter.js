@@ -7,6 +7,7 @@ class APIRateLimiter {
     this.requestQueue = new Map(); // Track requests by endpoint
     this.lastRequestTime = new Map(); // Track last request time by endpoint
     this.requestCounts = new Map(); // Track request counts by endpoint
+    this.requestWindowStart = new Map(); // Track one-minute window start by endpoint
     this.minInterval = 2000; // Minimum 2 seconds between requests to same endpoint
     this.maxRequestsPerMinute = 10; // Max 10 requests per minute per endpoint
     this.retryDelays = [1000, 2000, 5000, 10000]; // Exponential backoff delays
@@ -21,6 +22,7 @@ class APIRateLimiter {
     const now = Date.now();
     const lastTime = this.lastRequestTime.get(endpoint) || 0;
     const requestCount = this.requestCounts.get(endpoint) || 0;
+    const windowStart = this.requestWindowStart.get(endpoint) || now;
     
     // Check minimum interval
     if (now - lastTime < this.minInterval) {
@@ -28,10 +30,10 @@ class APIRateLimiter {
       return false;
     }
     
-    // Check requests per minute (reset every minute)
-    const oneMinuteAgo = now - 60000;
-    if (requestCount >= this.maxRequestsPerMinute && lastTime > oneMinuteAgo) {
-      console.log(`⏳ Rate limit: Too many requests to ${endpoint}. Wait ${60000 - (now - lastTime)}ms`);
+    // Check requests per minute within a rolling one-minute window.
+    const windowElapsed = now - windowStart;
+    if (windowElapsed < 60000 && requestCount >= this.maxRequestsPerMinute) {
+      console.log(`⏳ Rate limit: Too many requests to ${endpoint}. Wait ${60000 - windowElapsed}ms`);
       return false;
     }
     
@@ -44,11 +46,14 @@ class APIRateLimiter {
    */
   recordRequest(endpoint) {
     const now = Date.now();
+    const windowStart = this.requestWindowStart.get(endpoint) || now;
+    const windowElapsed = now - windowStart;
+
     this.lastRequestTime.set(endpoint, now);
-    
-    // Reset counter if it's been more than a minute
-    const lastTime = this.lastRequestTime.get(endpoint) || 0;
-    if (now - lastTime > 60000) {
+
+    // Reset counter when the one-minute window has elapsed, otherwise increment.
+    if (windowElapsed >= 60000) {
+      this.requestWindowStart.set(endpoint, now);
       this.requestCounts.set(endpoint, 1);
     } else {
       const currentCount = this.requestCounts.get(endpoint) || 0;
@@ -64,10 +69,19 @@ class APIRateLimiter {
   getNextRequestDelay(endpoint) {
     const now = Date.now();
     const lastTime = this.lastRequestTime.get(endpoint) || 0;
+    const requestCount = this.requestCounts.get(endpoint) || 0;
+    const windowStart = this.requestWindowStart.get(endpoint) || now;
     const timeSinceLastRequest = now - lastTime;
     
+    // Check minimum interval first
     if (timeSinceLastRequest < this.minInterval) {
       return this.minInterval - timeSinceLastRequest;
+    }
+    
+    // Check requests-per-minute window and return time until window resets.
+    const windowElapsed = now - windowStart;
+    if (windowElapsed < 60000 && requestCount >= this.maxRequestsPerMinute) {
+      return 60000 - windowElapsed;
     }
     
     return 0;
@@ -151,6 +165,7 @@ class APIRateLimiter {
     this.requestQueue.delete(endpoint);
     this.lastRequestTime.delete(endpoint);
     this.requestCounts.delete(endpoint);
+    this.requestWindowStart.delete(endpoint);
     console.log(`🧹 Cleared rate limit data for ${endpoint}`);
   }
 
@@ -161,6 +176,7 @@ class APIRateLimiter {
     this.requestQueue.clear();
     this.lastRequestTime.clear();
     this.requestCounts.clear();
+    this.requestWindowStart.clear();
     console.log('🧹 Cleared all rate limit data');
   }
 

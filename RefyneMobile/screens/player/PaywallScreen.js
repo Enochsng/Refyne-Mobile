@@ -124,7 +124,6 @@ const getCoachingPackages = (sport) => {
 export default function PaywallScreen({ route, navigation }) {
   const { coach, sport } = route.params;
   const [selectedPackage, setSelectedPackage] = useState(2); // Default to Premium
-  const [selectedSubscription, setSelectedSubscription] = useState(false); // Track subscription selection
   const [loading, setLoading] = useState(false);
   const [paymentSheetEnabled, setPaymentSheetEnabled] = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
@@ -142,25 +141,21 @@ export default function PaywallScreen({ route, navigation }) {
   
   // Initialize payment sheet when component mounts OR when package selection changes
   useEffect(() => {
-    // Only initialize if a package or subscription is selected
-    if (selectedPackage || selectedSubscription) {
+    // Only initialize if a package is selected
+    if (selectedPackage) {
       initializePaymentSheet();
     }
-  }, [selectedPackage, selectedSubscription]);
+  }, [selectedPackage]);
 
   // Calculate pricing
   const getPackagePrice = () => {
-    if (selectedSubscription) {
-      return sport.toLowerCase() === 'golf' ? 7500 : 7000; // $75 or $70 in cents
-    } else {
-      // Package pricing based on sport
-      const packagePrices = {
-        golf: { 1: 4000, 2: 4500, 3: 5000 }, // $40, $45, $50
-        badminton: { 1: 3500, 2: 4000, 3: 4500 }, // $35, $40, $45
-      };
-      const sportKey = sport.toLowerCase();
-      return packagePrices[sportKey]?.[selectedPackage] || 4000;
-    }
+    // Package pricing based on sport
+    const packagePrices = {
+      golf: { 1: 4000, 2: 4500, 3: 5000 }, // $40, $45, $50
+      badminton: { 1: 3500, 2: 4000, 3: 4500 }, // $35, $40, $45
+    };
+    const sportKey = sport.toLowerCase();
+    return packagePrices[sportKey]?.[selectedPackage] || 4000;
   };
 
   const initializePaymentSheet = async () => {
@@ -172,7 +167,7 @@ export default function PaywallScreen({ route, navigation }) {
         coach,
         sport,
         selectedPackage,
-        selectedSubscription,
+        selectedSubscription: false,
         player: {
           id: route?.params?.playerId || 'temp_user_session',
           name: route?.params?.playerName || 'Player',
@@ -182,7 +177,6 @@ export default function PaywallScreen({ route, navigation }) {
 
       console.log('Initializing payment sheet with data:', paymentData);
       console.log('  - selectedPackage:', selectedPackage);
-      console.log('  - selectedSubscription:', selectedSubscription);
 
       let paymentResult;
       try {
@@ -246,7 +240,7 @@ export default function PaywallScreen({ route, navigation }) {
         coachId: coach.id,
         coachName: coach.name,
         sport: sport,
-        packageType: selectedSubscription ? 'subscription' : 'package',
+        packageType: 'package',
         packageId: selectedPackage,
         amount: getPackagePrice(),
         paymentMethod: 'stripe',
@@ -264,7 +258,7 @@ export default function PaywallScreen({ route, navigation }) {
           coachId: coach.id,
           coachName: coach.name,
           sport: sport,
-          packageType: selectedSubscription ? 'subscription' : 'package',
+          packageType: 'package',
           packageId: selectedPackage,
         };
 
@@ -377,15 +371,6 @@ export default function PaywallScreen({ route, navigation }) {
     }))
   ).current;
 
-  // Subscription card animations
-  const subscriptionAnimations = useRef({
-    pressScale: new Animated.Value(1),
-    pressTranslateY: new Animated.Value(0),
-    entranceOpacity: new Animated.Value(0),
-    entranceTranslateY: new Animated.Value(50),
-    entranceScale: new Animated.Value(0.95),
-  }).current;
-
   useEffect(() => {
     // Start entrance animations
     Animated.parallel([
@@ -431,40 +416,10 @@ export default function PaywallScreen({ route, navigation }) {
         ]).start();
       }, index * 150);
     });
-
-    // Start subscription card animation
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.spring(subscriptionAnimations.entranceOpacity, {
-          toValue: 1,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }),
-        Animated.spring(subscriptionAnimations.entranceTranslateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }),
-        Animated.spring(subscriptionAnimations.entranceScale, {
-          toValue: 1,
-          useNativeDriver: true,
-          tension: 100,
-          friction: 8,
-        }),
-      ]).start();
-    }, coachingPackages.length * 150);
   }, []);
 
   const handlePackageSelect = (packageId) => {
     setSelectedPackage(packageId);
-    setSelectedSubscription(false); // Deselect subscription when package is selected
-  };
-
-  const handleSubscriptionSelect = () => {
-    setSelectedSubscription(true);
-    setSelectedPackage(null); // Deselect package when subscription is selected
   };
 
   const handleCardPressIn = (index) => {
@@ -501,43 +456,9 @@ export default function PaywallScreen({ route, navigation }) {
     ]).start();
   };
 
-  const handleSubscriptionPressIn = () => {
-    Animated.parallel([
-      Animated.spring(subscriptionAnimations.pressScale, {
-        toValue: 0.96,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-      Animated.spring(subscriptionAnimations.pressTranslateY, {
-        toValue: -2,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-    ]).start();
-  };
-
-  const handleSubscriptionPressOut = () => {
-    Animated.parallel([
-      Animated.spring(subscriptionAnimations.pressScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-      Animated.spring(subscriptionAnimations.pressTranslateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-    ]).start();
-  };
-
   const handlePurchase = async () => {
-    if (!selectedSubscription && !selectedPackage) {
-      Alert.alert('Selection Required', 'Please select a package or subscription to continue.');
+    if (!selectedPackage) {
+      Alert.alert('Selection Required', 'Please select a package to continue.');
       return;
     }
 
@@ -715,60 +636,6 @@ export default function PaywallScreen({ route, navigation }) {
                   </TouchableOpacity>
                 </Animated.View>
               ))}
-              
-              {/* Subscription Card */}
-              <Animated.View
-                style={[
-                  styles.subscriptionCardContainer,
-                  {
-                    opacity: subscriptionAnimations.entranceOpacity,
-                    transform: [
-                      { translateY: subscriptionAnimations.entranceTranslateY },
-                      { scale: subscriptionAnimations.entranceScale },
-                      { scale: subscriptionAnimations.pressScale },
-                      { translateY: subscriptionAnimations.pressTranslateY },
-                    ],
-                  }
-                ]}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.subscriptionCard,
-                    selectedSubscription && styles.selectedSubscriptionCard,
-                  ]}
-                  onPress={handleSubscriptionSelect}
-                  onPressIn={handleSubscriptionPressIn}
-                  onPressOut={handleSubscriptionPressOut}
-                  activeOpacity={1}
-                >
-                  <View style={styles.subscriptionHeader}>
-                    <View style={styles.subscriptionTitleRow}>
-                      <View style={styles.subscriptionIconTitle}>
-                        <Ionicons name="infinite" size={24} color="white" />
-                        <Text style={styles.subscriptionTitle}>Monthly Subscription</Text>
-                      </View>
-                      {selectedSubscription && (
-                        <View style={styles.subscriptionSelectedIndicator}>
-                          <Ionicons name="checkmark-circle" size={24} color="white" />
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                  
-                  <View style={styles.subscriptionContent}>
-                    <Text style={styles.subscriptionDescription}>
-                      Send your coach up to 50 clips every month and have no session limit!
-                    </Text>
-                    
-                    <View style={styles.subscriptionPriceContainer}>
-                      <Text style={styles.subscriptionPrice}>
-                        {sport.toLowerCase() === 'golf' ? '$75' : '$70'}
-                      </Text>
-                      <Text style={styles.subscriptionPricePeriod}>/month</Text>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              </Animated.View>
             </View>
           </View>
         </ScrollView>
@@ -807,14 +674,11 @@ export default function PaywallScreen({ route, navigation }) {
                   <View style={styles.purchaseButtonLeft}>
                     <Ionicons name="card" size={18} color="rgba(255, 255, 255, 0.95)" />
                     <Text style={styles.purchaseButtonText} numberOfLines={1}>
-                      {selectedSubscription ? 'Subscribe' : 'Purchase'}
+                      Purchase
                     </Text>
                   </View>
                   <Text style={styles.purchaseButtonPrice}>
-                    {selectedSubscription 
-                      ? (sport.toLowerCase() === 'golf' ? '$75' : '$70')
-                      : coachingPackages.find(pkg => pkg.id === selectedPackage)?.price || '$0'
-                    }
+                    {coachingPackages.find(pkg => pkg.id === selectedPackage)?.price || '$0'}
                   </Text>
                 </View>
               )}
@@ -1101,89 +965,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  subscriptionCardContainer: {
-    marginBottom: 24,
-    marginTop: 8,
-  },
-  subscriptionCard: {
-    backgroundColor: '#0C295C',
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 2,
-    borderColor: '#1A4A7A',
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-    position: 'relative',
-  },
-  selectedSubscriptionCard: {
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  subscriptionSelectedIndicator: {
-    marginLeft: 12,
-  },
-  subscriptionHeader: {
-    marginBottom: 16,
-  },
-  subscriptionTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  subscriptionIconTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  subscriptionTitle: {
-    fontSize: width * 0.055,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    marginLeft: 12,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  subscriptionContent: {
-    flex: 1,
-  },
-  subscriptionDescription: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Medium',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 22,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  subscriptionPriceContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  subscriptionPrice: {
-    fontSize: width * 0.08,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  subscriptionPricePeriod: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Regular',
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginLeft: 4,
   },
 });
