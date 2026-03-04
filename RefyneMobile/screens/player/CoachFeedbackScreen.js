@@ -37,10 +37,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [remainingClips, setRemainingClips] = useState({ remaining: 0, total: 0, used: 0 });
-  const [loadingClips, setLoadingClips] = useState(false);
   const [chatExpiry, setChatExpiry] = useState(null);
   const [remainingDailyMessages, setRemainingDailyMessages] = useState({ remaining: 5, total: 5, used: 0 });
-  const [loadingDailyMessages, setLoadingDailyMessages] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -50,6 +48,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
   const isLoadingConversationsRef = useRef(false);
+  const selectedConversationIdRef = useRef(null);
+  const clipsRequestIdRef = useRef(0);
+  const dailyMessagesRequestIdRef = useRef(0);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -200,6 +201,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   // Refresh clip counter and daily messages when selected conversation changes
   useEffect(() => {
+    selectedConversationIdRef.current = selectedConversation?.id || null;
     if (selectedConversation?.id) {
       loadRemainingClips(selectedConversation.id);
       loadRemainingDailyMessages(selectedConversation.id);
@@ -430,10 +432,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   };
 
   const loadRemainingClips = async (conversationId) => {
+    const requestId = ++clipsRequestIdRef.current;
     try {
-      setLoadingClips(true);
       console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining clips for conversation: ${conversationId}`);
       const clipInfo = await getRemainingClips(conversationId);
+
+      // Ignore stale responses from previous conversations/requests.
+      if (requestId !== clipsRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
+
       console.log(`✅ [CoachFeedbackScreen] Clip info received:`, JSON.stringify(clipInfo, null, 2));
       console.log(`✅ [CoachFeedbackScreen] Setting remaining clips to: ${clipInfo.remaining}`);
       setRemainingClips(clipInfo);
@@ -448,33 +456,41 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       
       console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${clipInfo.remaining}, total: ${clipInfo.total}, used: ${clipInfo.used}`);
     } catch (error) {
+      if (requestId !== clipsRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
       console.error('❌ [CoachFeedbackScreen] Error loading remaining clips:', error.message);
       console.error('❌ [CoachFeedbackScreen] Error details:', error);
       console.error('❌ [CoachFeedbackScreen] Error stack:', error.stack);
       // Set default values on error
       setRemainingClips({ remaining: 0, total: 0, used: 0 });
       setChatExpiry(null);
-    } finally {
-      setLoadingClips(false);
     }
   };
 
   const loadRemainingDailyMessages = async (conversationId) => {
+    const requestId = ++dailyMessagesRequestIdRef.current;
     try {
-      setLoadingDailyMessages(true);
       console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining daily messages for conversation: ${conversationId}`);
       const messageInfo = await getRemainingDailyMessages(conversationId);
+
+      // Ignore stale responses from previous conversations/requests.
+      if (requestId !== dailyMessagesRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
+
       console.log(`✅ [CoachFeedbackScreen] Daily message info received:`, JSON.stringify(messageInfo, null, 2));
       console.log(`✅ [CoachFeedbackScreen] Setting remaining daily messages to: ${messageInfo.remaining}`);
       setRemainingDailyMessages(messageInfo);
       console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${messageInfo.remaining}, total: ${messageInfo.total}, used: ${messageInfo.used}`);
     } catch (error) {
+      if (requestId !== dailyMessagesRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
+        return;
+      }
       console.error('❌ [CoachFeedbackScreen] Error loading remaining daily messages:', error.message);
       console.error('❌ [CoachFeedbackScreen] Error details:', error);
       // Set default values on error
       setRemainingDailyMessages({ remaining: 5, total: 5, used: 0 });
-    } finally {
-      setLoadingDailyMessages(false);
     }
   };
 
@@ -820,6 +836,9 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   };
 
   if (selectedConversation) {
+    const visibleDailyMessages = Math.max(0, Number(remainingDailyMessages?.remaining ?? 0) || 0);
+    const visibleRemainingClips = Math.max(0, Number(remainingClips?.remaining ?? 0) || 0);
+
     const chatEnterStyle = {
       opacity: chatEnterAnim,
       transform: [
@@ -888,7 +907,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               <View style={styles.messageTracker}>
                 <Ionicons name="chatbubble" size={16} color="#0C295C" />
                 <Text style={styles.messageTrackerText}>
-                  {loadingDailyMessages ? '...' : Math.max(0, remainingDailyMessages.remaining)}
+                  {visibleDailyMessages}
                 </Text>
               </View>
             </View>
@@ -897,7 +916,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               <View style={styles.clipTracker}>
                 <Ionicons name="videocam" size={16} color="#0C295C" />
                 <Text style={styles.clipTrackerText}>
-                  {loadingClips ? '...' : remainingClips.remaining}
+                  {visibleRemainingClips}
                 </Text>
               </View>
             </View>
