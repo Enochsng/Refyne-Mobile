@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from 'expo-av';
 
 const { width, height } = Dimensions.get('window');
+const AnimatedKeyboardAvoidingView = Animated.createAnimatedComponent(KeyboardAvoidingView);
 
 export default function CoachFeedbackScreen({ navigation, route }) {
   const [conversations, setConversations] = useState([]);
@@ -44,6 +45,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
+  const chatEnterAnim = useRef(new Animated.Value(0)).current;
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
@@ -332,6 +334,18 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       }),
     ]).start();
   }, []);
+
+  // Subtle enter animation when opening a chat conversation
+  useEffect(() => {
+    if (selectedConversation) {
+      chatEnterAnim.setValue(0);
+      Animated.timing(chatEnterAnim, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [selectedConversation, chatEnterAnim]);
 
   // Load messages when a conversation is selected
   const markAsRead = async (conversationId) => {
@@ -806,9 +820,21 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   };
 
   if (selectedConversation) {
+    const chatEnterStyle = {
+      opacity: chatEnterAnim,
+      transform: [
+        {
+          translateY: chatEnterAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [10, 0],
+          }),
+        },
+      ],
+    };
+
     return (
-      <KeyboardAvoidingView 
-        style={styles.container} 
+      <AnimatedKeyboardAvoidingView 
+        style={[styles.container, chatEnterStyle]}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
@@ -1057,7 +1083,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
             </View>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </AnimatedKeyboardAvoidingView>
     );
   }
 
