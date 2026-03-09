@@ -149,10 +149,11 @@ export default function PaywallScreen({ route, navigation }) {
 
   // Calculate pricing
   const getPackagePrice = () => {
-    // Package pricing based on sport
+    // Package pricing based on sport (volleyball same as badminton)
     const packagePrices = {
       golf: { 1: 4000, 2: 4500, 3: 5000 }, // $40, $45, $50
       badminton: { 1: 3500, 2: 4000, 3: 4500 }, // $35, $40, $45
+      volleyball: { 1: 3500, 2: 4000, 3: 4500 }, // same as badminton
     };
     const sportKey = sport.toLowerCase();
     return packagePrices[sportKey]?.[selectedPackage] || 4000;

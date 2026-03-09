@@ -683,6 +683,7 @@ const getPackagePrice = (sport, packageId) => {
   const packagePrices = {
     golf: { 1: '$40', 2: '$45', 3: '$50' },
     badminton: { 1: '$35', 2: '$40', 3: '$45' },
+    volleyball: { 1: '$35', 2: '$40', 3: '$45' },
   };
   
   const sportKey = sport.toLowerCase();

@@ -325,8 +325,8 @@ export default function CoachesScreen({ route, navigation }) {
   const handleCoachSelect = (coach) => {
     setSelectedCoach(coach);
     
-    // For badminton and golf coaches, navigate to paywall
-    if (sport.toLowerCase() === 'badminton' || sport.toLowerCase() === 'golf') {
+    // For badminton, golf, and volleyball coaches, navigate to paywall
+    if (sport.toLowerCase() === 'badminton' || sport.toLowerCase() === 'golf' || sport.toLowerCase() === 'volleyball') {
       navigation.navigate('Paywall', { 
         coach: coach, 
         sport: sport 
@@ -334,7 +334,6 @@ export default function CoachesScreen({ route, navigation }) {
     } else {
       // For other sports, you can implement different flows
       console.log('Selected coach:', coach.name);
-      // For now, just show an alert for non-badminton/golf coaches
       Alert.alert(
         'Coach Selected',
         `You have selected ${coach.name}. This feature is coming soon for ${sport} coaches!`,

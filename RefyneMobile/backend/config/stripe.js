@@ -42,6 +42,12 @@ const PACKAGE_PRICING = {
     3: { price: 4500, clips: 10, days: 7 }, // $45.00 CAD, 10 clips, 7 days
     subscription: { price: 7000, clips: 50, days: 30 } // $70.00 CAD, 50 clips, 30 days
   },
+  volleyball: {
+    1: { price: 3500, clips: 5, days: 3 }, // same as badminton
+    2: { price: 4000, clips: 7, days: 5 },
+    3: { price: 4500, clips: 10, days: 7 },
+    subscription: { price: 7000, clips: 50, days: 30 }
+  },
   golf: {
     1: { price: 4000, clips: 5, days: 3 }, // $40.00 CAD, 5 clips, 3 days
     2: { price: 4500, clips: 7, days: 5 }, // $45.00 CAD, 7 clips, 5 days

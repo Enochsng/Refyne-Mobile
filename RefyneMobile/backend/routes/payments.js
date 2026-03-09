@@ -9,7 +9,7 @@ const router = express.Router();
 const createPaymentIntentSchema = Joi.object({
   coachId: Joi.string().required(),
   coachName: Joi.string().required(),
-  sport: Joi.string().valid('badminton', 'golf').required(),
+  sport: Joi.string().valid('badminton', 'golf', 'volleyball').required(),
   packageType: Joi.string().valid('package', 'subscription').required(),
   packageId: Joi.when('packageType', {
     is: 'package',
@@ -36,7 +36,7 @@ const confirmPaymentSchema = Joi.object({
 const createCheckoutSessionSchema = Joi.object({
   coachId: Joi.string().required(),
   coachName: Joi.string().required(),
-  sport: Joi.string().valid('badminton', 'golf').required(),
+  sport: Joi.string().valid('badminton', 'golf', 'volleyball').required(),
   packageType: Joi.string().valid('package', 'subscription').required(),
   packageId: Joi.when('packageType', {
     is: 'package',

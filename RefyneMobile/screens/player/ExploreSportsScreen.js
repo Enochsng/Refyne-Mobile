@@ -32,13 +32,6 @@ const sports = [
     gradient: ['#2196F3', '#1976D2'],
   },
   {
-    id: 3,
-    name: 'Weight Lifting',
-    description: 'Improve your form and increase your strength with expert coaching',
-    image: require('../../assets/weightliftingphoto.jpg'),
-    gradient: ['#607D8B', '#37474F'],
-  },
-  {
     id: 4,
     name: 'Volleyball',
     description: 'Master the fundamentals and advanced techniques with expert volleyball coaching',

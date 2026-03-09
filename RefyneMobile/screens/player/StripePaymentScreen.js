@@ -44,6 +44,7 @@ export default function StripePaymentScreen({ route, navigation }) {
       const packagePrices = {
         golf: { 1: 4000, 2: 4500, 3: 5000 }, // $40, $45, $50
         badminton: { 1: 3500, 2: 4000, 3: 4500 }, // $35, $40, $45
+        volleyball: { 1: 3500, 2: 4000, 3: 4500 }, // same as badminton
       };
       const sportKey = sport.toLowerCase();
       return packagePrices[sportKey]?.[selectedPackage] || 4000;
