@@ -51,6 +51,10 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const selectedConversationIdRef = useRef(null);
   const clipsRequestIdRef = useRef(0);
   const dailyMessagesRequestIdRef = useRef(0);
+  const lastConversationsLoadAtRef = useRef(0);
+
+  const CONVERSATION_REFRESH_DEBOUNCE_MS = 15000;
+  const CONVERSATION_FORMAT_TIMEOUT_MS = 2500;
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -75,7 +79,22 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   // Load conversations function
   const loadConversations = async (options = {}) => {
-    const { preserveSelectedConversation = true, showLoader = true } = options;
+    const {
+      preserveSelectedConversation = true,
+      showLoader = true,
+      force = false
+    } = options;
+
+    const now = Date.now();
+    const hasExistingConversations = conversations.length > 0;
+    const shouldDebounce =
+      !force &&
+      hasExistingConversations &&
+      (now - lastConversationsLoadAtRef.current) < CONVERSATION_REFRESH_DEBOUNCE_MS;
+
+    if (shouldDebounce) {
+      return;
+    }
 
     if (isLoadingConversationsRef.current) {
       console.log('⏭️ Skipping conversation load - request already in progress');
@@ -112,13 +131,43 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       const conversationsData = await getConversations(playerId, 'player');
       console.log('✅ Retrieved conversations data:', conversationsData);
       
-      // Format conversations for display (now async)
+      const withTimeout = (promise, timeoutMs, fallbackValue) => {
+        return Promise.race([
+          promise,
+          new Promise(resolve => setTimeout(() => resolve(fallbackValue), timeoutMs))
+        ]);
+      };
+
+      // Format conversations for display with timeout fallback per conversation.
+      // This prevents one slow profile lookup from blocking the full list render.
       const formattedConversations = await Promise.all(
-        conversationsData.map(conv => formatConversationForDisplay(conv, 'player'))
+        conversationsData.map(async (conv) => {
+          const fallbackConversation = {
+            id: conv.id,
+            otherPartyName: conv.coach_name || 'Coach',
+            playerName: conv.player_name,
+            coachName: conv.coach_name,
+            sport: conv.sport,
+            lastMessage: conv.last_message,
+            lastMessageAt: conv.last_message_at,
+            unreadCount: conv.player_unread_count || 0,
+            sessionId: conv.session_id,
+            isOnline: false,
+            avatar: null,
+            chatExpiry: conv.chatExpiry || null
+          };
+
+          return withTimeout(
+            formatConversationForDisplay(conv, 'player'),
+            CONVERSATION_FORMAT_TIMEOUT_MS,
+            fallbackConversation
+          );
+        })
       );
       
       console.log('✅ Formatted conversations:', formattedConversations);
       setConversations(formattedConversations);
+      lastConversationsLoadAtRef.current = Date.now();
       
       // If we have a selected conversation, update it with the latest data
       // This ensures chat expiration is refreshed after a new package purchase
@@ -173,7 +222,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         // A new purchase should trigger one refresh, then clear the param to prevent focus loops.
         if (isNewSession) {
           console.log('🔄 New session detected - reloading conversations once');
-          await loadConversations();
+          await loadConversations({ force: true });
 
           if (isActive) {
             navigation.setParams({ conversationId: undefined, isNewSession: undefined });
@@ -182,7 +231,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
 
         if (!selectedConversation) {
-          await loadConversations();
+          await loadConversations({
+            // Keep the previous list visible on tab returns; refresh silently.
+            showLoader: conversations.length === 0,
+            preserveSelectedConversation: true
+          });
           return;
         }
 
@@ -196,7 +249,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       return () => {
         isActive = false;
       };
-    }, [navigation, route?.params?.isNewSession, selectedConversation?.id])
+    }, [navigation, route?.params?.isNewSession, selectedConversation?.id, conversations.length])
   );
 
   // Refresh clip counter and daily messages when selected conversation changes
