@@ -494,6 +494,70 @@ export const uploadChatMedia = async (localUri, mimeType = 'video/mp4', fileName
 };
 
 /**
+ * Upload a profile photo to backend storage. Returns a permanent public URL.
+ * Caller should then call supabase.auth.updateUser({ data: { avatar_url: url } })
+ * so public.profiles.avatar_url stays in sync via DB trigger.
+ *
+ * @param {string} localUri - Local file URI from ImagePicker
+ * @param {string} userId - Auth user id (required for stable storage path)
+ * @param {string} mimeType - e.g. image/jpeg
+ * @param {string} fileName - e.g. avatar.jpg
+ */
+export const uploadProfileAvatar = async (localUri, userId, mimeType = 'image/jpeg', fileName = 'avatar.jpg') => {
+  if (!userId) {
+    throw new Error('userId is required for avatar upload');
+  }
+  const workingUrl = await testBackendConnection();
+  if (!workingUrl) {
+    throw new Error('No working backend URL found');
+  }
+
+  const formData = new FormData();
+  formData.append('file', {
+    uri: localUri,
+    type: mimeType,
+    name: fileName,
+  });
+  formData.append('userId', userId);
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timeout')), 60000)
+  );
+  const fetchPromise = fetch(`${workingUrl}/api/upload/avatar`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+    body: formData,
+  });
+
+  const response = await Promise.race([fetchPromise, timeoutPromise]);
+  const data = await response.json().catch(() => ({}));
+
+  // Production may not have /api/upload/avatar deployed yet → 404 "The requested resource was not found"
+  // Fallback: chat-media accepts images and is already deployed; URL is permanent and works for avatar_url
+  if (response.status === 404 || (data.message && String(data.message).toLowerCase().includes('not found'))) {
+    console.warn('Avatar route not available; falling back to chat-media upload');
+    try {
+      return await uploadChatMedia(localUri, mimeType, `avatar-${userId}-${Date.now()}.jpg`);
+    } catch (fallbackErr) {
+      throw new Error(
+        fallbackErr.message ||
+          'Avatar upload failed. Deploy the latest backend (POST /api/upload/avatar) or ensure chat-media upload works.'
+      );
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Avatar upload failed (${response.status})`);
+  }
+  if (!data.url) {
+    throw new Error('Avatar upload did not return a URL');
+  }
+  return data.url;
+};
+
+/**
  * Send a message to a conversation
  */
 export const sendMessage = async (conversationId, senderId, senderType, content, messageType = 'text', videoUri = null) => {

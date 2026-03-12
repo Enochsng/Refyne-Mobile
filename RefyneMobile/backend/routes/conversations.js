@@ -17,6 +17,28 @@ const {
 
 const router = express.Router();
 
+// UUID v4 (and compatible) — player_id / coach_id must use Supabase auth user ids
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isUuid(str) {
+  return typeof str === 'string' && UUID_REGEX.test(str);
+}
+
+/**
+ * Resolve canonical sender_id from conversation row so messages always store
+ * the same id as conversations.player_id / conversations.coach_id (full UUID).
+ * Supports both snake_case (Supabase) and camelCase (in-memory) keys.
+ */
+function canonicalSenderIdFromConversation(conversation, senderType) {
+  if (!conversation) return null;
+  if (senderType === 'player') {
+    return conversation.player_id || conversation.playerId || null;
+  }
+  if (senderType === 'coach') {
+    return conversation.coach_id || conversation.coachId || null;
+  }
+  return null;
+}
+
 // Test endpoint for connection testing
 router.get('/test/player', (req, res) => {
   res.json({
@@ -32,9 +54,11 @@ router.get('/test/player', (req, res) => {
   });
 });
 
-// Validation schemas
+// Validation schemas — userId must be full UUID (Supabase auth user id)
 const getConversationsSchema = Joi.object({
-  userId: Joi.string().required(),
+  userId: Joi.string().required().pattern(UUID_REGEX).messages({
+    'string.pattern.base': 'userId must be a valid UUID (Supabase auth user id)'
+  }),
   userType: Joi.string().valid('player', 'coach').required()
 });
 
@@ -59,9 +83,13 @@ const markAsReadSchema = Joi.object({
 });
 
 const createConversationSchema = Joi.object({
-  playerId: Joi.string().required(),
+  playerId: Joi.string().required().pattern(UUID_REGEX).messages({
+    'string.pattern.base': 'playerId must be a valid UUID (Supabase auth user id)'
+  }),
   playerName: Joi.string().required(),
-  coachId: Joi.string().required(),
+  coachId: Joi.string().required().pattern(UUID_REGEX).messages({
+    'string.pattern.base': 'coachId must be a valid UUID (Supabase auth user id)'
+  }),
   coachName: Joi.string().required(),
   sport: Joi.string().required(),
   sessionId: Joi.string().optional()
@@ -316,7 +344,51 @@ router.post('/:conversationId/messages', async (req, res) => {
       });
     }
 
-    const { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
+    let { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
+
+    // Load conversation and always persist sender_id from the conversation row for player/coach
+    // so messages.sender_id matches conversations.player_id / coach_id (full UUID).
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      return res.status(404).json({
+        error: 'Conversation not found',
+        message: 'No conversation exists for this id'
+      });
+    }
+
+    if (senderType === 'player' || senderType === 'coach') {
+      const canonicalId = canonicalSenderIdFromConversation(conversation, senderType);
+      if (!canonicalId) {
+        return res.status(400).json({
+          error: 'Invalid conversation',
+          message: `Conversation is missing ${senderType}_id; cannot send message`
+        });
+      }
+      if (!isUuid(canonicalId)) {
+        return res.status(400).json({
+          error: 'Conversation participants must use UUID',
+          message: `This conversation has a non-UUID ${senderType} id. Update the conversation row to use Supabase auth UUIDs before sending messages.`
+        });
+      }
+      // Reject if client sends wrong id (security + consistency)
+      if (senderId !== canonicalId) {
+        return res.status(403).json({
+          error: 'Sender mismatch',
+          message: `senderId must match conversation ${senderType} (use authenticated user UUID). Expected participant id from conversation record.`
+        });
+      }
+      senderId = canonicalId;
+    } else if (senderType === 'system') {
+      // System messages: allow non-UUID sender_id only if explicitly needed; prefer fixed id
+      if (!senderId || senderId === 'system') {
+        senderId = 'system';
+      } else if (!isUuid(senderId)) {
+        return res.status(400).json({
+          error: 'Invalid senderId',
+          message: 'system senderId must be "system" or a valid UUID'
+        });
+      }
+    }
 
     // Check if chat is expired for players (coaches can always send messages)
     // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)

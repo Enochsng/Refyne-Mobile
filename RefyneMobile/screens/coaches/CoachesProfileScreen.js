@@ -737,15 +737,40 @@ export default function CoachesProfileScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets[0]) {
-        const photoUri = result.assets[0].uri;
-        
-        // Save profile photo URI to user-specific AsyncStorage
-        await AsyncStorage.setItem(`profile_photo_${user.id}`, photoUri);
-        console.log('Profile photo saved for user:', user.id);
-        
-        // Update local state
-        setProfilePhotoUri(photoUri);
-        Alert.alert('Success', 'Profile photo updated successfully!');
+        const asset = result.assets[0];
+        const photoUri = asset.uri;
+        const mimeType = asset.mimeType || 'image/jpeg';
+        const fileName = asset.fileName || 'avatar.jpg';
+
+        try {
+          const { uploadProfileAvatar } = await import('../../services/conversationService');
+          const publicUrl = await uploadProfileAvatar(photoUri, user.id, mimeType, fileName);
+
+          const { error: updateError } = await supabase.auth.updateUser({
+            data: {
+              avatar_url: publicUrl,
+              profilePicture: publicUrl,
+              profile_photo: publicUrl,
+            },
+          });
+          if (updateError) {
+            console.warn('Avatar uploaded but metadata update failed:', updateError.message);
+            Alert.alert('Partial success', 'Photo uploaded but profile sync failed. Try again later.');
+            return;
+          }
+
+          await AsyncStorage.setItem(`profile_photo_${user.id}`, publicUrl);
+          setProfilePhotoUri(publicUrl);
+          Alert.alert('Success', 'Profile photo updated successfully!');
+        } catch (uploadErr) {
+          console.error('Avatar upload failed:', uploadErr);
+          await AsyncStorage.setItem(`profile_photo_${user.id}`, photoUri);
+          setProfilePhotoUri(photoUri);
+          Alert.alert(
+            'Saved locally only',
+            uploadErr.message || 'Could not upload to server. Photo is stored on this device only.'
+          );
+        }
       }
     } catch (error) {
       console.log('Error picking image:', error);

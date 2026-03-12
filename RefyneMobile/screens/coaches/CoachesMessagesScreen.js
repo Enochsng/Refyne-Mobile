@@ -335,9 +335,13 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
       try {
-        const coachId = route?.params?.coachId || 'temp_coach';
-        // For development/testing, allow temp coaches to send messages
-        // In production, this should be replaced with real user authentication
+        // Always use authenticated user id so messages.sender_id matches conversations.coach_id (UUID)
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          Alert.alert('Authentication Error', 'Please sign in to send messages.');
+          return;
+        }
+        const coachId = user.id;
         console.log('Sending message as coach:', coachId);
 
         // Import the sendMessage function from conversation service
