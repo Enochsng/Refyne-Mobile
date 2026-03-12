@@ -1756,6 +1756,7 @@ async function initializeDatabase() {
 
 module.exports = {
   supabase,
+  isSupabaseConfigured,
   saveCoachConnectAccount,
   getCoachConnectAccount,
   updateCoachAccountStatus,

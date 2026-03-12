@@ -14,6 +14,7 @@ const paymentRoutes = require('./routes/payments');
 const connectRoutes = require('./routes/connect');
 const { router: webhookRoutes } = require('./routes/webhooks');
 const conversationRoutes = require('./routes/conversations');
+const uploadRoutes = require('./routes/upload');
 const { clearAllConversations } = require('./services/database');
 
 // Security middleware
@@ -698,6 +699,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/connect', connectRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conversations', conversationRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

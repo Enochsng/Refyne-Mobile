@@ -775,13 +775,28 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         console.log('Sending video as authenticated player:', playerId);
         console.log('Video duration:', videoDuration, 'seconds');
 
-        // Import the sendMessage function from conversation service
-        const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
+        // Import conversation service: upload chat media first, then send message with permanent URL
+        const { uploadChatMedia, sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
         
         // Format duration for display
         const displayDuration = videoDuration > 0 ? `${Math.round(videoDuration)}s` : 'Video';
         
-        // Send video message
+        // Upload video to Supabase Storage so it stays visible after app reload / server restart
+        let videoUrlToStore = video.uri;
+        if (video.uri && (video.uri.startsWith('file://') || video.uri.startsWith('content://') || video.uri.startsWith('ph://'))) {
+          try {
+            videoUrlToStore = await uploadChatMedia(
+              video.uri,
+              'video/mp4',
+              video.fileName || `video-${Date.now()}.mp4`
+            );
+          } catch (uploadErr) {
+            console.warn('Chat media upload failed, sending local URI:', uploadErr.message);
+            // Fallback: still send local URI (will only work until app reload)
+          }
+        }
+
+        // Send video message with permanent URL (or fallback local URI)
         try {
           const response = await sendMessageToConversation(
             selectedConversation.id,
@@ -789,10 +804,10 @@ export default function CoachFeedbackScreen({ navigation, route }) {
             'player',
             `📹 Video (${displayDuration})`, // Display duration in message
             'video',
-            video.uri // Pass the video URI
+            videoUrlToStore
           );
 
-          // Add the video message to local state for immediate display
+          // Add the video message to local state for immediate display (use stored URL so it persists)
           const newMessage = {
             id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             text: `📹 Video (${displayDuration})`,
@@ -802,7 +817,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               minute: '2-digit' 
             }),
             messageType: 'video',
-            videoUri: video.uri
+            videoUri: videoUrlToStore
           };
 
           setMessages(prev => [...prev, newMessage]);

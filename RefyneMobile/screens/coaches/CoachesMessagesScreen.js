@@ -454,20 +454,33 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       const coachId = user.id;
       console.log('Sending tutorial as coach:', coachId, 'Tutorial:', tutorial.title);
 
-      // Import the sendMessage function from conversation service
-      const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
-      
+      const { uploadChatMedia, sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
+
+      // If tutorial video is a local URI, upload to Supabase first so it stays visible after reload
+      let videoUrlToStore = tutorial.videoUri;
+      if (tutorial.videoUri && (tutorial.videoUri.startsWith('file://') || tutorial.videoUri.startsWith('content://') || tutorial.videoUri.startsWith('ph://'))) {
+        try {
+          videoUrlToStore = await uploadChatMedia(
+            tutorial.videoUri,
+            'video/mp4',
+            tutorial.videoName || `tutorial-${Date.now()}.mp4`
+          );
+        } catch (uploadErr) {
+          console.warn('Tutorial upload failed, sending local URI:', uploadErr.message);
+        }
+      }
+
       // Create message content with tutorial title
       const messageContent = `🎥 Tutorial: ${tutorial.title}`;
-      
-      // Send video message
+
+      // Send video message with permanent URL
       const response = await sendMessageToConversation(
         selectedConversation.id,
         coachId,
         'coach',
         messageContent,
         'video',
-        tutorial.videoUri
+        videoUrlToStore
       );
 
       // Add the video message to local state for immediate display
@@ -480,7 +493,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           minute: '2-digit' 
         }),
         messageType: 'video',
-        videoUri: tutorial.videoUri,
+        videoUri: videoUrlToStore,
         createdAt: Date.now()
       };
 

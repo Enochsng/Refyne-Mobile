@@ -448,6 +448,52 @@ export const getConversationMessages = async (conversationId, limit = 50, offset
 };
 
 /**
+ * Upload a video or image file for chat messages. Returns a permanent public URL to store in the message.
+ * Use this before sending a video/image message so the media is stored in Supabase and remains visible after app reload.
+ * @param {string} localUri - Local file URI (e.g. from ImagePicker: file:// or content://)
+ * @param {string} mimeType - MIME type e.g. 'video/mp4', 'image/jpeg'
+ * @param {string} fileName - File name for the upload e.g. 'video.mp4'
+ * @returns {Promise<string>} Public URL of the uploaded file
+ */
+export const uploadChatMedia = async (localUri, mimeType = 'video/mp4', fileName = 'video.mp4') => {
+  const workingUrl = await testBackendConnection();
+  if (!workingUrl) {
+    throw new Error('No working backend URL found');
+  }
+
+  const formData = new FormData();
+  formData.append('file', {
+    uri: localUri,
+    type: mimeType,
+    name: fileName,
+  });
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Upload timeout')), 120000) // 2 min for large videos
+  );
+  const fetchPromise = fetch(`${workingUrl}/api/upload/chat-media`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      // Do not set Content-Type; let fetch set multipart/form-data with boundary
+    },
+    body: formData,
+  });
+
+  const response = await Promise.race([fetchPromise, timeoutPromise]);
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.message || data.error || `Upload failed (${response.status})`);
+  }
+
+  if (!data.url) {
+    throw new Error('Upload did not return a URL');
+  }
+  return data.url;
+};
+
+/**
  * Send a message to a conversation
  */
 export const sendMessage = async (conversationId, senderId, senderType, content, messageType = 'text', videoUri = null) => {

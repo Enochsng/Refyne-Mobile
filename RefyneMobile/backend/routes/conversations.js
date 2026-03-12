@@ -44,7 +44,7 @@ const addMessageSchema = Joi.object({
   senderType: Joi.string().valid('player', 'coach', 'system').required(),
   content: Joi.string().required(),
   messageType: Joi.string().valid('text', 'image', 'video', 'file', 'system').optional(),
-  videoUri: Joi.string().uri().allow(null).optional()
+  videoUri: Joi.string().allow(null, '').optional() // https (Supabase) or legacy file://
 });
 
 const getMessagesSchema = Joi.object({
