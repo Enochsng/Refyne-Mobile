@@ -1,5 +1,5 @@
 # Refyne backend — production-style run on VPS
-# Typical deploy directory (matches GitHub Actions default): /home/enoch/refyne-backend
+# Typical deploy directory (matches GitHub Actions default): /home/github-runner/refyne-backend
 #
 # Prerequisites on the server:
 #   1. Copy env.example → .env and fill in real values (or keep existing .env).

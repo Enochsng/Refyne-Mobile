@@ -5,7 +5,7 @@
 #   - Self-hosted runner registered on the VPS with Docker installed.
 #
 # On the VPS (once):
-#   - Place docker-compose.yaml + .env in /home/enoch/refyne-backend (default deploy path).
+#   - Place docker-compose.yaml + .env in /home/github-runner/refyne-backend (default deploy path).
 #   - .env must include BACKEND_IMAGE matching the image pushed below (see env.example).
 #   - echo YOUR_GITHUB_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
 #
@@ -85,7 +85,7 @@ jobs:
           DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
           set -e
-          DEPLOY_DIR="${DEPLOY_PATH:-/home/enoch/refyne-backend}"
+          DEPLOY_DIR="${DEPLOY_PATH:-/home/github-runner/refyne-backend}"
           if [ ! -f "$DEPLOY_DIR/docker-compose.yaml" ]; then
             echo "docker-compose.yaml not found at $DEPLOY_DIR"
             echo "Set secret DEPLOY_PATH to the directory containing docker-compose.yaml and .env"
