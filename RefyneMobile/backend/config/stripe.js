@@ -1,3 +1,7 @@
+const path = require('path');
+// Load .env from backend root when this module is required first (matches server config/stripe.js)
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+
 const Stripe = require('stripe');
 
 // Validate Stripe configuration

@@ -61,6 +61,8 @@ const createAccountSchema = Joi.object({
   businessType: Joi.string().valid('individual', 'company').default('individual')
 });
 
+// Matches server connect.js validation; .unknown(true) on updates so Stripe
+// accounts.update can receive any allowed param without Joi stripping keys.
 const updateAccountSchema = Joi.object({
   accountId: Joi.string().required(),
   updates: Joi.object({
@@ -70,7 +72,7 @@ const updateAccountSchema = Joi.object({
       support_email: Joi.string().email(),
       support_phone: Joi.string(),
       support_url: Joi.string().uri()
-    }),
+    }).unknown(true),
     individual: Joi.object({
       first_name: Joi.string(),
       last_name: Joi.string(),
@@ -83,14 +85,14 @@ const updateAccountSchema = Joi.object({
         state: Joi.string(),
         postal_code: Joi.string(),
         country: Joi.string().length(2)
-      }),
+      }).unknown(true),
       dob: Joi.object({
         day: Joi.number().min(1).max(31),
         month: Joi.number().min(1).max(12),
         year: Joi.number().min(1900).max(new Date().getFullYear())
       })
-    })
-  }).required()
+    }).unknown(true)
+  }).required().unknown(true)
 });
 
 /**

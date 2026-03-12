@@ -7,6 +7,8 @@ const morgan = require('morgan');
 require('dotenv').config();
 
 const app = express();
+// Behind reverse proxy (nginx, load balancer) — correct client IP & secure cookies
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
 
 // Import routes
@@ -44,8 +46,11 @@ const corsOptions = {
       return;
     }
     
-    // In production, use specific allowed origins
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
+    // In production, use specific allowed origins (trim so "a, b" still matches)
+    const fromEnv = process.env.ALLOWED_ORIGINS
+      ? process.env.ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    const allowedOrigins = fromEnv.length > 0 ? fromEnv : [
       'http://localhost:19006',
       'exp://localhost:19000',
       'http://10.0.0.207:19006',

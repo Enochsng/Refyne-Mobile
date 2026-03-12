@@ -1,0 +1,42 @@
+# Dependencies & local
+node_modules
+npm-debug.log*
+yarn-error.log*
+
+# Env & secrets (runtime uses server .env via compose)
+.env
+.env.*
+!.env.example
+
+# Git & IDE
+.git
+.gitignore
+.cursor
+*.md
+!README.md
+
+# Tests & dev
+**/*.test.js
+**/__tests__
+coverage
+.nyc_output
+jest.config.js
+
+# Scripts not needed at runtime
+deploy.sh
+ecosystem.config.js
+test-*.js
+setup-*.js
+check-*.js
+create-*.js
+insert-*.js
+list-*.js
+verify-*.js
+fetch-*.js
+run-*-migration.js
+old queries
+old queries/**
+
+# SQL & docs (optional — remove if you serve them)
+sql
+*.sql

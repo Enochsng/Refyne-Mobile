@@ -1,0 +1,100 @@
+# Build Refyne backend image → GHCR, then deploy on self-hosted runner (VPS).
+#
+# Required GitHub repo settings:
+#   - Actions: read/write packages (GITHUB_TOKEN publishes to GHCR).
+#   - Self-hosted runner registered on the VPS with Docker installed.
+#
+# On the VPS (once):
+#   - Place docker-compose.yaml + .env in a deploy directory (e.g. ~/refyne-backend).
+#   - .env must include BACKEND_IMAGE matching the image pushed below (see env.example).
+#   - echo YOUR_GITHUB_PAT | docker login ghcr.io -u YOUR_USERNAME --password-stdin
+#
+name: Build & deploy backend
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'RefyneMobile/backend/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+env:
+  # Image name segment (full image is ghcr.io/<owner_lc>/refyne-backend)
+  IMAGE_NAME: refyne-backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR/Docker require lowercase image names
+      - name: Registry image (lowercase)
+        id: registry
+        run: |
+          OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${OWNER}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+
+      - name: Docker metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.registry.outputs.image }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./RefyneMobile/backend
+          file: ./RefyneMobile/backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: self-hosted
+    # Optional: restrict to a labeled runner, e.g. runs-on: [self-hosted, vps]
+    steps:
+      - name: Checkout (for compose file if you keep it in repo)
+        uses: actions/checkout@v4
+
+      - name: Deploy via Docker Compose
+        env:
+          # Default deploy dir on VPS — override with repo secret DEPLOY_PATH if needed
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          set -e
+          DEPLOY_DIR="${DEPLOY_PATH:-$HOME/refyne-backend}"
+          if [ ! -f "$DEPLOY_DIR/docker-compose.yaml" ]; then
+            echo "docker-compose.yaml not found at $DEPLOY_DIR"
+            echo "Set secret DEPLOY_PATH to the directory containing docker-compose.yaml and .env"
+            exit 1
+          fi
+          cd "$DEPLOY_DIR"
+          OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          export BACKEND_IMAGE="ghcr.io/${OWNER_LC}/${{ env.IMAGE_NAME }}:latest"
+          echo "Pulling $BACKEND_IMAGE"
+          docker compose pull
+          docker compose up -d --remove-orphans
+          docker compose ps

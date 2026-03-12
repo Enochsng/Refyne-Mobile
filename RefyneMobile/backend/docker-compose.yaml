@@ -1,0 +1,29 @@
+# Refyne backend — production-style run on VPS
+#
+# Prerequisites on the server:
+#   1. Copy env.example → .env and fill in real values (or keep existing .env).
+#   2. Set BACKEND_IMAGE in .env to the GHCR image your workflow pushes, e.g.:
+#        BACKEND_IMAGE=ghcr.io/your-org/refyne-backend:latest
+#   3. docker login ghcr.io (PAT with read:packages, or use GITHUB_TOKEN on runner).
+#
+# Deploy (after image is on GHCR):
+#   docker compose pull && docker compose up -d
+#
+# Logs:
+#   docker compose logs -f backend
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/your-github-org/refyne-backend:latest}
+    container_name: refyne-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${PORT:-3001}:3001"
+    # Optional: if you later write uploads to disk, mount a volume
+    # volumes:
+    #   - backend-uploads:/app/uploads
+
+# volumes:
+#   backend-uploads:
