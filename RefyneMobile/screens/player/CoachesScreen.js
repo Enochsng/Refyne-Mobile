@@ -16,7 +16,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
-import { getCoachesBySport, formatExperience, formatExpertise, cleanupDeletedProfiles, migrateCoachNames } from '../../utils/coachData';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCoachesBySport, formatExperience, formatExpertise, cleanupDeletedProfiles, migrateCoachNames, removeAllCoachProfiles } from '../../utils/coachData';
 
 const { width, height } = Dimensions.get('window');
 
@@ -229,7 +230,13 @@ export default function CoachesScreen({ route, navigation }) {
     try {
       setLoading(true);
       
-      // Clean up any deleted profiles first
+      // One-time clear of all cached coach profiles (removes stale cards after coaches deleted in Supabase)
+      const coachCacheCleared = await AsyncStorage.getItem('coach_cache_cleared_v1');
+      if (!coachCacheCleared) {
+        await removeAllCoachProfiles();
+        await AsyncStorage.setItem('coach_cache_cleared_v1', 'true');
+      }
+      // Clean up any deleted profiles
       await cleanupDeletedProfiles();
       
       // Migrate coach names if needed

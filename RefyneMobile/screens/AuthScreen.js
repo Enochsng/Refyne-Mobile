@@ -128,6 +128,25 @@ export default function AuthScreen({ navigation }) {
         
         console.log('Set signin flag, cleared signup flags, and stored user role:', userRole);
       } else {
+        // Coach signup is invite-only: check approved_coaches table
+        if (userType.toLowerCase() === 'coach') {
+          const { data: isApproved, error: checkError } = await supabase.rpc('is_approved_coach', {
+            check_email: email.trim()
+          });
+          if (checkError) {
+            console.error('Error checking approved coaches:', checkError);
+            throw checkError;
+          }
+          if (!isApproved) {
+            Alert.alert(
+              'Coach registration is invite-only',
+              'Coach registration is currently invite-only. Please send an email to refynecoaching@gmail.com if you are interested in becoming a coach'
+            );
+            setLoading(false);
+            return;
+          }
+        }
+
         const { error } = await supabase.auth.signUp({
           email,
           password,
