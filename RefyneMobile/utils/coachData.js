@@ -1,8 +1,54 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../supabaseClient';
 
+const DEFAULT_COACH_RATING = 4.8;
+const DEFAULT_COACH_PRICE = '$75/hr';
+
+const mapCoachProfileRow = (row) => ({
+  id: row.id,
+  name: row.name || row.coach_name || 'Coach',
+  email: row.email || 'coach@example.com',
+  sport: row.sport,
+  language: row.language || null,
+  languages: Array.isArray(row.languages)
+    ? row.languages
+    : (row.language ? [row.language] : []),
+  experience: row.experience,
+  expertise: Array.isArray(row.expertise) ? row.expertise : [],
+  bio: row.bio || '',
+  completed_at: row.completed_at || row.created_at || null,
+  profilePicture: row.profile_picture || row.profilePicture || null,
+  rating: DEFAULT_COACH_RATING,
+  price: DEFAULT_COACH_PRICE,
+});
+
+const getCoachProfilesFromSupabase = async () => {
+  const { data, error } = await supabase
+    .from('coach_profiles')
+    .select('*')
+    .not('completed_at', 'is', null);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || [])
+    .filter((row) => row.id && !row.deleted)
+    .map(mapCoachProfileRow);
+};
+
 // Function to get all coach profiles from AsyncStorage
 export const getAllCoachProfiles = async () => {
+  try {
+    // Source of truth: Supabase coach profiles.
+    // If auth users are deleted and FK cascade is configured, these rows disappear,
+    // so cards disappear automatically as well.
+    const remoteProfiles = await getCoachProfilesFromSupabase();
+    return remoteProfiles;
+  } catch (error) {
+    console.warn('Could not fetch coach profiles from Supabase, falling back to local cache:', error?.message || error);
+  }
+
   try {
     // Get all keys from AsyncStorage
     const keys = await AsyncStorage.getAllKeys();
@@ -77,8 +123,8 @@ export const getAllCoachProfiles = async () => {
               completed_at: onboardingData.completed_at,
               profilePicture: profilePicture,
               // Add some default values for display
-              rating: 4.8, // Default rating
-              price: '$75/hr', // Default price
+              rating: DEFAULT_COACH_RATING, // Default rating
+              price: DEFAULT_COACH_PRICE, // Default price
             };
             
             coachProfiles.push(coachProfile);
