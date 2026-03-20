@@ -231,10 +231,10 @@ export default function CoachesScreen({ route, navigation }) {
       setLoading(true);
       
       // One-time clear of all cached coach profiles (removes stale cards after coaches deleted in Supabase)
-      const coachCacheCleared = await AsyncStorage.getItem('coach_cache_cleared_v1');
+      const coachCacheCleared = await AsyncStorage.getItem('coach_cache_cleared_v2');
       if (!coachCacheCleared) {
         await removeAllCoachProfiles();
-        await AsyncStorage.setItem('coach_cache_cleared_v1', 'true');
+        await AsyncStorage.setItem('coach_cache_cleared_v2', 'true');
       }
       // Clean up any deleted profiles
       await cleanupDeletedProfiles();

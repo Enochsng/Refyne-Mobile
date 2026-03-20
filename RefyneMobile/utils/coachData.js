@@ -5,10 +5,10 @@ const DEFAULT_COACH_RATING = 4.8;
 const DEFAULT_COACH_PRICE = '$75/hr';
 
 const mapCoachProfileRow = (row) => ({
-  id: row.id,
+  id: row.id || row.user_id,
   name: row.name || row.coach_name || 'Coach',
   email: row.email || 'coach@example.com',
-  sport: row.sport,
+  sport: row.sport || row.primary_sport || null,
   language: row.language || null,
   languages: Array.isArray(row.languages)
     ? row.languages
@@ -25,15 +25,14 @@ const mapCoachProfileRow = (row) => ({
 const getCoachProfilesFromSupabase = async () => {
   const { data, error } = await supabase
     .from('coach_profiles')
-    .select('*')
-    .not('completed_at', 'is', null);
+    .select('*');
 
   if (error) {
     throw error;
   }
 
   return (data || [])
-    .filter((row) => row.id && !row.deleted)
+    .filter((row) => (row.id || row.user_id) && row.deleted !== true)
     .map(mapCoachProfileRow);
 };
 
@@ -44,9 +43,11 @@ export const getAllCoachProfiles = async () => {
     // If auth users are deleted and FK cascade is configured, these rows disappear,
     // so cards disappear automatically as well.
     const remoteProfiles = await getCoachProfilesFromSupabase();
-    return remoteProfiles;
+    if (remoteProfiles.length > 0) {
+      return remoteProfiles;
+    }
   } catch (error) {
-    console.warn('Could not fetch coach profiles from Supabase, falling back to local cache:', error?.message || error);
+    console.warn('Could not fetch coach profiles from Supabase:', error?.message || error);
   }
 
   try {

@@ -90,6 +90,58 @@ export default function BioScreen({ navigation, route }) {
       await AsyncStorage.removeItem('is_new_coach_signup');
       console.log('Successfully stored onboarding data in AsyncStorage for user:', user.id);
 
+      // Persist coach profile to shared Supabase table so players can see this coach card.
+      // Retry with progressively smaller payloads to tolerate schema differences.
+      const profileName = user.user_metadata?.full_name || completeOnboardingData.coach_name || 'Coach';
+      const payloads = [
+        {
+          id: user.id,
+          name: profileName,
+          email: user.email || 'coach@example.com',
+          sport: completeOnboardingData.sport || null,
+          language: completeOnboardingData.language || null,
+          languages: completeOnboardingData.languages || (completeOnboardingData.language ? [completeOnboardingData.language] : []),
+          experience: completeOnboardingData.experience || null,
+          expertise: completeOnboardingData.expertise || [],
+          bio: completeOnboardingData.bio || '',
+          completed_at: completeOnboardingData.completed_at,
+        },
+        {
+          id: user.id,
+          name: profileName,
+          email: user.email || 'coach@example.com',
+          sport: completeOnboardingData.sport || null,
+          bio: completeOnboardingData.bio || '',
+        },
+        {
+          id: user.id,
+          name: profileName,
+          email: user.email || 'coach@example.com',
+        },
+      ];
+
+      let lastProfileError = null;
+      try {
+        for (const payload of payloads) {
+          const { error: coachProfileError } = await supabase
+            .from('coach_profiles')
+            .upsert(payload, { onConflict: 'id' });
+          if (!coachProfileError) {
+            lastProfileError = null;
+            break;
+          }
+          lastProfileError = coachProfileError;
+        }
+      } catch (profileSyncError) {
+        lastProfileError = profileSyncError;
+      }
+
+      // Do not block onboarding completion if profile sync fails.
+      // Coach data is still stored in AsyncStorage and can sync later.
+      if (lastProfileError) {
+        console.warn('Coach profile sync failed (continuing onboarding):', lastProfileError);
+      }
+
       // Show success message with smooth transition
       setTimeout(() => {
         Alert.alert(
@@ -117,7 +169,10 @@ export default function BioScreen({ navigation, route }) {
       //   });
 
     } catch (error) {
-      console.error('Error completing onboarding:', error);
+      console.error(
+        'Error completing onboarding:',
+        error?.message || JSON.stringify(error) || String(error)
+      );
       let errorMessage = 'Failed to complete setup. Please try again.';
       
       if (error.message?.includes('JWT')) {
