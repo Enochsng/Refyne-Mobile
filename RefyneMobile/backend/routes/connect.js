@@ -1065,35 +1065,78 @@ router.get('/coach/:coachId/status', async (req, res) => {
         .select('coach_id, stripe_account_id, email, charges_enabled, payouts_enabled, details_submitted, onboarding_completed')
         .eq('coach_id', coachId)
         .single();
-      
+
       if (!accountError && accountData) {
         dbAccount = accountData;
-        console.log('✅ Found account in database:', dbAccount.stripe_account_id);
+        console.log('✅ Found account in database by coach ID:', dbAccount.stripe_account_id);
+      } else if (accountError && accountError.code !== 'PGRST116') {
+        console.log('⚠️ Database coach ID lookup error:', accountError.message);
       }
     } catch (dbErr) {
-      console.log('⚠️ Database query failed, trying email lookup...');
-      
-      // Try email lookup if coach ID lookup fails
-      if (email) {
-        try {
-          const { data: emailData, error: emailError } = await supabase
-            .from('coach_connect_accounts')
-            .select('coach_id, stripe_account_id, email, charges_enabled, payouts_enabled, details_submitted, onboarding_completed')
-            .eq('email', email)
-            .single();
-          
-          if (!emailError && emailData) {
-            dbAccount = emailData;
-            console.log('✅ Found account by email:', dbAccount.stripe_account_id);
-          }
-        } catch (emailErr) {
-          console.log('❌ Email lookup also failed:', emailErr.message);
+      console.log('⚠️ Database query failed for coach ID lookup:', dbErr.message);
+    }
+
+    // Always try email lookup if coach ID lookup did not return a row
+    if (!dbAccount && email) {
+      try {
+        const { data: emailData, error: emailError } = await supabase
+          .from('coach_connect_accounts')
+          .select('coach_id, stripe_account_id, email, charges_enabled, payouts_enabled, details_submitted, onboarding_completed')
+          .eq('email', email)
+          .single();
+
+        if (!emailError && emailData) {
+          dbAccount = emailData;
+          console.log('✅ Found account in database by email:', dbAccount.stripe_account_id);
+        } else if (emailError && emailError.code !== 'PGRST116') {
+          console.log('⚠️ Database email lookup error:', emailError.message);
         }
+      } catch (emailErr) {
+        console.log('⚠️ Email lookup failed:', emailErr.message);
       }
     }
-    
+
+    // Last-resort fallback: find account directly in Stripe by coach metadata/email
     if (!dbAccount) {
-      console.log('🔍 No Stripe Connect account found for coach - this is normal for new coaches');
+      try {
+        console.log('🔎 Falling back to Stripe account search by coach metadata/email');
+        const stripeAccounts = await stripe.accounts.list({ limit: 100 });
+        const matchedAccount = stripeAccounts.data.find((acct) =>
+          acct.metadata?.coachId === coachId || (email && acct.email && acct.email.toLowerCase() === email.toLowerCase())
+        );
+
+        if (matchedAccount) {
+          await saveCoachConnectAccount({
+            coachId,
+            stripeAccountId: matchedAccount.id,
+            accountType: matchedAccount.type,
+            country: matchedAccount.country,
+            email: matchedAccount.email || email,
+            chargesEnabled: matchedAccount.charges_enabled,
+            payoutsEnabled: matchedAccount.payouts_enabled,
+            detailsSubmitted: matchedAccount.details_submitted,
+            onboardingCompleted: matchedAccount.charges_enabled && matchedAccount.payouts_enabled && matchedAccount.details_submitted,
+            businessProfile: matchedAccount.business_profile
+          });
+
+          dbAccount = {
+            coach_id: coachId,
+            stripe_account_id: matchedAccount.id,
+            email: matchedAccount.email || email,
+            charges_enabled: matchedAccount.charges_enabled,
+            payouts_enabled: matchedAccount.payouts_enabled,
+            details_submitted: matchedAccount.details_submitted,
+            onboarding_completed: matchedAccount.charges_enabled && matchedAccount.payouts_enabled && matchedAccount.details_submitted
+          };
+          console.log('✅ Recovered Stripe account from Stripe API search:', matchedAccount.id);
+        }
+      } catch (stripeSearchErr) {
+        console.log('⚠️ Stripe fallback search failed:', stripeSearchErr.message);
+      }
+    }
+
+    if (!dbAccount) {
+      console.log('🔍 No Stripe Connect account found for coach after all lookups');
       return res.status(404).json({
         success: false,
         error: 'Coach account not found',

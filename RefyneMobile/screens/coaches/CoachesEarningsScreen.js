@@ -37,7 +37,7 @@ export default function CoachesEarningsScreen({ navigation }) {
   useFocusEffect(
     React.useCallback(() => {
       console.log('🎯 Earnings screen focused - checking status');
-      checkStripeAccountStatus();
+      checkStripeAccountStatus(true);
       
       // Start moderate checking if account is not connected (user might be returning from Stripe)
       if (stripeAccountStatus !== 'connected') {
@@ -85,7 +85,7 @@ export default function CoachesEarningsScreen({ navigation }) {
     };
   }, [statusCheckInterval]);
 
-  const checkStripeAccountStatus = async () => {
+  const checkStripeAccountStatus = async (forceRefresh = false) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -93,12 +93,12 @@ export default function CoachesEarningsScreen({ navigation }) {
       console.log('🔍 Checking Stripe account status for user:', user.id, 'email:', user.email);
 
       // Use the rate-limited service
-      const result = await stripeConnectService.checkStripeAccountStatus(user.id, user.email);
+      const result = await stripeConnectService.checkStripeAccountStatus(user.id, user.email, forceRefresh);
       
       console.log('📊 API Response:', result);
       
       if (result.success && result.account) {
-        const { chargesEnabled, payoutsEnabled, detailsSubmitted, onboardingCompleted } = result.account;
+        const { stripeAccountId, chargesEnabled, payoutsEnabled, detailsSubmitted, onboardingCompleted } = result.account;
         
         console.log('🔍 Account status flags:', {
           chargesEnabled,
@@ -111,7 +111,7 @@ export default function CoachesEarningsScreen({ navigation }) {
         if (detailsSubmitted || onboardingCompleted) {
           console.log('✅ Account is connected');
           setStripeAccountStatus('connected');
-        } else if (chargesEnabled || payoutsEnabled) {
+        } else if (chargesEnabled || payoutsEnabled || stripeAccountId) {
           console.log('⏳ Account is pending');
           setStripeAccountStatus('pending');
         } else {
@@ -245,6 +245,7 @@ export default function CoachesEarningsScreen({ navigation }) {
       console.log('Request body:', requestBody);
 
       // Use the rate-limited service
+      stripeConnectService.clearCoachCache(user.id);
       const result = await stripeConnectService.startOnboarding(requestBody);
       console.log('Response data:', result);
 
@@ -343,7 +344,7 @@ export default function CoachesEarningsScreen({ navigation }) {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
-    await checkStripeAccountStatus();
+    await checkStripeAccountStatus(true);
     if (stripeAccountStatus === 'connected') {
       await fetchEarningsData();
     }
@@ -360,7 +361,7 @@ export default function CoachesEarningsScreen({ navigation }) {
     }
     
     // Check immediately
-    checkStripeAccountStatus();
+    checkStripeAccountStatus(true);
     
     // Then check every 15 seconds for the first 2 minutes
     const interval = setInterval(() => {

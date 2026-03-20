@@ -62,10 +62,15 @@ class StripeConnectService {
    * @param {string} email - Optional email for lookup
    * @returns {Promise<Object>} - The status response
    */
-  async checkStripeAccountStatus(coachId, email = null) {
+  async checkStripeAccountStatus(coachId, email = null, forceRefresh = false) {
     try {
+      // Force refresh clears stale state and bypasses rate limiting/cached response
+      if (forceRefresh) {
+        this.clearCoachCache(coachId);
+      }
+
       // Check if we can make a request
-      if (!this.canCheckStatus(coachId)) {
+      if (!forceRefresh && !this.canCheckStatus(coachId)) {
         const cached = this.getCachedStatus(coachId);
         if (cached) {
           return cached;
@@ -74,7 +79,7 @@ class StripeConnectService {
       }
 
       // Check cache first
-      const cached = this.getCachedStatus(coachId);
+      const cached = forceRefresh ? null : this.getCachedStatus(coachId);
       if (cached) {
         return cached;
       }
