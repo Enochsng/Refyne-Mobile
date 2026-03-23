@@ -339,6 +339,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     };
   }, [selectedConversation?.id]);
 
+  // Hide tab bar only while a conversation thread is open.
+  useEffect(() => {
+    navigation.setParams({ hideTabBar: Boolean(selectedConversation) });
+  }, [navigation, selectedConversation]);
+
   // Helper function to check if chat is expired
   // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
   // until they purchase a new coaching package with that coach.
@@ -939,7 +944,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               setRemainingClips({ remaining: 0, total: 0, used: 0 });
               setChatExpiry(null);
               // Clear route params to prevent auto-selection when navigating back
-              navigation.setParams({ conversationId: undefined, isNewSession: undefined });
+              navigation.setParams({ conversationId: undefined, isNewSession: undefined, hideTabBar: false });
               // Keep cards visible instantly; refresh list silently in the background.
               loadConversations({ preserveSelectedConversation: false, showLoader: false });
             }}
@@ -1497,12 +1502,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 15,
-    backgroundColor: 'white',
-    shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: '#F8FAFF',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   backButton: {
     marginRight: 15,
@@ -1608,17 +1611,18 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   messageBubble: {
-    maxWidth: '80%',
-    padding: 12,
-    borderRadius: 15,
+    maxWidth: '74%',
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 20,
   },
   playerBubble: {
     backgroundColor: '#0C295C',
-    borderBottomRightRadius: 5,
+    borderBottomRightRadius: 8,
   },
   coachBubble: {
     backgroundColor: 'white',
-    borderBottomLeftRadius: 5,
+    borderBottomLeftRadius: 8,
     shadowColor: '#0C295C',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1626,7 +1630,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   messageText: {
-    fontSize: width * 0.04,
+    fontSize: width * 0.035,
     fontFamily: 'Manrope-Regular',
     lineHeight: 20,
   },
@@ -1637,7 +1641,7 @@ const styles = StyleSheet.create({
     color: '#0C295C',
   },
   messageTime: {
-    fontSize: width * 0.03,
+    fontSize: width * 0.027,
     fontFamily: 'Manrope-Regular',
     marginTop: 4,
   },
@@ -1651,9 +1655,9 @@ const styles = StyleSheet.create({
   inputContainer: {
     paddingHorizontal: 20,
     paddingVertical: 15,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#E8F2FF',
+    marginBottom: Platform.OS === 'ios' ? 18 : 10,
+    backgroundColor: '#F8FAFF',
+    borderTopWidth: 0,
     minHeight: 70,
   },
   inputWrapper: {

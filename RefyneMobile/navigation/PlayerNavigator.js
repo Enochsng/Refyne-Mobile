@@ -40,6 +40,22 @@ const StripePaymentScreen = React.lazy(() => {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 const { width } = Dimensions.get('window');
+const defaultTabBarStyle = {
+  backgroundColor: 'white',
+  borderTopWidth: 1,
+  borderTopColor: '#E8F2FF',
+  paddingBottom: 40,
+  paddingTop: 15,
+  height: 90,
+  shadowColor: '#0C295C',
+  shadowOffset: {
+    width: 0,
+    height: -5,
+  },
+  shadowOpacity: 0.1,
+  shadowRadius: 10,
+  elevation: 10,
+};
 
 // Wrapper component for lazy-loaded screens
 const LazyScreenWrapper = ({ ScreenComponent, ...props }) => (
@@ -100,22 +116,9 @@ export default function PlayerNavigator() {
         },
         tabBarActiveTintColor: '#0C295C',
         tabBarInactiveTintColor: '#90A4AE',
-        tabBarStyle: {
-          backgroundColor: 'white',
-          borderTopWidth: 1,
-          borderTopColor: '#E8F2FF',
-          paddingBottom: 40,
-          paddingTop: 15,
-          height: 90,
-          shadowColor: '#0C295C',
-          shadowOffset: {
-            width: 0,
-            height: -5,
-          },
-          shadowOpacity: 0.1,
-          shadowRadius: 10,
-          elevation: 10,
-        },
+        tabBarStyle: route.name === 'CoachFeedback' && route.params?.hideTabBar
+          ? { display: 'none' }
+          : defaultTabBarStyle,
         tabBarLabelStyle: {
           fontSize: width * 0.035,
           fontFamily: 'Manrope-Medium',
