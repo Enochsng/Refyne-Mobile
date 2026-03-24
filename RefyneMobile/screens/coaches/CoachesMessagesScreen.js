@@ -15,6 +15,7 @@ import {
   Platform,
   Keyboard,
   Modal,
+  PanResponder,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,6 +47,18 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
   const scrollY = useRef(0);
+  const inputBarPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) =>
+        gestureState.dy > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dy > 24) {
+          Keyboard.dismiss();
+        }
+      },
+    })
+  ).current;
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -93,6 +106,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       keyboardWillHideListener.remove();
     };
   }, [selectedConversation]);
+
+  // Hide tab bar only while a conversation thread is open.
+  useEffect(() => {
+    navigation.setParams({ hideTabBar: Boolean(selectedConversation) });
+  }, [navigation, selectedConversation]);
 
   // Mark conversation as read when messages are loaded
   useEffect(() => {
@@ -617,7 +635,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               console.log('Back button pressed, returning to conversations list');
               setSelectedConversation(null);
               // Clear route params to prevent auto-selection when navigating back
-              navigation.setParams({ conversationId: undefined });
+              navigation.setParams({ conversationId: undefined, hideTabBar: false });
             }}
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -656,7 +674,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           style={styles.messagesContainer} 
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.messagesContent}
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
           keyboardShouldPersistTaps="always"
           nestedScrollEnabled={true}
           onScroll={(event) => {
@@ -664,14 +682,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             scrollY.current = currentScrollY;
           }}
           scrollEventThrottle={16}
-          onContentSizeChange={() => {
-            // Auto-scroll to bottom when content changes (newest messages)
-            setTimeout(() => {
-              if (scrollViewRef.current) {
-                scrollViewRef.current.scrollToEnd({ animated: true });
-              }
-            }, 100);
-          }}
         >
           {messages.map((message) => (
             <View
@@ -724,7 +734,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         </ScrollView>
 
         {/* Message Input */}
-        <View style={styles.inputContainer}>
+        <View style={styles.inputContainer} {...inputBarPanResponder.panHandlers}>
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.messageInput}
@@ -1472,16 +1482,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 60,
-    paddingBottom: 18,
-    backgroundColor: 'white',
-    shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingBottom: 15,
+    backgroundColor: '#F8FAFF',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
     zIndex: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(12, 41, 92, 0.06)',
   },
   backButton: {
     marginRight: 15,
@@ -1534,14 +1540,15 @@ const styles = StyleSheet.create({
   messagesContainer: {
     flex: 1,
     paddingHorizontal: 20,
+    paddingVertical: 15,
     backgroundColor: '#F8FAFF',
   },
   messagesContent: {
-    paddingTop: 10,
-    paddingBottom: 40,
+    flexGrow: 1,
+    paddingBottom: 10,
   },
   messageContainer: {
-    marginVertical: 5,
+    marginBottom: 15,
   },
   playerMessage: {
     alignItems: 'flex-start',
@@ -1550,29 +1557,28 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   messageBubble: {
-    maxWidth: '85%',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 22,
-    minWidth: 60,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    maxWidth: '74%',
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 20,
   },
   playerBubble: {
     backgroundColor: '#E3F2FD',
-    borderBottomLeftRadius: 6,
+    borderBottomLeftRadius: 8,
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   coachBubble: {
     backgroundColor: '#0C295C',
-    borderBottomRightRadius: 6,
+    borderBottomRightRadius: 8,
   },
   messageText: {
-    fontSize: 15,
+    fontSize: width * 0.035,
     fontFamily: 'Manrope-Regular',
-    lineHeight: 21,
+    lineHeight: 20,
     flexWrap: 'wrap',
     letterSpacing: 0.1,
   },
@@ -1583,9 +1589,9 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   messageTime: {
-    fontSize: 11,
-    fontFamily: 'Manrope-Medium',
-    marginTop: 6,
+    fontSize: width * 0.027,
+    fontFamily: 'Manrope-Regular',
+    marginTop: 4,
     letterSpacing: 0.2,
   },
   playerTime: {
@@ -1595,37 +1601,32 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
   },
   inputContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(12, 41, 92, 0.08)',
-    maxHeight: 100,
-    shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 4,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    marginBottom: Platform.OS === 'ios' ? 18 : 10,
+    backgroundColor: '#F8FAFF',
+    borderTopWidth: 0,
+    minHeight: 70,
     zIndex: 10,
   },
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFF',
-    borderRadius: 24,
-    paddingHorizontal: 12,
+    alignItems: 'flex-end',
+    backgroundColor: '#F5F5F5',
+    borderRadius: 25,
+    paddingHorizontal: 15,
     paddingVertical: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(12, 41, 92, 0.1)',
   },
   messageInput: {
     flex: 1,
-    fontSize: 14,
+    fontSize: width * 0.04,
     fontFamily: 'Manrope-Regular',
     color: '#0C295C',
-    maxHeight: 60,
-    minHeight: 20,
-    paddingVertical: 6,
+    maxHeight: 100,
+    minHeight: 40,
+    textAlignVertical: 'top',
+    paddingTop: 10,
+    paddingBottom: 10,
     paddingHorizontal: 8,
     marginRight: 8,
     zIndex: 1,
