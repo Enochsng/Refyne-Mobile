@@ -1,5 +1,5 @@
-const { stripe } = require('./config/stripe');
-const { saveCoachConnectAccount } = require('./services/database');
+const { stripe } = require('../config/stripe');
+const { saveCoachConnectAccount } = require('../services/database');
 
 // Configuration for creating Stripe Connect accounts
 // Based on the coaches found in your system
@@ -159,7 +159,7 @@ async function listExistingCoaches() {
   console.log('📋 Listing existing coaches in database...');
   
   try {
-    const { supabase } = require('./services/database');
+    const { supabase } = require('../services/database');
     const { data, error } = await supabase
       .from('coach_connect_accounts')
       .select('*')

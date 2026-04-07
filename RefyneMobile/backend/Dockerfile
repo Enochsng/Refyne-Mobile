@@ -1,6 +1,12 @@
-# Refyne backend — Node.js API (Stripe, Supabase, Express)
-# Build from repo root: docker build -f RefyneMobile/backend/Dockerfile RefyneMobile/backend
-# Or from backend dir: docker build -t refyne-backend .
+# Refyne backend — Node.js API (Stripe, Supabase, Express). No DB container: Supabase is cloud-hosted.
+#
+# Local image:
+#   cd RefyneMobile/backend && docker build -t refyne-backend .
+# From monorepo root:
+#   docker build -f RefyneMobile/backend/Dockerfile -t refyne-backend RefyneMobile/backend
+# Run with env file:
+#   cp .env.example .env   # then fill secrets
+#   docker compose up --build
 
 FROM node:20-alpine AS base
 WORKDIR /app

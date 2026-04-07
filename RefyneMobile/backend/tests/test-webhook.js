@@ -1,4 +1,4 @@
-const { handlePaymentIntentSucceeded } = require('./routes/webhooks');
+const { handlePaymentIntentSucceeded } = require('../routes/webhooks');
 
 // Mock payment intent data for testing
 const mockPaymentIntent = {
@@ -30,7 +30,7 @@ async function testWebhook() {
     console.log('Mock payment intent:', JSON.stringify(mockPaymentIntent, null, 2));
     
     // Import the webhook handler function
-    const { handlePaymentIntentSucceeded } = require('./routes/webhooks');
+    const { handlePaymentIntentSucceeded } = require('../routes/webhooks');
     
     // Test the payment success handler
     await handlePaymentIntentSucceeded(mockPaymentIntent);

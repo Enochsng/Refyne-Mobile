@@ -5,7 +5,7 @@
  */
 
 require('dotenv').config();
-const { supabase } = require('./services/database');
+const { supabase } = require('../services/database');
 
 async function checkDatabase() {
   console.log('🔍 Checking database contents...\n');

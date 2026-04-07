@@ -6,7 +6,7 @@
  */
 
 require('dotenv').config();
-const { stripe, getPackageInfo, calculatePlatformFee, calculateTransferAmount, DEFAULT_CURRENCY, PACKAGE_PRICING } = require('./config/stripe');
+const { stripe, getPackageInfo, calculatePlatformFee, calculateTransferAmount, DEFAULT_CURRENCY, PACKAGE_PRICING } = require('../config/stripe');
 
 async function testCADConfiguration() {
   console.log('🇨🇦 Testing CAD Currency Configuration...\n');

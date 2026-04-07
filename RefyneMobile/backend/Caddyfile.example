@@ -1,0 +1,15 @@
+# Easiest HTTPS on RackNerd: install Caddy on the host (not in Docker), copy this to /etc/caddy/Caddyfile
+# and replace the domain. Point DNS A record for api.yourdomain.com → your VPS IP.
+#
+#   sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+#   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+#   sudo apt update && sudo apt install caddy
+#   sudo cp Caddyfile.example /etc/caddy/Caddyfile   # edit domain first
+#   sudo systemctl reload caddy
+#
+# Docker Compose binds the API to 127.0.0.1:3001 so only Caddy (on the host) can reach it.
+
+api.yourdomain.com {
+	reverse_proxy 127.0.0.1:3001
+}

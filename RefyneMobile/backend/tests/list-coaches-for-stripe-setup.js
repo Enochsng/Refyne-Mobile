@@ -1,4 +1,4 @@
-const { supabase } = require('./services/database');
+const { supabase } = require('../services/database');
 
 /**
  * Script to help identify coaches that need Stripe Connect account setup

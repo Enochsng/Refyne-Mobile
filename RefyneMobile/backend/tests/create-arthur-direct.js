@@ -5,7 +5,7 @@
  */
 
 require('dotenv').config();
-const { stripe } = require('./config/stripe');
+const { stripe } = require('../config/stripe');
 const { createClient } = require('@supabase/supabase-js');
 
 // Initialize Supabase client with service key

@@ -9,7 +9,7 @@ const {
   getCoachConnectAccount, 
   getCoachTransfers,
   supabase 
-} = require('./services/database');
+} = require('../services/database');
 
 // Arthur's coach ID from the create-arthur-connect.js file
 const ARTHUR_COACH_ID = 'testcoach2-canadian';

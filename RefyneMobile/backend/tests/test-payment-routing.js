@@ -1,5 +1,5 @@
 // Test script to check payment routing
-const { getCoachConnectAccountId } = require('./services/database');
+const { getCoachConnectAccountId } = require('../services/database');
 
 async function testPaymentRouting() {
   console.log('🧪 Testing payment routing for different coaches...\n');

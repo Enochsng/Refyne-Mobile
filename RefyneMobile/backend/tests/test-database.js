@@ -1,4 +1,4 @@
-const { supabase } = require('./services/database');
+const { supabase } = require('../services/database');
 
 async function testDatabase() {
   try {
