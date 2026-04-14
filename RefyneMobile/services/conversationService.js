@@ -10,8 +10,8 @@ const FORCE_PRODUCTION_URL = true;
 
 // Backend API configuration
 const API_BASE_URL = (__DEV__ && !FORCE_PRODUCTION_URL)
-  ? 'http://192.168.1.79:3001'  // Development - Server IP address
-  : 'https://app.refyne-coaching.com';  // Production
+  ? 'http://localhost:3001'  // Development - Server IP address
+  : 'https://api.refyne-coaching.com';  // Production
 
 // Fallback URLs for development only (empty in production or when forcing production URL)
 const FALLBACK_URLS = (__DEV__ && !FORCE_PRODUCTION_URL) ? [
