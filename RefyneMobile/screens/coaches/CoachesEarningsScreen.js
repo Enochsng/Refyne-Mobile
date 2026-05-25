@@ -23,7 +23,7 @@ import stripeConnectService from '../../services/stripeConnectService';
 const { width, height } = Dimensions.get('window');
 
 export default function CoachesEarningsScreen({ navigation }) {
-  const [stripeAccountStatus, setStripeAccountStatus] = useState(null); // null, 'connected', 'pending', 'not_connected'
+  const [stripeAccountStatus, setStripeAccountStatus] = useState('not_connected');
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [earningsData, setEarningsData] = useState({
@@ -551,11 +551,23 @@ export default function CoachesEarningsScreen({ navigation }) {
     </View>
   );
 
+  const displayStatus = stripeAccountStatus ?? 'not_connected';
+
+  const renderContent = () => {
+    switch (displayStatus) {
+      case 'connected':
+        return renderConnectedState();
+      case 'pending':
+        return renderPendingState();
+      case 'not_connected':
+      default:
+        return renderNotConnectedState();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      {stripeAccountStatus === 'not_connected' && renderNotConnectedState()}
-      {stripeAccountStatus === 'pending' && renderPendingState()}
-      {stripeAccountStatus === 'connected' && renderConnectedState()}
+      {renderContent()}
     </SafeAreaView>
   );
 }
