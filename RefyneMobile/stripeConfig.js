@@ -16,8 +16,8 @@ export const STRIPE_CONFIG = {
   // Your backend URL for creating payment intents
   // TODO: Replace with your production HTTPS backend URL
   backendUrl: (__DEV__ && !FORCE_PRODUCTION_URL)
-    ? 'http://192.168.1.79:3001' // Development server (matches other services)
-    : 'https://app.refyne-coaching.com', // Production
+    ? 'http://localhost:3001' // Development server (matches other services)
+    : 'https://api.refyne-coaching.com', // Production
   
   // Merchant identifier for Apple Pay (iOS)
   // Must match your Apple Developer account merchant ID
