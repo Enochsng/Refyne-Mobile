@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
-  InteractionManager,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,10 +36,15 @@ const navContainerHeight = 94;
 const cardTopOffset = -290; // Half card height - will be adjusted by paddingBottom in container
 
 // CoachCard Component with 3D and interactive effects
-const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
+const CoachCard = React.memo(({ coach, onSelect, scrollViewRef }) => {
   const [isPressed, setIsPressed] = useState(false);
   const pressScale = useRef(new Animated.Value(1)).current;
   const pressElevation = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    setIsPressed(false);
+    scrollViewRef?.current?.scrollTo({ y: 0, animated: false });
+  }, [coach?.id, scrollViewRef]);
 
   const handlePressIn = () => {
     setIsPressed(true);
@@ -97,8 +101,8 @@ const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
       >
         <View style={styles.coachAvatar}>
           {coach.profilePicture ? (
-            <Image 
-              source={{ uri: coach.profilePicture }} 
+            <Image
+              source={{ uri: coach.profilePicture }}
               style={styles.coachProfileImage}
               resizeMode="cover"
             />
@@ -165,7 +169,13 @@ const CoachCard = ({ coach, onSelect, scrollViewRef }) => {
       </View>
     </Animated.View>
   );
-};
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.coach?.id === nextProps.coach?.id &&
+    prevProps.scrollViewRef === nextProps.scrollViewRef &&
+    prevProps.onSelect === nextProps.onSelect
+  );
+});
 
 // Sample coaches data removed - now using real coach data from AsyncStorage
 
@@ -179,6 +189,18 @@ export default function CoachesScreen({ route, navigation }) {
   
   // ScrollView ref for gesture handler
   const scrollViewRef = useRef(null);
+  const pendingSwipeDirectionRef = useRef(null);
+  const [handoffSnapshot, setHandoffSnapshot] = useState(null);
+
+  const startHandoffSnapshot = useCallback((index, direction) => {
+    setHandoffSnapshot({
+      direction,
+      prev: coaches[index - 1] ?? null,
+      next: coaches[index + 1] ?? null,
+      incoming: direction === 'forward' ? (coaches[index + 1] ?? null) : (coaches[index - 1] ?? null),
+    });
+    setIsAnimating(true);
+  }, [coaches]);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -245,6 +267,8 @@ export default function CoachesScreen({ route, navigation }) {
       const sportCoaches = await getCoachesBySport(sport);
       setCoaches(sportCoaches);
       setCurrentIndex(0);
+      setHandoffSnapshot(null);
+      pendingSwipeDirectionRef.current = null;
       
       // Reset animation values for new data - ensure current card is centered
       translateX.setValue(0);
@@ -293,40 +317,60 @@ export default function CoachesScreen({ route, navigation }) {
     ]).start();
   }, []);
 
-  // Update next/prev card positions when index changes (Tinder style - cards behind)
-  // CRITICAL: Only update when NOT animating to prevent glitches
+  // Sync card stack after swipe completes — runs before paint when index changes
   useLayoutEffect(() => {
-    // Skip if animating - positions are managed by animation callbacks
-    if (isAnimating || coaches.length === 0) return;
-    
-    // Use InteractionManager to ensure this runs after animations complete
-    const interaction = InteractionManager.runAfterInteractions(() => {
-      // CRITICAL: Ensure next/prev cards are always centered (translateX: 0)
-      // This prevents position jumps when cards become current
-      
-      // Position next card behind current - ALWAYS at translateX: 0 (centered)
+    if (coaches.length === 0) return;
+
+    const pendingDirection = pendingSwipeDirectionRef.current;
+    if (isAnimating && pendingDirection) {
+      pendingSwipeDirectionRef.current = null;
+
+      if (pendingDirection === 'backward') {
+        // Hide next first — after index decrement it would show the coach we just left
+        nextCardTranslateX.setValue(0);
+        nextCardOpacity.setValue(0);
+        nextCardScale.setValue(0.95);
+        prevCardTranslateX.setValue(0);
+        prevCardOpacity.setValue(0);
+        prevCardScale.setValue(0.95);
+      } else if (pendingDirection === 'forward') {
+        nextCardTranslateX.setValue(0);
+        nextCardOpacity.setValue(0);
+        nextCardScale.setValue(0.95);
+        if (currentIndex > 0) {
+          prevCardTranslateX.setValue(0);
+          prevCardOpacity.setValue(0);
+          prevCardScale.setValue(0.95);
+        }
+      }
+
+      // Promote current layer with new coach content
+      translateY.setValue(0);
+      translateX.setValue(0);
+      scale.setValue(1);
+      opacity.setValue(1);
+      rotate.setValue(0);
+
+      setHandoffSnapshot(null);
+      scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+      setIsAnimating(false);
+      return;
+    }
+
+    if (!isAnimating) {
       if (currentIndex < coaches.length - 1) {
-        // Ensure next card is centered and behind
         nextCardTranslateX.setValue(0);
         nextCardOpacity.setValue(0);
         nextCardScale.setValue(0.95);
       }
-      
-      // Position prev card behind current - ALWAYS at translateX: 0 (centered)
       if (currentIndex > 0) {
         prevCardTranslateX.setValue(0);
         prevCardOpacity.setValue(0);
         prevCardScale.setValue(0.95);
       }
-      
-      // Ensure current card is centered
       translateY.setValue(0);
       translateX.setValue(0);
-    });
-    
-    return () => {
-      interaction.cancel();
-    };
+    }
   }, [currentIndex, coaches.length, isAnimating]);
 
   const handleCoachSelect = (coach) => {
@@ -424,6 +468,19 @@ export default function CoachesScreen({ route, navigation }) {
   const nextCoach = coaches[currentIndex + 1];
   const previousCoach = coaches[currentIndex - 1];
 
+  const prevCoachDisplay =
+    handoffSnapshot
+      ? handoffSnapshot.prev
+      : previousCoach;
+  const nextCoachDisplay =
+    handoffSnapshot
+      ? handoffSnapshot.next
+      : nextCoach;
+  const currentCoachDisplay =
+    handoffSnapshot
+      ? handoffSnapshot.incoming
+      : currentCoach;
+
   const onHandlerStateChange = useCallback((event) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       if (isAnimating) return;
@@ -492,10 +549,9 @@ export default function CoachesScreen({ route, navigation }) {
           return;
         }
 
-        setIsAnimating(true);
-        
         // Tinder-style card transition with velocity-based momentum
         const isSwipeLeft = translationX < 0;
+        startHandoffSnapshot(currentIndex, isSwipeLeft ? 'forward' : 'backward');
         const toValue = isSwipeLeft ? -width * 1.5 : width * 1.5; // Further exit for smooth feel
         // Use velocity to determine animation speed (Tinder style)
         const velocityFactor = Math.min(Math.abs(velocityX) / 1000, 1.5);
@@ -561,51 +617,14 @@ export default function CoachesScreen({ route, navigation }) {
         ]).start((finished) => {
           // Only proceed if animation completed successfully
           if (!finished) {
+            setHandoffSnapshot(null);
             setIsAnimating(false);
             return;
           }
           
           const newIndex = isSwipeLeft ? currentIndex + 1 : currentIndex - 1;
-          
-          // CRITICAL: The card that just became current is already at:
-          // - translateX: 0 (centered, because nextCardTranslateX was 0)
-          // - scale: 1.0 (from animation)
-          // - opacity: 1.0 (from animation)
-          // We need to ensure current card values match these exactly
-          
-          // Set current card values to match the card that just became current
-          // This ensures NO position jump - the card stays exactly where it is
-          translateY.setValue(0);
-          translateX.setValue(0); // CRITICAL: Must be 0 to match nextCardTranslateX
-          scale.setValue(1); // Already 1.0 from animation, but ensure it
-          opacity.setValue(1); // Already 1.0 from animation, but ensure it
-          rotate.setValue(0);
-          
-          // CRITICAL: Update state FIRST
-          // The card that was "next" is now "current" and is already perfectly positioned
+          pendingSwipeDirectionRef.current = isSwipeLeft ? 'forward' : 'backward';
           setCurrentIndex(newIndex);
-          
-          // Reset NEW next/prev cards after state update
-          // Use InteractionManager to ensure smooth transition after animation completes
-          InteractionManager.runAfterInteractions(() => {
-            // Reset NEW next card (the one that will be next after transition)
-            // CRITICAL: Always set translateX to 0 to keep it centered
-            if (newIndex < coaches.length - 1) {
-              nextCardTranslateX.setValue(0);
-              nextCardOpacity.setValue(0);
-              nextCardScale.setValue(0.95);
-            }
-            
-            // Reset NEW prev card (the one that will be prev after transition)
-            // CRITICAL: Always set translateX to 0 to keep it centered
-            if (newIndex > 0) {
-              prevCardTranslateX.setValue(0);
-              prevCardOpacity.setValue(0);
-              prevCardScale.setValue(0.95);
-            }
-            
-            setIsAnimating(false);
-          });
         });
       } else {
         // Tinder-style snap back to center with velocity
@@ -666,12 +685,12 @@ export default function CoachesScreen({ route, navigation }) {
         Animated.parallel(snapBackAnimations).start();
       }
     }
-  }, [isAnimating, currentIndex, coaches.length, translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, nextCoach, previousCoach, animationConfig, width]);
+  }, [isAnimating, currentIndex, coaches.length, translateX, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, nextCoach, previousCoach, animationConfig, width, startHandoffSnapshot]);
 
   // Navigation arrow handlers (Tinder-style)
   const handleNextCoach = useCallback(() => {
     if (currentIndex < coaches.length - 1 && !isAnimating) {
-      setIsAnimating(true);
+      startHandoffSnapshot(currentIndex, 'forward');
       
       // Tinder-style animation for current card out and next card in
       Animated.parallel([
@@ -713,44 +732,21 @@ export default function CoachesScreen({ route, navigation }) {
           useNativeDriver: true,
           easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         })
-      ]).start(() => {
-        const newIndex = currentIndex + 1;
-        
-        // CRITICAL: Ensure current card values match the card that just became current
-        // The next card was at translateX: 0, scale: 1.0, opacity: 1.0
-        translateY.setValue(0);
-        translateX.setValue(0); // CRITICAL: Must be 0 to prevent position jump
-        scale.setValue(1);
-        opacity.setValue(1);
-        rotate.setValue(0);
-        
-        // Update state FIRST
-        setCurrentIndex(newIndex);
-        
-        // Reset NEW next/prev cards after state update
-        // Use InteractionManager to ensure smooth transition after animation completes
-        InteractionManager.runAfterInteractions(() => {
-          if (newIndex < coaches.length - 1) {
-            nextCardTranslateX.setValue(0);
-            nextCardOpacity.setValue(0);
-            nextCardScale.setValue(0.95);
-          }
-          
-          if (newIndex > 0) {
-            prevCardTranslateX.setValue(0);
-            prevCardOpacity.setValue(0);
-            prevCardScale.setValue(0.95);
-          }
-          
+      ]).start((finished) => {
+        if (!finished) {
+          setHandoffSnapshot(null);
           setIsAnimating(false);
-        });
+          return;
+        }
+        pendingSwipeDirectionRef.current = 'forward';
+        setCurrentIndex(currentIndex + 1);
       });
     }
-  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width, startHandoffSnapshot]);
 
   const handlePreviousCoach = useCallback(() => {
     if (currentIndex > 0 && !isAnimating) {
-      setIsAnimating(true);
+      startHandoffSnapshot(currentIndex, 'backward');
       
       // Tinder-style animation for current card out and previous card in
       Animated.parallel([
@@ -792,40 +788,17 @@ export default function CoachesScreen({ route, navigation }) {
           useNativeDriver: true,
           easing: Easing.bezier(0.25, 0.1, 0.25, 1), // Smoother bezier curve
         })
-      ]).start(() => {
-        const newIndex = currentIndex - 1;
-        
-        // CRITICAL: Ensure current card values match the card that just became current
-        // The prev card was at translateX: 0, scale: 1.0, opacity: 1.0
-        translateY.setValue(0);
-        translateX.setValue(0); // CRITICAL: Must be 0 to prevent position jump
-        scale.setValue(1);
-        opacity.setValue(1);
-        rotate.setValue(0);
-        
-        // Update state FIRST
-        setCurrentIndex(newIndex);
-        
-        // Reset NEW next/prev cards after state update
-        // Use InteractionManager to ensure smooth transition after animation completes
-        InteractionManager.runAfterInteractions(() => {
-          if (newIndex > 0) {
-            prevCardTranslateX.setValue(0);
-            prevCardOpacity.setValue(0);
-            prevCardScale.setValue(0.95);
-          }
-          
-          if (newIndex < coaches.length - 1) {
-            nextCardTranslateX.setValue(0);
-            nextCardOpacity.setValue(0);
-            nextCardScale.setValue(0.95);
-          }
-          
+      ]).start((finished) => {
+        if (!finished) {
+          setHandoffSnapshot(null);
           setIsAnimating(false);
-        });
+          return;
+        }
+        pendingSwipeDirectionRef.current = 'backward';
+        setCurrentIndex(currentIndex - 1);
       });
     }
-  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width]);
+  }, [currentIndex, coaches.length, isAnimating, translateX, translateY, scale, opacity, rotate, nextCardScale, nextCardOpacity, prevCardScale, prevCardOpacity, width, startHandoffSnapshot]);
 
 
 
@@ -877,11 +850,11 @@ export default function CoachesScreen({ route, navigation }) {
               There are no coaches available for {sport} at the moment. Check back later!
             </Text>
           </View>
-        ) : currentCoach ? (
+        ) : currentCoachDisplay ? (
           /* Single Card Swipe System with Navigation Arrows */
           <View style={styles.swipeContainer}>
             {/* Previous Card - positioned behind current (Tinder style) */}
-            {previousCoach && (
+            {prevCoachDisplay && (
               <Animated.View
                 style={[
                   styles.coachCard,
@@ -897,12 +870,12 @@ export default function CoachesScreen({ route, navigation }) {
                 ]}
                 pointerEvents="none"
               >
-                <CoachCard coach={previousCoach} onSelect={() => {}} scrollViewRef={null} />
+                <CoachCard coach={prevCoachDisplay} onSelect={() => {}} scrollViewRef={null} />
               </Animated.View>
             )}
             
             {/* Next Card - positioned behind current (Tinder style) */}
-            {nextCoach && (
+            {nextCoachDisplay && (
               <Animated.View
                 style={[
                   styles.coachCard,
@@ -918,7 +891,7 @@ export default function CoachesScreen({ route, navigation }) {
                 ]}
                 pointerEvents="none"
               >
-                <CoachCard coach={nextCoach} onSelect={() => {}} scrollViewRef={null} />
+                <CoachCard coach={nextCoachDisplay} onSelect={() => {}} scrollViewRef={null} />
               </Animated.View>
             )}
             
@@ -952,8 +925,9 @@ export default function CoachesScreen({ route, navigation }) {
                     opacity: opacity,
                   }
                 ]}
+                pointerEvents={isAnimating ? 'none' : 'auto'}
               >
-                <CoachCard coach={currentCoach} onSelect={() => handleCoachSelect(currentCoach)} scrollViewRef={scrollViewRef} />
+                <CoachCard coach={currentCoachDisplay} onSelect={() => handleCoachSelect(currentCoachDisplay)} scrollViewRef={scrollViewRef} />
               </Animated.View>
             </PanGestureHandler>
             
