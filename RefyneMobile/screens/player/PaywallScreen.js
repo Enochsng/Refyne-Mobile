@@ -7,16 +7,14 @@ import {
   TouchableOpacity,
   Dimensions,
   Animated,
-  Image,
   Alert,
-  Linking,
   ActivityIndicator,
   SafeAreaView,
   Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { createDestinationCharge, testBackendConnection, attemptDirectPayment, confirmPaymentIntent } from '../../services/paymentService';
+import { createDestinationCharge, attemptDirectPayment, confirmPaymentIntent } from '../../services/paymentService';
 // Conditionally import Stripe to prevent initialization errors
 let useStripe = null;
 try {
@@ -29,102 +27,66 @@ try {
 import { createCoachingSession } from '../../utils/sessionManager';
 import { supabase } from '../../supabaseClient';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-// Coaching packages data - will be set based on sport
+const COLORS = {
+  primary: '#0C295C',
+  primaryMid: '#1A4A7A',
+  bgApp: '#F8FAFF',
+  textMuted: '#64748B',
+  textPlaceholder: '#90A4AE',
+  warning: '#FF6B35',
+  success: '#4CAF50',
+  borderSubtle: 'rgba(12, 41, 92, 0.06)',
+  borderLight: 'rgba(12, 41, 92, 0.08)',
+  white: '#FFFFFF',
+  badgePopularBg: '#FFE8DE',
+  badgeValueBg: '#E8EEF4',
+  badgeValueText: '#1E1E1E',
+};
+
+const buildPackageFeatures = (clips, sessionDays) => [
+  `Send up to ${clips} clips per package`,
+  `Coaching session open for ${sessionDays} days`,
+  'Send up to 5 messages per day',
+  'Quality, personalized feedback',
+];
+
 const getCoachingPackages = (sport) => {
-  if (sport.toLowerCase() === 'golf') {
-    return [
-      {
-        id: 1,
-        name: '5 Clips Package',
-        price: '$40',
-        features: [
-          'Send up to 5 clips per package',
-          'Coaching session open for 3 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: false,
-        gradient: ['#6B7280', '#4B5563'],
-      },
-      {
-        id: 2,
-        name: '7 Clips Package',
-        price: '$45',
-        features: [
-          'Send up to 7 clips per package',
-          'Coaching session open for 5 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: true,
-        gradient: ['#0C295C', '#1A4A7A'],
-      },
-      {
-        id: 3,
-        name: '10 Clips Package',
-        price: '$50',
-        features: [
-          'Send up to 10 clips per package',
-          'Coaching session open for 7 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: false,
-        gradient: ['#059669', '#047857'],
-      },
-    ];
-  } else {
-    // Badminton packages (current pricing)
-    return [
-      {
-        id: 1,
-        name: '5 Clips Package',
-        price: '$35',
-        features: [
-          'Send up to 5 clips per package',
-          'Coaching session open for 3 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: false,
-        gradient: ['#6B7280', '#4B5563'],
-      },
-      {
-        id: 2,
-        name: '7 Clips Package',
-        price: '$40',
-        features: [
-          'Send up to 7 clips per package',
-          'Coaching session open for 5 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: true,
-        gradient: ['#0C295C', '#1A4A7A'],
-      },
-      {
-        id: 3,
-        name: '10 Clips Package',
-        price: '$45',
-        features: [
-          'Send up to 10 clips per package',
-          'Coaching session open for 7 days',
-          'Send up to 5 messages per day',
-          'Get quality and personalized feedback',
-        ],
-        popular: false,
-        gradient: ['#059669', '#047857'],
-      },
-    ];
-  }
+  const isGolf = sport.toLowerCase() === 'golf';
+  const tiers = isGolf
+    ? [
+        { clips: 5, price: '40', days: 3 },
+        { clips: 7, price: '45', days: 5 },
+        { clips: 10, price: '50', days: 7 },
+      ]
+    : [
+        { clips: 5, price: '35', days: 3 },
+        { clips: 7, price: '40', days: 5 },
+        { clips: 10, price: '45', days: 7 },
+      ];
+
+  const badgeByClips = {
+    5: null,
+    7: 'mostPopular',
+    10: 'bestValue',
+  };
+
+  return tiers.map((tier, index) => ({
+    id: index + 1,
+    clips: tier.clips,
+    name: `${tier.clips} Clips Pack`,
+    price: `$${tier.price}`,
+    priceAmount: tier.price,
+    features: buildPackageFeatures(tier.clips, tier.days),
+    badge: badgeByClips[tier.clips] ?? null,
+  }));
 };
 
 export default function PaywallScreen({ route, navigation }) {
   const { coach, sport } = route.params;
-  const [selectedPackage, setSelectedPackage] = useState(2); // Default to Premium
-  const [loading, setLoading] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState(2);
+  const [isPurchasing, setIsPurchasing] = useState(false);
   const [paymentSheetEnabled, setPaymentSheetEnabled] = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
   
@@ -161,7 +123,7 @@ export default function PaywallScreen({ route, navigation }) {
 
   const initializePaymentSheet = async () => {
     try {
-      setLoading(true);
+      setPaymentSheetEnabled(false);
 
       // Create payment intent using the payment service
       const paymentData = {
@@ -227,8 +189,6 @@ export default function PaywallScreen({ route, navigation }) {
         'Payment Setup Error', 
         error.message || 'Failed to set up payment. Please check your connection and try again.'
       );
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -361,100 +321,38 @@ export default function PaywallScreen({ route, navigation }) {
     }
   };
   
-  // Package card animations
-  const packageAnimations = useRef(
-    coachingPackages.map(() => ({
-      pressScale: new Animated.Value(1),
-      pressTranslateY: new Animated.Value(0),
-      entranceOpacity: new Animated.Value(0),
-      entranceTranslateY: new Animated.Value(50),
-      entranceScale: new Animated.Value(0.95),
-    }))
-  ).current;
+  const selectedPkg =
+    coachingPackages.find((pkg) => pkg.id === selectedPackage) || coachingPackages[0];
 
   useEffect(() => {
-    // Start entrance animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
       }),
       Animated.timing(scaleAnim, {
         toValue: 1,
-        duration: 800,
+        duration: 600,
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Start package card animations with staggered delay
-    packageAnimations.forEach((packageAnim, index) => {
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.spring(packageAnim.entranceOpacity, {
-            toValue: 1,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 8,
-          }),
-          Animated.spring(packageAnim.entranceTranslateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 8,
-          }),
-          Animated.spring(packageAnim.entranceScale, {
-            toValue: 1,
-            useNativeDriver: true,
-            tension: 100,
-            friction: 8,
-          }),
-        ]).start();
-      }, index * 150);
-    });
   }, []);
 
   const handlePackageSelect = (packageId) => {
     setSelectedPackage(packageId);
   };
 
-  const handleCardPressIn = (index) => {
-    Animated.parallel([
-      Animated.spring(packageAnimations[index].pressScale, {
-        toValue: 0.96,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-      Animated.spring(packageAnimations[index].pressTranslateY, {
-        toValue: -2,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-    ]).start();
-  };
-
-  const handleCardPressOut = (index) => {
-    Animated.parallel([
-      Animated.spring(packageAnimations[index].pressScale, {
-        toValue: 1,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-      Animated.spring(packageAnimations[index].pressTranslateY, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 300,
-        friction: 8,
-      }),
-    ]).start();
+  const handleRestorePress = () => {
+    Alert.alert(
+      'Restore purchases',
+      'If you have a previous purchase to restore, contact support and we will help activate your session.',
+    );
   };
 
   const handlePurchase = async () => {
@@ -469,7 +367,7 @@ export default function PaywallScreen({ route, navigation }) {
     }
 
     try {
-      setLoading(true);
+      setIsPurchasing(true);
       
       // Check if this is a mock payment intent (for development)
       if (paymentIntentId && paymentIntentId.startsWith('pi_mock_')) {
@@ -531,157 +429,129 @@ export default function PaywallScreen({ route, navigation }) {
       
       Alert.alert('Payment Error', errorMessage);
     } finally {
-      setLoading(false);
+      setIsPurchasing(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        {/* Header */}
-        <Animated.View 
-          style={[
-            styles.headerContainer,
-            {
-              opacity: fadeAnim,
-              transform: [
-                { translateY: slideAnim },
-                { scale: scaleAnim }
-              ]
-            }
-          ]}
-        >
-          <View style={styles.header}>
-            <View style={styles.headerInner}>
-              <TouchableOpacity 
-                style={styles.backButton}
-                onPress={() => navigation.goBack()}
-              >
-                <Ionicons name="arrow-back" size={24} color="#0C295C" />
-              </TouchableOpacity>
-              
-              <View style={styles.headerContent}>
-                <Text style={styles.headerTitle}>Choose Your Package</Text>
-                <Text style={styles.headerSubtitle}>
-                  Pick the perfect plan for your training journey
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Animated.View>
+        <View style={styles.topBar}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="chevron-back" size={28} color={COLORS.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleRestorePress} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.restoreText}>Restore</Text>
+          </TouchableOpacity>
+        </View>
 
-        {/* Main Content */}
-        <ScrollView 
-          style={styles.scrollView} 
+        <ScrollView
+          style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.mainContent}>
-            {/* Packages Section */}
-            <View style={styles.packagesContainer}>
-              {coachingPackages.map((pkg, index) => (
-                <Animated.View
-                  key={pkg.id}
-                  style={[
-                    styles.packageCardContainer,
-                    {
-                      opacity: packageAnimations[index].entranceOpacity,
-                      transform: [
-                        { translateY: packageAnimations[index].entranceTranslateY },
-                        { scale: packageAnimations[index].entranceScale },
-                        { scale: packageAnimations[index].pressScale },
-                        { translateY: packageAnimations[index].pressTranslateY },
-                      ],
-                    }
-                  ]}
-                >
+          <Animated.View
+            style={{
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }, { scale: scaleAnim }],
+            }}
+          >
+            <Text style={styles.headline}>Choose your package</Text>
+            <Text style={styles.eyebrow}>Your journey starts here</Text>
+
+            <View style={styles.segmentTrack}>
+              {coachingPackages.map((pkg) => {
+                const isSelected = selectedPackage === pkg.id;
+                return (
                   <TouchableOpacity
-                    style={[
-                      styles.packageCard,
-                      selectedPackage === pkg.id && styles.selectedPackageCard,
-                      pkg.popular && styles.popularPackageCard,
-                    ]}
+                    key={pkg.id}
+                    style={[styles.segmentOption, isSelected && styles.segmentOptionSelected]}
                     onPress={() => handlePackageSelect(pkg.id)}
-                    onPressIn={() => handleCardPressIn(index)}
-                    onPressOut={() => handleCardPressOut(index)}
-                    activeOpacity={1}
+                    activeOpacity={0.85}
                   >
-                    {pkg.popular && (
-                      <View style={styles.popularBadge}>
-                        <Text style={styles.popularBadgeText}>MOST POPULAR</Text>
+                    {isSelected ? (
+                      <LinearGradient
+                        colors={[COLORS.primary, COLORS.primaryMid]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.segmentGradient}
+                      >
+                        <Text style={styles.segmentClipSelected}>{pkg.clips}</Text>
+                        <Text style={styles.segmentLabelSelected}>clips</Text>
+                      </LinearGradient>
+                    ) : (
+                      <View style={styles.segmentInner}>
+                        <Text style={styles.segmentClip}>{pkg.clips}</Text>
+                        <Text style={styles.segmentLabel}>clips</Text>
                       </View>
                     )}
-                    
-                    <View style={[styles.packageHeader, pkg.popular && styles.packageHeaderPopular]}>
-                      <View style={styles.packageTitleRow}>
-                        <Text style={styles.packageName}>{pkg.name}</Text>
-                        {selectedPackage === pkg.id && (
-                          <View style={styles.selectedIndicatorInline}>
-                            <Ionicons name="checkmark-circle" size={24} color="#0C295C" />
-                          </View>
-                        )}
-                      </View>
-                      <View style={styles.priceContainer}>
-                        <Text style={styles.packagePrice}>{pkg.price}</Text>
-                      </View>
-                    </View>
-                    
-                    <View style={styles.featuresContainer}>
-                      {pkg.features.map((feature, featureIndex) => (
-                        <View key={featureIndex} style={styles.featureItem}>
-                          <Ionicons name="checkmark-circle" size={18} color="#059669" />
-                          <Text style={styles.featureText}>{feature}</Text>
-                        </View>
-                      ))}
-                    </View>
                   </TouchableOpacity>
-                </Animated.View>
-              ))}
+                );
+              })}
             </View>
-          </View>
+
+            <LinearGradient
+              colors={[COLORS.white, COLORS.bgApp]}
+              style={styles.packageCard}
+            >
+              <View style={styles.packageTitleRow}>
+                <Text style={styles.packageName}>{selectedPkg.name}</Text>
+                {selectedPkg.badge ? <PackageBadge variant={selectedPkg.badge} /> : null}
+              </View>
+
+              <View style={styles.priceRow}>
+                <Text style={styles.priceCurrency}>$</Text>
+                <Text style={styles.priceAmount}>{selectedPkg.priceAmount}</Text>
+                <Text style={styles.priceCadence}>one-time</Text>
+              </View>
+
+              <View style={styles.cardDivider} />
+
+              <View style={styles.featuresContainer}>
+                {selectedPkg.features.map((feature, featureIndex) => (
+                  <View key={featureIndex} style={styles.featureItem}>
+                    <View style={styles.featureIconWrap}>
+                      <Ionicons name="checkmark" size={14} color={COLORS.success} />
+                    </View>
+                    <Text style={styles.featureText}>{feature}</Text>
+                  </View>
+                ))}
+              </View>
+            </LinearGradient>
+          </Animated.View>
         </ScrollView>
 
-        {/* Purchase Button */}
-        <Animated.View 
+        <Animated.View
           style={[
-            styles.purchaseContainer,
-            {
-              opacity: fadeAnim,
-              transform: [{ translateY: slideAnim }]
-            }
+            styles.footer,
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          <TouchableOpacity 
-            style={[styles.purchaseButton, loading && styles.purchaseButtonDisabled]} 
+          <TouchableOpacity
+            style={[styles.continueButton, (isPurchasing || !paymentSheetEnabled) && styles.continueButtonDisabled]}
             onPress={handlePurchase}
-            disabled={loading || !paymentSheetEnabled}
+            disabled={isPurchasing || !paymentSheetEnabled}
+            activeOpacity={0.9}
           >
             <LinearGradient
-              colors={loading ? ['#94A3B8', '#64748B'] : ['#0C295C', '#1A4A7A', '#2D5A8A']}
+              colors={isPurchasing ? ['#94A3B8', '#64748B'] : [COLORS.primary, COLORS.primaryMid]}
               start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.purchaseButtonGradient}
+              end={{ x: 1, y: 0 }}
+              style={styles.continueGradient}
             >
-              {/* Subtle shimmer overlay */}
-              <View style={styles.shimmerOverlay} />
-              
-              {loading ? (
+              {isPurchasing ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="small" color="white" />
-                  <Text style={styles.purchaseButtonText}>Processing...</Text>
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                  <Text style={[styles.continueText, { marginLeft: 10 }]}>Processing...</Text>
                 </View>
               ) : (
-                <View style={styles.purchaseButtonContent}>
-                  <View style={styles.purchaseButtonLeft}>
-                    <Ionicons name="card" size={18} color="rgba(255, 255, 255, 0.95)" />
-                    <Text style={styles.purchaseButtonText} numberOfLines={1}>
-                      Purchase
-                    </Text>
-                  </View>
-                  <Text style={styles.purchaseButtonPrice}>
-                    {coachingPackages.find(pkg => pkg.id === selectedPackage)?.price || '$0'}
-                  </Text>
-                </View>
+                <Text style={styles.continueText}>
+                  Start Improving Today
+                </Text>
               )}
             </LinearGradient>
           </TouchableOpacity>
@@ -694,273 +564,238 @@ export default function PaywallScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#F0F4F8',
+    backgroundColor: COLORS.bgApp,
   },
   container: {
     flex: 1,
-    backgroundColor: '#F0F4F8',
+    backgroundColor: COLORS.bgApp,
   },
-  headerContainer: {
-    marginBottom: 8,
-    backgroundColor: '#F0F4F8',
-  },
-  header: {
-    paddingTop: Platform.OS === 'ios' ? 16 : 24,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#F0F4F8',
-  },
-  headerInner: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 8 : 16,
+    paddingBottom: 8,
   },
   backButton: {
-    marginRight: 16,
-    padding: 8,
+    padding: 4,
   },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: width * 0.065,
-    fontFamily: 'Rubik-Bold',
-    color: '#0C295C',
-    marginBottom: 6,
-  },
-  headerSubtitle: {
-    fontSize: width * 0.038,
-    fontFamily: 'Manrope-Regular',
-    color: '#64748B',
-    lineHeight: 20,
+  restoreText: {
+    fontSize: 14,
+    fontFamily: 'Manrope-SemiBold',
+    color: COLORS.textMuted,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120, // Extra padding to account for fixed purchase button
+    paddingHorizontal: 24,
+    paddingBottom: 120,
   },
-  mainContent: {
-    padding: 24,
-    paddingTop: 16,
+  headline: {
+    fontSize: 32,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.primary,
+    letterSpacing: -0.5,
+    lineHeight: 38,
+    marginBottom: 8,
   },
-  packagesContainer: {
+  eyebrow: {
+    fontSize: 12,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.warning,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
     marginBottom: 20,
   },
-  packageCardContainer: {
-    marginBottom: 16,
+  segmentTrack: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.borderSubtle,
+    borderRadius: 100,
+    padding: 4,
+    marginTop: 28,
+    marginBottom: 24,
+  },
+  segmentOption: {
+    flex: 1,
+    borderRadius: 100,
+    overflow: 'hidden',
+  },
+  segmentOptionSelected: {
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  segmentGradient: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 100,
+  },
+  segmentInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  segmentClip: {
+    fontSize: 18,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.primary,
+    lineHeight: 22,
+  },
+  segmentClipSelected: {
+    fontSize: 18,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.white,
+    lineHeight: 22,
+  },
+  segmentLabel: {
+    fontSize: 12,
+    fontFamily: 'Manrope-Medium',
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  segmentLabelSelected: {
+    fontSize: 12,
+    fontFamily: 'Manrope-Medium',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginTop: 2,
   },
   packageCard: {
-    backgroundColor: 'white',
-    borderRadius: 24,
+    borderRadius: 20,
     padding: 24,
-    paddingTop: 28,
-    borderWidth: 2,
-    borderColor: '#E2E8F0',
-    position: 'relative',
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
-    overflow: 'visible',
-  },
-  selectedPackageCard: {
-    borderColor: '#0C295C',
-    borderWidth: 3,
-    shadowOpacity: 0.15,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
     shadowRadius: 16,
-    elevation: 8,
-    backgroundColor: '#FAFBFF',
-  },
-  popularPackageCard: {
-    borderColor: '#0C295C',
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  popularBadge: {
-    position: 'absolute',
-    top: -12,
-    alignSelf: 'center',
-    backgroundColor: '#0C295C',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    zIndex: 10,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  popularBadgeText: {
-    fontSize: width * 0.032,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    letterSpacing: 0.5,
-  },
-  packageHeader: {
-    marginBottom: 20,
-    paddingTop: 8,
-  },
-  packageHeaderPopular: {
-    paddingTop: 20,
+    elevation: 4,
   },
   packageTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
+    flexWrap: 'wrap',
+    marginBottom: 16,
   },
   packageName: {
-    fontSize: width * 0.055,
-    fontFamily: 'Rubik-Bold',
-    color: '#0C295C',
-    flex: 1,
+    fontSize: 18,
+    fontFamily: 'Rubik-SemiBold',
+    color: COLORS.primary,
   },
-  selectedIndicatorInline: {
-    marginLeft: 12,
-  },
-  priceContainer: {
+  packageBadge: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 100,
+    marginLeft: 8,
   },
-  packagePrice: {
-    fontSize: width * 0.08,
+  packageBadgePopular: {
+    backgroundColor: COLORS.badgePopularBg,
+  },
+  packageBadgeValue: {
+    backgroundColor: COLORS.badgeValueBg,
+  },
+  packageBadgeIcon: {
+    marginRight: 4,
+  },
+  packageBadgeText: {
+    fontSize: 10,
     fontFamily: 'Rubik-Bold',
-    color: '#0C295C',
+    letterSpacing: 0.5,
   },
-  packageDuration: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Regular',
-    color: '#64748B',
-    marginLeft: 4,
+  packageBadgeTextPopular: {
+    color: COLORS.warning,
   },
-  featuresContainer: {
-    marginTop: 4,
+  packageBadgeTextValue: {
+    color: COLORS.badgeValueText,
   },
+  cardDivider: {
+    height: 1,
+    backgroundColor: COLORS.borderLight,
+    marginBottom: 20,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 24,
+  },
+  priceCurrency: {
+    fontSize: 20,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.primary,
+    marginBottom: 6,
+    marginRight: 2,
+  },
+  priceAmount: {
+    fontSize: 40,
+    fontFamily: 'Rubik-Bold',
+    color: COLORS.primary,
+    letterSpacing: -1,
+    lineHeight: 44,
+  },
+  priceCadence: {
+    fontSize: 14,
+    fontFamily: 'Manrope-Medium',
+    color: COLORS.textMuted,
+    marginLeft: 10,
+    marginBottom: 8,
+  },
+  featuresContainer: {},
   featureItem: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  featureIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(76, 175, 80, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   featureText: {
-    fontSize: width * 0.038,
-    fontFamily: 'Manrope-Medium',
-    color: '#374151',
-    marginLeft: 10,
     flex: 1,
+    fontSize: 14,
+    fontFamily: 'Manrope-Medium',
+    color: '#33415C',
     lineHeight: 20,
   },
-  selectedIndicator: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
+    backgroundColor: COLORS.bgApp,
   },
-  purchaseContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
-    backgroundColor: 'rgba(240, 244, 248, 0.98)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(12, 41, 92, 0.08)',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: -4,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
+  continueButton: {
+    borderRadius: 30,
+    overflow: 'hidden',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
     elevation: 8,
   },
-  purchaseButton: {
-    borderRadius: 16,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  purchaseButtonDisabled: {
+  continueButtonDisabled: {
     shadowOpacity: 0.1,
     elevation: 2,
   },
-  purchaseButtonGradient: {
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  shimmerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
-  },
-  purchaseButtonContent: {
-    flexDirection: 'row',
+  continueGradient: {
+    paddingVertical: 18,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 1,
+    justifyContent: 'center',
   },
-  purchaseButtonLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 12,
-  },
-  purchaseButtonText: {
-    fontSize: width * 0.042,
+  continueText: {
+    fontSize: 16,
     fontFamily: 'Rubik-Bold',
-    color: 'white',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-    marginLeft: 10,
-    flex: 1,
-  },
-  purchaseButtonPrice: {
-    fontSize: width * 0.048,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: 'rgba(0, 0, 0, 0.2)',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 2,
+    color: COLORS.white,
+    letterSpacing: 0.3,
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -968,3 +803,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+function PackageBadge({ variant }) {
+  const isPopular = variant === 'mostPopular';
+  return (
+    <View
+      style={[
+        styles.packageBadge,
+        isPopular ? styles.packageBadgePopular : styles.packageBadgeValue,
+      ]}
+    >
+      <Ionicons name="star" size={10} color={COLORS.warning} style={styles.packageBadgeIcon} />
+      <Text
+        style={[
+          styles.packageBadgeText,
+          isPopular ? styles.packageBadgeTextPopular : styles.packageBadgeTextValue,
+        ]}
+      >
+        {isPopular ? 'MOST POPULAR' : 'BEST VALUE'}
+      </Text>
+    </View>
+  );
+}
