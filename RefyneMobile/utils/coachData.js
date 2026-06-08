@@ -4,7 +4,15 @@ import { supabase } from '../supabaseClient';
 const DEFAULT_COACH_RATING = 4.8;
 const DEFAULT_COACH_PRICE = '$75/hr';
 
-const mapCoachProfileRow = (row) => ({
+const resolveAvatarUrl = (profileRow) => {
+  if (!profileRow) return null;
+  if (profileRow.avatar_url) return profileRow.avatar_url;
+  const meta = profileRow.user_metadata;
+  if (!meta) return null;
+  return meta.avatar_url || meta.profile_photo || meta.profilePicture || meta.picture || null;
+};
+
+const mapCoachProfileRow = (row, profileAvatarUrl = null) => ({
   id: row.id || row.user_id,
   name: row.name || row.coach_name || 'Coach',
   email: row.email || 'coach@example.com',
@@ -17,7 +25,7 @@ const mapCoachProfileRow = (row) => ({
   expertise: Array.isArray(row.expertise) ? row.expertise : [],
   bio: row.bio || '',
   completed_at: row.completed_at || row.created_at || null,
-  profilePicture: row.profile_picture || row.profilePicture || null,
+  profilePicture: row.profile_picture || row.profilePicture || profileAvatarUrl || null,
   rating: DEFAULT_COACH_RATING,
   price: DEFAULT_COACH_PRICE,
 });
@@ -31,9 +39,33 @@ const getCoachProfilesFromSupabase = async () => {
     throw error;
   }
 
-  return (data || [])
-    .filter((row) => (row.id || row.user_id) && row.deleted !== true)
-    .map(mapCoachProfileRow);
+  const rows = (data || [])
+    .filter((row) => (row.id || row.user_id) && row.deleted !== true);
+
+  const coachIds = rows
+    .map((row) => row.id || row.user_id)
+    .filter(Boolean);
+
+  let avatarByCoachId = {};
+  if (coachIds.length > 0) {
+    const { data: profileRows, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, avatar_url, user_metadata')
+      .in('id', coachIds);
+
+    if (profilesError) {
+      console.warn('Could not fetch coach avatars from profiles:', profilesError.message);
+    } else if (profileRows) {
+      avatarByCoachId = Object.fromEntries(
+        profileRows.map((profileRow) => [profileRow.id, resolveAvatarUrl(profileRow)])
+      );
+    }
+  }
+
+  return rows.map((row) => {
+    const coachId = row.id || row.user_id;
+    return mapCoachProfileRow(row, avatarByCoachId[coachId] || null);
+  });
 };
 
 // Function to get all coach profiles from AsyncStorage
