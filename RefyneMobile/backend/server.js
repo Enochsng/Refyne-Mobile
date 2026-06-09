@@ -76,6 +76,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Body parsing middleware
+// Stripe webhooks need the raw body for signature verification
+app.use('/api/webhooks/stripe', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 

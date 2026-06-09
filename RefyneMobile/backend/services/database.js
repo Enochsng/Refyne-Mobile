@@ -252,6 +252,40 @@ async function updateCoachAccountStatus(coachId, updates) {
 }
 
 /**
+ * Update coach connect account status by Stripe account ID
+ */
+async function updateCoachConnectAccountByStripeId(stripeAccountId, status) {
+  try {
+    const { data, error } = await supabase
+      .from('coach_connect_accounts')
+      .update({
+        charges_enabled: status.charges_enabled,
+        payouts_enabled: status.payouts_enabled,
+        details_submitted: status.details_submitted,
+        onboarding_completed: status.onboarding_completed,
+        updated_at: new Date().toISOString()
+      })
+      .eq('stripe_account_id', stripeAccountId)
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      console.error('Error updating coach connect account by Stripe ID:', error);
+      throw error;
+    }
+
+    console.log(`Coach connect account updated by Stripe ID: ${stripeAccountId}`);
+    return data;
+  } catch (err) {
+    console.error('Database error in updateCoachConnectAccountByStripeId:', err);
+    throw err;
+  }
+}
+
+/**
  * Coaching Sessions Management
  */
 
@@ -1760,6 +1794,7 @@ module.exports = {
   saveCoachConnectAccount,
   getCoachConnectAccount,
   updateCoachAccountStatus,
+  updateCoachConnectAccountByStripeId,
   saveCoachingSession,
   getCoachingSession,
   updateCoachingSession,

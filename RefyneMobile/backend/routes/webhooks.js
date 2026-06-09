@@ -2,7 +2,7 @@ const express = require('express');
 const { verifyWebhookSignature, stripe } = require('../config/stripe');
 const { 
   saveCoachingSession, 
-  updateCoachAccountStatus, 
+  updateCoachConnectAccountByStripeId,
   saveTransfer, 
   updateTransferStatus,
   getCoachConnectAccountId,
@@ -12,9 +12,6 @@ const {
 } = require('../services/database');
 
 const router = express.Router();
-
-// Middleware to capture raw body for webhook signature verification
-router.use('/stripe', express.raw({ type: 'application/json' }));
 
 /**
  * POST /api/webhooks/stripe
@@ -373,27 +370,20 @@ async function handlePaymentIntentCanceled(paymentIntent) {
 async function handleAccountUpdated(account) {
   try {
     console.log(`Connect account updated: ${account.id}`);
-    
-    // Update coach's account status in database
-    const updates = {
-      chargesEnabled: account.charges_enabled,
-      payoutsEnabled: account.payouts_enabled,
-      detailsSubmitted: account.details_submitted,
-      onboardingCompleted: account.charges_enabled && account.payouts_enabled && account.details_submitted,
-      businessProfile: account.business_profile
+
+    const status = {
+      charges_enabled: account.charges_enabled,
+      payouts_enabled: account.payouts_enabled,
+      details_submitted: account.details_submitted,
+      onboarding_completed: account.charges_enabled === true
     };
-    
-    // Find coach by stripe account ID and update
-    // Note: In a real implementation, you'd query by stripe_account_id
-    // For now, we'll use the metadata from the account
-    const coachId = account.metadata?.coachId;
-    if (coachId) {
-      await updateCoachAccountStatus(coachId, updates);
-      console.log(`Updated account status for coach ${coachId}:`, updates);
+
+    const updated = await updateCoachConnectAccountByStripeId(account.id, status);
+    if (updated) {
+      console.log(`Updated connect account ${account.id}:`, status);
+    } else {
+      console.warn(`No coach_connect_accounts row for stripe_account_id ${account.id}`);
     }
-    
-    // TODO: Send notification if account is now fully activated
-    
   } catch (err) {
     console.error('Error handling account update:', err);
   }
