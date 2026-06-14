@@ -26,9 +26,34 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
 
+const LIST_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'unread', label: 'Unread' },
+  { id: 'active', label: 'Active' },
+];
+
+function isConversationSessionActive(conversation) {
+  const sessionStatus = conversation?.sessionStatus;
+  return sessionStatus != null && sessionStatus.isActive === true;
+}
+
+function getLastMessagePreview(lastMessage) {
+  if (!lastMessage) return { isVideo: false, text: 'No messages yet' };
+  if (lastMessage.includes('Tutorial:')) {
+    const title = lastMessage.replace(/^🎥\s*Tutorial:\s*/, '').trim();
+    return { isVideo: true, text: `New clip · ${title}` };
+  }
+  if (lastMessage.startsWith('📹') || /Video\s*\(/.test(lastMessage)) {
+    const title = lastMessage.replace(/^📹\s*/, '').trim();
+    return { isVideo: true, text: `New clip · ${title}` };
+  }
+  return { isVideo: false, text: lastMessage };
+}
+
 export default function CoachesMessagesScreen({ navigation, route }) {
   const [conversations, setConversations] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [listFilter, setListFilter] = useState('all');
   const [filteredConversations, setFilteredConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedConversation, setSelectedConversation] = useState(null);
@@ -176,6 +201,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         
         const conversationsData = await getConversations(coachId, 'coach');
         console.log('Coach conversations data:', conversationsData);
+        console.log('[loadConversations] raw API sessionStatus:', conversationsData.map((conv) => ({
+          id: conv.id,
+          sessionStatus: conv.sessionStatus ?? null,
+        })));
         
         // Format conversations for display (now async)
         const formattedConversations = await Promise.all(
@@ -192,9 +221,13 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               console.log('Formatted conversation result:', {
                 id: formatted.id,
                 otherPartyName: formatted.otherPartyName,
-                playerName: formatted.playerName
+                playerName: formatted.playerName,
+                sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
               });
-              return formatted;
+              return {
+                ...formatted,
+                sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
+              };
             } catch (error) {
               console.log('Error formatting conversation:', error);
               // Return a fallback formatted conversation with actual player name
@@ -207,7 +240,8 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 unreadCount: conv.coach_unread_count,
                 sessionId: conv.session_id,
                 isOnline: false,
-                avatar: null
+                avatar: null,
+                sessionStatus: conv.sessionStatus ?? null,
               };
               console.log('Using fallback conversation:', fallback);
               return fallback;
@@ -276,17 +310,66 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
-    // Filter conversations based on search query
-    if (searchQuery.trim() === '') {
-      setFilteredConversations(conversations);
-    } else {
-      const filtered = conversations.filter(conversation =>
+    let result = conversations;
+
+    if (listFilter === 'unread') {
+      result = result.filter(conversation => conversation.unreadCount > 0);
+    } else if (listFilter === 'active') {
+      console.log('[Active tab filter] conversations:', conversations);
+      let missingCount = 0;
+      let activeCount = 0;
+      let inactiveCount = 0;
+
+      conversations.forEach((conversation) => {
+        const sessionStatus = conversation.sessionStatus;
+        const sessionStatusState =
+          sessionStatus === undefined ? 'undefined' :
+          sessionStatus === null ? 'null' :
+          'present';
+
+        if (sessionStatus == null) {
+          missingCount += 1;
+        } else if (sessionStatus.isActive === true) {
+          activeCount += 1;
+        } else {
+          inactiveCount += 1;
+        }
+
+        console.log('[Active tab filter] sessionStatus:', {
+          conversationId: conversation.id,
+          otherPartyName: conversation.otherPartyName,
+          sessionId: conversation.sessionId,
+          sessionStatus,
+          sessionStatusState,
+        });
+      });
+
+      console.log('[Active tab filter] summary:', {
+        total: conversations.length,
+        missing: missingCount,
+        isActiveTrue: activeCount,
+        isActiveFalse: inactiveCount,
+      });
+
+      result = result.filter(isConversationSessionActive);
+    }
+
+    if (searchQuery.trim() !== '') {
+      result = result.filter(conversation =>
         conversation.otherPartyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         conversation.sport.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredConversations(filtered);
     }
-  }, [searchQuery, conversations]);
+
+    setFilteredConversations(result);
+  }, [searchQuery, conversations, listFilter]);
+
+  useEffect(() => {
+    const total = conversations.reduce((sum, conv) => sum + conv.unreadCount, 0);
+    navigation.setOptions({
+      tabBarBadge: total > 0 ? (total > 99 ? '99+' : total) : undefined,
+    });
+  }, [conversations, navigation]);
 
   // Auto-select conversation if conversationId is passed via route params
   useEffect(() => {
@@ -618,6 +701,19 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     return conversations.reduce((total, conv) => total + conv.unreadCount, 0);
   };
 
+  const getEmptyStateSubtitle = () => {
+    if (searchQuery.trim()) {
+      return 'Try adjusting your search terms';
+    }
+    if (listFilter === 'unread') {
+      return 'You have no unread messages';
+    }
+    if (listFilter === 'active') {
+      return 'No active conversations right now';
+    }
+    return 'Start connecting with students to see messages here';
+  };
+
   // If a conversation is selected, show the chat view
   if (selectedConversation) {
     return (
@@ -897,11 +993,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           <View style={styles.headerContent}>
             <View style={styles.headerTop}>
               <Text style={styles.headerTitle}>Messages</Text>
-              {getTotalUnreadCount() > 0 && (
-                <View style={styles.unreadBadge}>
-                  <Text style={styles.unreadBadgeText}>{getTotalUnreadCount()}</Text>
-                </View>
-              )}
             </View>
             <Text style={styles.headerSubtitle}>
               Connect with your students and provide personalized feedback
@@ -937,6 +1028,43 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         </View>
       </Animated.View>
 
+      {/* Filter Tabs */}
+      <Animated.View
+        style={[
+          styles.filterTabsContainer,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
+        <View style={styles.filterTabs}>
+          {LIST_FILTERS.map((filter) => {
+            const isSelected = listFilter === filter.id;
+            const totalUnread = getTotalUnreadCount();
+            return (
+              <TouchableOpacity
+                key={filter.id}
+                style={[styles.filterTab, isSelected && styles.filterTabActive]}
+                onPress={() => setListFilter(filter.id)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.filterTabText, isSelected && styles.filterTabTextActive]}>
+                  {filter.label}
+                </Text>
+                {filter.id === 'unread' && totalUnread > 0 && (
+                  <View style={[styles.countBadge, isSelected && styles.countBadgeOnActiveTab]}>
+                    <Text style={styles.countBadgeText}>
+                      {totalUnread > 99 ? '99+' : totalUnread}
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </Animated.View>
+
       {/* Conversations List */}
       <ScrollView 
         style={styles.conversationsList}
@@ -951,117 +1079,93 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             <Text style={styles.loadingText}>Loading conversations...</Text>
           </View>
         ) : filteredConversations.length > 0 ? (
-          filteredConversations.map((conversation, index) => (
-            <Animated.View
-              key={conversation.id}
-              style={[
-                styles.conversationCard,
-                {
-                  opacity: fadeAnim,
-                  transform: [
-                    { 
-                      translateY: Animated.add(
-                        slideAnim,
-                        new Animated.Value(index * 20)
-                      )
-                    }
-                  ]
-                }
-              ]}
-            >
-              <TouchableOpacity
-                style={styles.conversationTouchable}
-                onPress={() => handleConversationPress(conversation)}
-                onLongPress={() => markAsRead(conversation.id)}
-                activeOpacity={0.85}
-              >
-                <LinearGradient
-                  colors={conversation.unreadCount > 0 
-                    ? ['#FFFFFF', '#F8FAFF', '#FFFFFF'] 
-                    : ['#FFFFFF', '#FFFFFF']
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.cardGradient}
+          <View style={styles.conversationsCard}>
+            {filteredConversations.map((conversation, index) => {
+              const preview = getLastMessagePreview(conversation.lastMessage);
+              const isLastRow = index === filteredConversations.length - 1;
+
+              return (
+                <Animated.View
+                  key={conversation.id}
+                  style={{
+                    opacity: fadeAnim,
+                    transform: [{ translateY: slideAnim }],
+                  }}
                 >
-                  <View style={styles.conversationContent}>
-                    <View style={styles.avatarContainer}>
-                      <LinearGradient
-                        colors={['#0C295C', '#1A4A7A', '#2D5A8A']}
-                        style={styles.avatarGradient}
-                      >
-                        <View style={styles.avatar}>
-                          {conversation.avatar ? (
-                            <Image 
-                              source={{ uri: conversation.avatar }} 
-                              style={styles.avatarImage}
-                              resizeMode="cover"
-                              onError={() => {
-                                console.log('Failed to load profile image for:', conversation.otherPartyName);
-                              }}
+                  <TouchableOpacity
+                    style={styles.conversationRow}
+                    onPress={() => handleConversationPress(conversation)}
+                    onLongPress={() => markAsRead(conversation.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.rowInner}>
+                      <View style={styles.listAvatar}>
+                        {conversation.avatar ? (
+                          <Image
+                            source={{ uri: conversation.avatar }}
+                            style={styles.listAvatarImage}
+                            resizeMode="cover"
+                            onError={() => {
+                              console.log('Failed to load profile image for:', conversation.otherPartyName);
+                            }}
+                          />
+                        ) : (
+                          <Text style={styles.listAvatarText}>
+                            {conversation.otherPartyName.charAt(0)}
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={styles.conversationInfo}>
+                        <View style={styles.conversationHeader}>
+                          <Text style={styles.studentName} numberOfLines={1}>
+                            {conversation.otherPartyName}
+                          </Text>
+                          <Text style={styles.timestamp}>
+                            {conversation.lastMessageAt
+                              ? new Date(conversation.lastMessageAt).toLocaleTimeString([], {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : ''}
+                          </Text>
+                        </View>
+
+                        <View style={styles.previewRow}>
+                          {preview.isVideo && (
+                            <Ionicons
+                              name="videocam"
+                              size={14}
+                              color="#64748B"
+                              style={styles.previewVideoIcon}
                             />
-                          ) : (
-                            <Text style={styles.avatarText}>{conversation.otherPartyName.charAt(0)}</Text>
                           )}
-                        </View>
-                      </LinearGradient>
-                      {conversation.isOnline && (
-                        <View style={styles.onlineIndicator}>
-                          <View style={styles.onlineIndicatorInner} />
-                        </View>
-                      )}
-                    </View>
-                    
-                    <View style={styles.conversationInfo}>
-                      <View style={styles.conversationHeader}>
-                        <Text style={styles.studentName}>{conversation.otherPartyName}</Text>
-                        <Text style={styles.timestamp}>
-                          {conversation.lastMessageAt ? new Date(conversation.lastMessageAt).toLocaleTimeString([], { 
-                            hour: '2-digit', 
-                            minute: '2-digit' 
-                          }) : ''}
-                        </Text>
-                      </View>
-                      
-                      <View style={styles.conversationDetails}>
-                        <Text 
-                          style={[
-                            styles.lastMessage,
-                            conversation.unreadCount > 0 && styles.unreadMessage
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {conversation.lastMessage || 'No messages yet'}
-                        </Text>
-                      </View>
-                    </View>
-                    
-                    <View style={styles.conversationRight}>
-                      {conversation.unreadCount > 0 && (
-                        <View style={styles.unreadCountContainer}>
-                          <LinearGradient
-                            colors={['#FF6B35', '#FF8C5A']}
-                            style={styles.unreadCount}
+                          <Text
+                            style={[
+                              styles.lastMessage,
+                              conversation.unreadCount > 0 && styles.unreadMessage,
+                            ]}
+                            numberOfLines={1}
                           >
-                            <Text style={styles.unreadCountText}>
-                              {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
-                            </Text>
-                          </LinearGradient>
+                            {preview.text}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {conversation.unreadCount > 0 && (
+                        <View style={[styles.countBadge, styles.rowCountBadge]}>
+                          <Text style={styles.countBadgeText}>
+                            {conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}
+                          </Text>
                         </View>
                       )}
-                      <View style={styles.chevronContainer}>
-                        <Ionicons 
-                          name="chevron-forward" 
-                          size={18} 
-                          color={conversation.unreadCount > 0 ? "#0C295C" : "#90A4AE"} 
-                        />
-                      </View>
                     </View>
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
-            </Animated.View>
-          ))
+                  </TouchableOpacity>
+                  {!isLastRow && <View style={styles.rowDivider} />}
+                </Animated.View>
+              );
+            })}
+          </View>
         ) : (
           <Animated.View 
             style={[
@@ -1081,7 +1185,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               </View>
               <Text style={styles.emptyStateTitle}>No conversations found</Text>
               <Text style={styles.emptyStateSubtitle}>
-                {searchQuery ? 'Try adjusting your search terms' : 'Start connecting with students to see messages here'}
+                {getEmptyStateSubtitle()}
               </Text>
             </LinearGradient>
           </Animated.View>
@@ -1119,27 +1223,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Rubik-Bold',
     color: 'white',
     marginRight: 12,
-  },
-  unreadBadge: {
-    backgroundColor: '#FF6B35',
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    minWidth: 28,
-    alignItems: 'center',
-    shadowColor: '#FF6B35',
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  unreadBadgeText: {
-    fontSize: width * 0.035,
-    fontFamily: 'Rubik-SemiBold',
-    color: 'white',
   },
   headerSubtitle: {
     fontSize: width * 0.035,
@@ -1181,98 +1264,107 @@ const styles = StyleSheet.create({
   conversationsList: {
     flex: 1,
   },
+  filterTabsContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 12,
+  },
+  filterTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  filterTab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(12, 41, 92, 0.15)',
+    backgroundColor: '#FFFFFF',
+  },
+  countBadge: {
+    backgroundColor: '#0C295C',
+    borderRadius: 12,
+    minWidth: 24,
+    height: 24,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadgeOnActiveTab: {
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  countBadgeText: {
+    color: '#FFFFFF',
+    fontSize: width * 0.032,
+    fontFamily: 'Rubik-Medium',
+  },
+  rowCountBadge: {
+    marginLeft: 8,
+  },
+  filterTabActive: {
+    backgroundColor: '#0C295C',
+    borderColor: '#0C295C',
+  },
+  filterTabText: {
+    fontSize: width * 0.035,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#0C295C',
+  },
+  filterTabTextActive: {
+    color: '#FFFFFF',
+  },
   conversationsListContent: {
     paddingHorizontal: 24,
     paddingTop: 4,
     paddingBottom: 100,
   },
-  conversationCard: {
-    borderRadius: 20,
-    marginBottom: 14,
+  conversationsCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    overflow: 'hidden',
+    paddingHorizontal: 16,
     shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 14,
     elevation: 6,
-    overflow: 'hidden',
-  },
-  conversationTouchable: {
-    borderRadius: 20,
-  },
-  cardGradient: {
-    borderRadius: 20,
-    padding: 20,
     borderWidth: 1,
     borderColor: 'rgba(12, 41, 92, 0.06)',
   },
-  conversationContent: {
+  conversationRow: {
+    backgroundColor: 'transparent',
+  },
+  rowInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 14,
   },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: 18,
+  rowDivider: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E2E8F0',
   },
-  avatarGradient: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    padding: 3,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  avatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  listAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#0C295C',
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+    marginRight: 12,
   },
-  avatarText: {
-    fontSize: 24,
+  listAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+  },
+  listAvatarText: {
+    fontSize: 18,
     fontFamily: 'Rubik-Bold',
     color: 'white',
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  onlineIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: '#4CAF50',
-    borderWidth: 3,
-    borderColor: 'white',
-    shadowColor: '#4CAF50',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.5,
-    shadowRadius: 4,
-    elevation: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  onlineIndicatorInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: 'white',
   },
   conversationInfo: {
     flex: 1,
@@ -1292,11 +1384,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   studentName: {
-    fontSize: width * 0.05,
-    fontFamily: 'Rubik-SemiBold',
+    flex: 1,
+    fontSize: width * 0.045,
+    fontFamily: 'Rubik-Bold',
     color: '#0C295C',
     marginRight: 8,
-    letterSpacing: 0.3,
   },
   timestamp: {
     fontSize: width * 0.032,
@@ -1304,10 +1396,13 @@ const styles = StyleSheet.create({
     color: '#90A4AE',
     marginTop: 2,
   },
-  conversationDetails: {
+  previewRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    marginTop: 4,
+  },
+  previewVideoIcon: {
+    marginRight: 4,
   },
   sportTag: {
     backgroundColor: 'rgba(12, 41, 92, 0.1)',
@@ -1325,55 +1420,14 @@ const styles = StyleSheet.create({
   },
   lastMessage: {
     flex: 1,
-    fontSize: width * 0.039,
+    fontSize: width * 0.037,
     fontFamily: 'Manrope-Regular',
     color: '#64748B',
-    flexWrap: 'wrap',
-    marginRight: 8,
-    lineHeight: 21,
-    letterSpacing: 0.1,
+    lineHeight: 20,
   },
   unreadMessage: {
     fontFamily: 'Manrope-SemiBold',
     color: '#0C295C',
-    fontSize: width * 0.041,
-  },
-  conversationRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    marginLeft: 12,
-    minWidth: 50,
-  },
-  unreadCountContainer: {
-    marginBottom: 6,
-    shadowColor: '#FF6B35',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  unreadCount: {
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    minWidth: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  unreadCountText: {
-    fontSize: width * 0.034,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    letterSpacing: 0.3,
-  },
-  chevronContainer: {
-    padding: 4,
   },
   emptyState: {
     flex: 1,

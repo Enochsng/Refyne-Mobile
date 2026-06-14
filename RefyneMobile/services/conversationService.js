@@ -791,7 +791,8 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     conversationId: conversation.id,
     player_name: conversation.player_name,
     coach_name: conversation.coach_name,
-    player_id: conversation.player_id
+    player_id: conversation.player_id,
+    sessionStatus: conversation.sessionStatus ?? null,
   });
   
   try {
@@ -848,7 +849,8 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     sessionId: conversation.session_id,
     isOnline: false, // TODO: Implement online status
     avatar: profilePhotoUrl,
-    chatExpiry: conversation.chatExpiry || null
+    chatExpiry: conversation.chatExpiry || null,
+    sessionStatus: conversation.sessionStatus ?? null,
   };
   
   console.log('formatConversationForDisplay returning:', {
@@ -857,7 +859,8 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     playerName: result.playerName,
     userType,
     avatar: result.avatar,
-    chatExpiry: result.chatExpiry
+    chatExpiry: result.chatExpiry,
+    sessionStatus: result.sessionStatus,
   });
   
   return result;

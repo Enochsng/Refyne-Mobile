@@ -11,6 +11,7 @@ const {
   getRemainingClipsForConversation,
   decrementClipsForConversation,
   checkChatExpiry,
+  getCoachingSession,
   getRemainingDailyMessagesForConversation,
   canPlayerSendMessageToday
 } = require('../services/database');
@@ -261,6 +262,68 @@ router.get('/:userId/:userType', async (req, res) => {
       res.json({
         success: true,
         conversations: conversationsWithExpiry
+      });
+    } else if (userType === 'coach') {
+      const conversationsWithSessionStatus = await Promise.all(
+        conversations.map(async (conversation) => {
+          const inactiveSessionStatus = {
+            isActive: false,
+            sessionId: conversation.session_id ?? null,
+            sessionExpiry: null,
+            status: null,
+          };
+
+          try {
+            if (!conversation.session_id) {
+              return {
+                ...conversation,
+                sessionStatus: inactiveSessionStatus,
+              };
+            }
+
+            console.log('[session lookup] querying coaching_sessions', {
+              conversationId: conversation.id,
+              sessionIdQueried: conversation.session_id,
+              table: 'coaching_sessions',
+              columnName: 'id',
+            });
+
+            const session = await getCoachingSession(conversation.session_id);
+            console.log('[session lookup] raw database result', {
+              conversationId: conversation.id,
+              sessionIdQueried: conversation.session_id,
+              columnName: 'id',
+              rawResult: session,
+            });
+            const now = new Date();
+            const statusActive = (session?.status || '').toLowerCase() === 'active';
+            const sessionExpiry = session?.session_expiry ?? null;
+            const notExpired = sessionExpiry ? new Date(sessionExpiry) >= now : false;
+
+            const sessionStatus = {
+              isActive: Boolean(statusActive && notExpired),
+              sessionId: conversation.session_id,
+              sessionExpiry,
+              status: session?.status ?? null,
+            };
+
+            return {
+              ...conversation,
+              sessionStatus,
+            };
+          } catch (error) {
+            console.error(`Error getting session status for conversation ${conversation.id}:`, error);
+            return {
+              ...conversation,
+              sessionStatus: inactiveSessionStatus,
+            };
+          }
+        })
+      );
+
+      res.json({
+        success: true,
+        conversations: conversationsWithSessionStatus
       });
     } else {
       res.json({

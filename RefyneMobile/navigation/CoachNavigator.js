@@ -76,6 +76,12 @@ export default function CoachNavigator() {
         component={CoachesMessagesScreen}
         options={{
           tabBarLabel: 'Messages',
+          tabBarBadgeStyle: {
+            backgroundColor: '#FF6B35',
+            color: '#FFFFFF',
+            fontSize: width * 0.028,
+            fontFamily: 'Rubik-SemiBold',
+          },
         }}
       />
       <Tab.Screen 

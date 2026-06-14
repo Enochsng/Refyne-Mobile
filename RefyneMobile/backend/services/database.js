@@ -859,6 +859,270 @@ async function checkChatExpiry(conversationId) {
   }
 }
 
+function getSessionExpiryValue(session) {
+  return session?.session_expiry ?? null;
+}
+
+function isSessionActive(session) {
+  const expiryValue = getSessionExpiryValue(session);
+  const now = new Date();
+  if (!expiryValue) {
+    console.log('[isSessionActive] inactive: missing session_expiry', {
+      sessionId: session?.id,
+      status: session?.status,
+    });
+    return false;
+  }
+  const expiryDate = new Date(expiryValue);
+  const statusActive = (session.status || '').toLowerCase() === 'active';
+  const notExpired = expiryDate >= now;
+  console.log('[isSessionActive] check:', {
+    sessionId: session.id,
+    status: session.status,
+    session_expiry: expiryValue,
+    now: now.toISOString(),
+    statusActive,
+    notExpired,
+    isActive: statusActive && notExpired,
+    rawSession: session,
+  });
+  return statusActive && notExpired;
+}
+
+function logResolvedSession(conversation, session, step) {
+  console.log(`[resolveActiveSessionForConversation] resolved via ${step}:`, {
+    conversationId: conversation.id,
+    player_id: conversation.player_id,
+    coach_id: conversation.coach_id,
+    linkedSessionId: conversation.session_id,
+    resolvedSessionId: session?.id,
+    session_expiry: getSessionExpiryValue(session),
+  });
+}
+
+async function linkConversationToSession(conversationId, sessionId) {
+  if (!isSupabaseConfigured || !supabase) {
+    return;
+  }
+  try {
+    await supabase
+      .from('conversations')
+      .update({ session_id: sessionId })
+      .eq('id', conversationId);
+  } catch (updateError) {
+    console.error('Error updating conversation session_id:', updateError);
+  }
+}
+
+/**
+ * Resolve the active coaching session for a conversation, with fallbacks when
+ * session_id is missing or points to an expired session.
+ */
+async function resolveActiveSessionForConversation(conversation) {
+  if (!conversation) {
+    return null;
+  }
+
+  console.log('[resolveActiveSessionForConversation] start:', {
+    conversationId: conversation.id,
+    player_id: conversation.player_id,
+    coach_id: conversation.coach_id,
+    session_id: conversation.session_id,
+  });
+
+  // 1. Direct lookup via conversation.session_id
+  if (conversation.session_id) {
+    try {
+      const session = await getCoachingSession(conversation.session_id);
+      console.log('[resolveActiveSessionForConversation] direct lookup:', {
+        sessionId: conversation.session_id,
+        found: Boolean(session),
+        session_expiry: getSessionExpiryValue(session),
+      });
+      if (isSessionActive(session)) {
+        logResolvedSession(conversation, session, 'direct');
+        return session;
+      }
+    } catch (err) {
+      console.error('[resolveActiveSessionForConversation] direct lookup error:', err);
+    }
+  } else {
+    console.log('[resolveActiveSessionForConversation] direct lookup skipped: no session_id');
+  }
+
+  // 2. Player-coach pair lookup
+  const pairSessions = await getActiveSessionsForPlayerCoach(
+    conversation.player_id,
+    conversation.coach_id
+  );
+  console.log('[resolveActiveSessionForConversation] pair lookup:', {
+    pairSessionCount: pairSessions.length,
+    pairSessionIds: pairSessions.map(s => s.id),
+  });
+  const pairSession = pairSessions.find(isSessionActive);
+  if (pairSession) {
+    if (conversation.session_id !== pairSession.id) {
+      await linkConversationToSession(conversation.id, pairSession.id);
+    }
+    logResolvedSession(conversation, pairSession, 'pair');
+    return pairSession;
+  }
+
+  // 3. Broader fallback: all active non-expired sessions for this coach
+  if (!isSupabaseConfigured || !supabase) {
+    console.log('[resolveActiveSessionForConversation] broad lookup skipped: Supabase not configured');
+    return null;
+  }
+
+  const { data: allCoachSessions, error: allSessionsError } = await supabase
+    .from('coaching_sessions')
+    .select('*')
+    .eq('coach_id', conversation.coach_id)
+    .eq('status', 'active')
+    .gte('session_expiry', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (allSessionsError || !allCoachSessions || allCoachSessions.length === 0) {
+    console.log('[resolveActiveSessionForConversation] broad lookup: no active coach sessions', {
+      error: allSessionsError?.message,
+    });
+    return null;
+  }
+
+  console.log('[resolveActiveSessionForConversation] broad lookup:', {
+    coachSessionCount: allCoachSessions.length,
+    coachSessionIds: allCoachSessions.map(s => s.id),
+  });
+
+  const { data: playerConversations, error: playerConvError } = await supabase
+    .from('conversations')
+    .select('session_id, id')
+    .eq('player_id', conversation.player_id)
+    .eq('coach_id', conversation.coach_id)
+    .eq('status', 'active');
+
+  if (playerConvError || !playerConversations) {
+    console.log('[resolveActiveSessionForConversation] broad lookup: failed to load player conversations', {
+      error: playerConvError?.message,
+    });
+    return null;
+  }
+
+  const playerSessionIds = playerConversations
+    .map(conv => conv.session_id)
+    .filter(Boolean);
+
+  // Match sessions referenced by any conversation for this player-coach pair
+  for (const session of allCoachSessions) {
+    if (playerSessionIds.includes(session.id) && isSessionActive(session)) {
+      if (conversation.session_id !== session.id) {
+        await linkConversationToSession(conversation.id, session.id);
+      }
+      logResolvedSession(conversation, session, 'broad-linked');
+      return session;
+    }
+  }
+
+  // Single active session + conversation heuristic
+  if (allCoachSessions.length === 1 && playerConversations.length >= 1) {
+    const session = allCoachSessions[0];
+    if (isSessionActive(session)) {
+      await linkConversationToSession(conversation.id, session.id);
+      logResolvedSession(conversation, session, 'broad-single');
+      return session;
+    }
+  }
+
+  // 4. Unlinked session matching (valid until session_expiry, no 4-hour created_at gate)
+  let preferredUnlinkedSession = null;
+  let fallbackUnlinkedSession = null;
+
+  for (const session of allCoachSessions) {
+    if (!isSessionActive(session)) {
+      continue;
+    }
+
+    const { data: otherPlayerConversations } = await supabase
+      .from('conversations')
+      .select('player_id')
+      .eq('session_id', session.id)
+      .neq('player_id', conversation.player_id)
+      .limit(1);
+
+    if (otherPlayerConversations && otherPlayerConversations.length > 0) {
+      continue;
+    }
+
+    if (playerSessionIds.includes(session.id)) {
+      preferredUnlinkedSession = session;
+      break;
+    }
+
+    if (!fallbackUnlinkedSession) {
+      fallbackUnlinkedSession = session;
+    }
+  }
+
+  const unlinkedSession = preferredUnlinkedSession || fallbackUnlinkedSession;
+  if (unlinkedSession) {
+    await linkConversationToSession(conversation.id, unlinkedSession.id);
+    logResolvedSession(conversation, unlinkedSession, 'unlinked');
+    return unlinkedSession;
+  }
+
+  console.log('[resolveActiveSessionForConversation] no active session resolved:', {
+    conversationId: conversation.id,
+  });
+  return null;
+}
+
+/**
+ * Check if a conversation's linked session is still active based on session_expiry
+ * Returns { isActive: boolean, isExpired: boolean, expiresAt: string|null }
+ */
+async function checkSessionActive(conversationId) {
+  try {
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      const result = { isActive: false, isExpired: true, expiresAt: null };
+      console.log('[checkSessionActive] result', {
+        conversationId,
+        inputSessionId: null,
+        result,
+      });
+      return result;
+    }
+
+    const session = await resolveActiveSessionForConversation(conversation);
+    if (session) {
+      const result = {
+        isActive: true,
+        isExpired: false,
+        expiresAt: getSessionExpiryValue(session),
+        sessionId: session.id,
+      };
+      console.log('[checkSessionActive] result', {
+        conversationId,
+        inputSessionId: conversation.session_id,
+        result,
+      });
+      return result;
+    }
+
+    const result = { isActive: false, isExpired: true, expiresAt: null };
+    console.log('[checkSessionActive] result', {
+      conversationId,
+      inputSessionId: conversation.session_id,
+      result,
+    });
+    return result;
+  } catch (err) {
+    console.error('Database error in checkSessionActive:', err);
+    return { isActive: false, isExpired: true, expiresAt: null, error: err.message };
+  }
+}
+
 /**
  * Decrement clips remaining when a video is sent
  */
@@ -1801,6 +2065,7 @@ module.exports = {
   getRemainingClipsForConversation,
   decrementClipsForConversation,
   checkChatExpiry,
+  checkSessionActive,
   getRemainingDailyMessagesForConversation,
   canPlayerSendMessageToday,
   saveTransfer,
