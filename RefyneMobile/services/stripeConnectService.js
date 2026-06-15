@@ -7,9 +7,10 @@ import { supabase } from '../supabaseClient';
 class StripeConnectService {
   constructor() {
     this.statusCache = new Map(); // Cache status responses
-    this.cacheTimeout = 30000; // 30 seconds cache timeout
+    this.cacheTimeout = 120000; // 2 minutes cache timeout
     this.lastStatusCheck = new Map(); // Track last status check time
-    this.minStatusCheckInterval = 10000; // Minimum 10 seconds between status checks
+    this.minStatusCheckInterval = 60000; // Minimum 60 seconds between status checks
+    this.pendingStatusChecks = new Map(); // Dedupe concurrent in-flight requests
   }
 
   /**
@@ -57,21 +58,53 @@ class StripeConnectService {
   }
 
   /**
+   * Get cached status even if expired (for cooldown fallback)
+   * @param {string} coachId - The coach ID
+   * @returns {Object|null} - Cached status or null
+   */
+  getStaleCachedStatus(coachId) {
+    const cached = this.statusCache.get(coachId);
+    if (cached) {
+      console.log(`📋 Using stale cached status for coach ${coachId}`);
+      return cached.data;
+    }
+    return null;
+  }
+
+  /**
    * Check Stripe account status for a coach
    * @param {string} coachId - The coach ID
    * @param {string} email - Optional email for lookup
+   * @param {boolean} forceRefresh - Invalidate cache but still respect cooldown
    * @returns {Promise<Object>} - The status response
    */
   async checkStripeAccountStatus(coachId, email = null, forceRefresh = false) {
+    const pendingKey = coachId;
+    if (this.pendingStatusChecks.has(pendingKey)) {
+      return this.pendingStatusChecks.get(pendingKey);
+    }
+
+    const promise = this._fetchStripeAccountStatus(coachId, email, forceRefresh);
+    this.pendingStatusChecks.set(pendingKey, promise);
+
     try {
-      // Force refresh clears stale state and bypasses rate limiting/cached response
+      return await promise;
+    } finally {
+      this.pendingStatusChecks.delete(pendingKey);
+    }
+  }
+
+  async _fetchStripeAccountStatus(coachId, email = null, forceRefresh = false) {
+    try {
+      // Force refresh invalidates cache only; cooldown still applies
       if (forceRefresh) {
-        this.clearCoachCache(coachId);
+        this.statusCache.delete(coachId);
+        console.log(`🧹 Invalidated status cache for coach ${coachId}`);
       }
 
-      // Check if we can make a request
-      if (!forceRefresh && !this.canCheckStatus(coachId)) {
-        const cached = this.getCachedStatus(coachId);
+      // Cooldown always applies
+      if (!this.canCheckStatus(coachId)) {
+        const cached = this.getCachedStatus(coachId) || this.getStaleCachedStatus(coachId);
         if (cached) {
           return cached;
         }
@@ -79,7 +112,7 @@ class StripeConnectService {
       }
 
       // Check cache first
-      const cached = forceRefresh ? null : this.getCachedStatus(coachId);
+      const cached = this.getCachedStatus(coachId);
       if (cached) {
         return cached;
       }
@@ -266,6 +299,7 @@ class StripeConnectService {
   clearAllCache() {
     this.statusCache.clear();
     this.lastStatusCheck.clear();
+    this.pendingStatusChecks.clear();
     console.log('🧹 Cleared all Stripe Connect cache');
   }
 

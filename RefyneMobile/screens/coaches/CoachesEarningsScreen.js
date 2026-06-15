@@ -12,7 +12,6 @@ import {
   Clipboard,
   SafeAreaView,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -32,58 +31,13 @@ export default function CoachesEarningsScreen({ navigation }) {
     totalCustomers: 0,
     recentTransfers: []
   });
-  const [statusCheckInterval, setStatusCheckInterval] = useState(null);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      console.log('🎯 Earnings screen focused - checking status');
-      checkStripeAccountStatus(true);
-      
-      // Start moderate checking if account is not connected (user might be returning from Stripe)
-      if (stripeAccountStatus !== 'connected') {
-        startModerateStatusChecking();
-      } else {
-        // If already connected, just check every 60 seconds
-        const interval = setInterval(() => {
-          console.log('⏰ Periodic status check...');
-          checkStripeAccountStatus();
-        }, 60000);
-        
-        setStatusCheckInterval(interval);
-      }
-      
-      // Cleanup interval when screen loses focus
-      return () => {
-        console.log('🎯 Earnings screen unfocused - clearing interval');
-        if (statusCheckInterval) {
-          clearInterval(statusCheckInterval);
-          setStatusCheckInterval(null);
-        }
-      };
-    }, [stripeAccountStatus])
-  );
-
   // Effect to fetch earnings data when status becomes connected
   useEffect(() => {
     if (stripeAccountStatus === 'connected') {
       console.log('✅ Status changed to connected - fetching earnings data');
       fetchEarningsData();
-      // Clear the interval once connected
-      if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-        setStatusCheckInterval(null);
-      }
     }
   }, [stripeAccountStatus]);
-
-  // Cleanup effect when component unmounts
-  useEffect(() => {
-    return () => {
-      if (statusCheckInterval) {
-        clearInterval(statusCheckInterval);
-      }
-    };
-  }, [statusCheckInterval]);
 
   const checkStripeAccountStatus = async (forceRefresh = false) => {
     try {
@@ -349,41 +303,6 @@ export default function CoachesEarningsScreen({ navigation }) {
       await fetchEarningsData();
     }
     setIsRefreshing(false);
-  };
-
-  // Moderate status checking when user might be returning from Stripe
-  const startModerateStatusChecking = () => {
-    console.log('🚀 Starting moderate status checking...');
-    
-    // Clear any existing interval
-    if (statusCheckInterval) {
-      clearInterval(statusCheckInterval);
-    }
-    
-    // Check immediately
-    checkStripeAccountStatus(true);
-    
-    // Then check every 15 seconds for the first 2 minutes
-    const interval = setInterval(() => {
-      console.log('⚡ Moderate status check...');
-      checkStripeAccountStatus();
-    }, 15000);
-    
-    setStatusCheckInterval(interval);
-    
-    // After 2 minutes, switch to normal 30-second intervals
-    setTimeout(() => {
-      if (interval) {
-        clearInterval(interval);
-      }
-      
-      const normalInterval = setInterval(() => {
-        console.log('⏰ Normal status check...');
-        checkStripeAccountStatus();
-      }, 30000);
-      
-      setStatusCheckInterval(normalInterval);
-    }, 120000); // 2 minutes
   };
 
   const formatCurrency = (amount) => {

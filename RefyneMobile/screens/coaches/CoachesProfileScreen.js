@@ -73,9 +73,6 @@ export default function CoachesProfileScreen({ navigation }) {
             email: user.email || prev.email,
             memberSince: signupDate,
           }));
-
-          // Check Stripe Connect status
-          await checkStripeConnectStatus(user.id);
         }
 
         // Migration: Check for old onboarding data format and migrate it
@@ -348,9 +345,6 @@ export default function CoachesProfileScreen({ navigation }) {
           
           // Migrate coach name if needed
           await migrateCoachNames();
-
-          // Check Stripe Connect status
-          await checkStripeConnectStatus(user.id);
         } catch (error) {
           console.log('Error getting coach profile:', error);
         }
@@ -375,14 +369,14 @@ export default function CoachesProfileScreen({ navigation }) {
   };
 
   // Check Stripe Connect status for the coach
-  const checkStripeConnectStatus = async (coachId) => {
+  const checkStripeConnectStatus = async (coachId, forceRefresh = false) => {
     try {
       console.log('🔍 Checking Stripe Connect status for coach:', coachId);
       console.log('🔍 Coach ID type:', typeof coachId);
       console.log('🔍 Coach ID length:', coachId ? coachId.length : 'null');
       
       // Use the rate-limited service
-      const result = await stripeConnectService.checkStripeAccountStatus(coachId);
+      const result = await stripeConnectService.checkStripeAccountStatus(coachId, null, forceRefresh);
       
       console.log('🔍 Stripe Connect status response:', JSON.stringify(result, null, 2));
       
@@ -518,7 +512,7 @@ export default function CoachesProfileScreen({ navigation }) {
       
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await checkStripeConnectStatus(user.id);
+        await checkStripeConnectStatus(user.id, true);
         Alert.alert(
           'Status Refreshed',
           'Your Stripe Connect account status has been updated.',

@@ -23,6 +23,16 @@ const { clearAllConversations } = require('./services/database');
 app.use(helmet());
 app.use(compression());
 
+// Dedicated rate limit for coach connect status polling (exempt from global limiter)
+const coachStatusLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 2000 : 300,
+  message: 'Too many status checks from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/connect/coach/:coachId/status', coachStatusLimiter);
+
 // Rate limiting - more lenient for development
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -30,9 +40,10 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Skip rate limiting for health checks
+  // Skip rate limiting for health checks and coach status (has dedicated limiter)
   skip: (req) => {
-    return req.path === '/health' || req.path === '/test';
+    if (req.path === '/health' || req.path === '/test') return true;
+    return /^\/connect\/coach\/[^/]+\/status$/.test(req.path);
   }
 });
 app.use('/api/', limiter);
