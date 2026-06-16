@@ -234,50 +234,55 @@ export default function PaywallScreen({ route, navigation }) {
         // Continue with the flow even if backend confirmation fails
       }
 
-      // Create conversation between player and coach
-      // This ensures conversation is always created, even if backend/webhook fails
+      // Create conversation between player and coach (Paywall flow — backend skips placeholder playerId)
       let conversation = null;
       try {
-        // Get the authenticated user
         const { data: { user } } = await supabase.auth.getUser();
         console.log('Authentication check - User:', user ? 'Found' : 'Not found');
-        
+
         if (user) {
           const playerId = user.id;
-          const playerName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
-          
-          console.log('Creating conversation after payment success...');
-          console.log('  - playerId:', playerId);
-          console.log('  - playerName:', playerName);
-          console.log('  - coachId:', coach.id);
-          console.log('  - coachName:', coach.name);
-          console.log('  - sport:', sport);
-          console.log('  - sessionId:', confirmedSession?.id || newSession.id);
-          
-          const { createConversation } = await import('../../services/conversationService');
-          
-          const conversationData = {
-            playerId: playerId,
-            playerName: playerName,
-            coachId: coach.id,
-            coachName: coach.name,
-            sport: sport,
-            sessionId: confirmedSession?.id || newSession.id,
-          };
-          
-          conversation = await createConversation(conversationData);
-          console.log('✅ Conversation created successfully:', conversation.id);
+          const { createConversation, resolveAuthenticatedPlayerName } = await import('../../services/conversationService');
+
+          let playerName = null;
+          const maxAttempts = 3;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            playerName = await resolveAuthenticatedPlayerName(playerId, {
+              refreshSession: attempt === 0,
+            });
+            if (playerName) break;
+            if (attempt < maxAttempts - 1) {
+              await new Promise((resolve) => setTimeout(resolve, 300));
+            }
+          }
+
+          if (!playerName) {
+            console.log('Skipping conversation creation — real player name not available yet (payment flow continues)');
+          } else {
+            console.log('Creating conversation after payment success...');
+            console.log('  - playerId:', playerId);
+            console.log('  - playerName:', playerName);
+            console.log('  - coachId:', coach.id);
+            console.log('  - coachName:', coach.name);
+            console.log('  - sport:', sport);
+            console.log('  - sessionId:', confirmedSession?.id || newSession.id);
+
+            conversation = await createConversation({
+              playerId,
+              playerName,
+              coachId: coach.id,
+              coachName: coach.name,
+              sport,
+              sessionId: confirmedSession?.id || newSession.id,
+            });
+            console.log('✅ Conversation created successfully:', conversation.id);
+          }
         } else {
           console.log('No authenticated user found - skipping conversation creation');
         }
       } catch (conversationError) {
-        console.error('Error creating conversation (non-critical):', conversationError);
-        console.error('Error details:', {
-          message: conversationError.message,
-          stack: conversationError.stack
-        });
-        // Don't block user flow if conversation creation fails
-        // Backend/webhook will try to create it as backup
+        console.log('Conversation creation skipped or failed (non-critical):', conversationError?.message);
+        // Don't block user flow — payment already succeeded
       }
 
       // Always show success message regardless of conversation creation

@@ -955,6 +955,63 @@ export const getCoachProfilePhoto = async (coachId) => {
   }
 };
 
+const PLACEHOLDER_PLAYER_NAMES = new Set(['player', 'student']);
+
+function isValidConversationPlayerName(name) {
+  if (!name || typeof name !== 'string') return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  return !PLACEHOLDER_PLAYER_NAMES.has(trimmed.toLowerCase());
+}
+
+function extractNameFromAuthUser(user) {
+  if (!user) return null;
+  const fromMetadata =
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    user.user_metadata?.display_name ||
+    (user.email ? user.email.split('@')[0] : null);
+  if (isValidConversationPlayerName(fromMetadata)) {
+    return fromMetadata.trim();
+  }
+  return null;
+}
+
+/**
+ * Resolve the authenticated player's real display name for conversation creation.
+ * Refreshes the session so metadata is hydrated; returns null if only placeholders are available.
+ */
+export const resolveAuthenticatedPlayerName = async (playerId, { refreshSession = true } = {}) => {
+  try {
+    const { supabase } = await import('../supabaseClient');
+
+    if (refreshSession) {
+      try {
+        await supabase.auth.refreshSession();
+      } catch (refreshError) {
+        console.log('Session refresh failed during name resolve (non-critical):', refreshError?.message);
+      }
+    }
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user && user.id === playerId) {
+      const fromAuth = extractNameFromAuthUser(user);
+      if (fromAuth) return fromAuth;
+    }
+
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    const savedName = await AsyncStorage.getItem(`player_name_${playerId}`);
+    if (isValidConversationPlayerName(savedName)) {
+      return savedName.trim();
+    }
+
+    return null;
+  } catch (error) {
+    console.log('Error resolving authenticated player name (non-critical):', error?.message);
+    return null;
+  }
+};
+
 /**
  * Get player name
  */
