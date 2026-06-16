@@ -203,6 +203,8 @@ async function saveCoachConnectAccount(coachData) {
  * Get coach's Stripe Connect account information
  */
 async function getCoachConnectAccount(coachId) {
+  console.log(`[stripe-connect-lookup] getCoachConnectAccount called with coachId=${JSON.stringify(coachId)} (typeof=${typeof coachId}, length=${coachId?.length})`);
+
   try {
     // Use only the columns that definitely exist
     const { data, error } = await supabase
@@ -211,14 +213,37 @@ async function getCoachConnectAccount(coachId) {
       .eq('coach_id', coachId)
       .single();
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error('Error getting coach connect account:', error);
+    console.log(`[stripe-connect-lookup] Supabase query result for coach_id=${JSON.stringify(coachId)}:`, {
+      error: error ? { code: error.code, message: error.message, details: error.details } : null,
+      data: data ?? null,
+    });
+
+    if (error && error.code === 'PGRST116') {
+      console.log(`[stripe-connect-lookup] No row found in coach_connect_accounts for coach_id=${JSON.stringify(coachId)} (PGRST116)`);
+      return null;
+    }
+
+    if (error) {
+      console.error('[stripe-connect-lookup] Error getting coach connect account:', error);
       throw error;
+    }
+
+    if (data) {
+      console.log(`[stripe-connect-lookup] Row found for coach_id=${data.coach_id}:`, {
+        stripe_account_id: data.stripe_account_id ?? null,
+        charges_enabled: data.charges_enabled,
+        payouts_enabled: data.payouts_enabled,
+        onboarding_completed: data.onboarding_completed,
+        details_submitted: data.details_submitted,
+      });
+      if (!data.stripe_account_id) {
+        console.log(`[stripe-connect-lookup] Row exists but stripe_account_id is missing/empty for coach_id=${data.coach_id}`);
+      }
     }
 
     return data;
   } catch (err) {
-    console.error('Database error in getCoachConnectAccount:', err);
+    console.error('[stripe-connect-lookup] Database error in getCoachConnectAccount:', err);
     throw err;
   }
 }
@@ -1395,17 +1420,22 @@ async function getCoachTransfers(coachId, limit = 50) {
  * Helper function to get coach's Connect account ID
  */
 async function getCoachConnectAccountId(coachId) {
-  console.log(`getCoachConnectAccountId called with coachId: ${coachId}`);
-  console.log(`CoachId type: ${typeof coachId}, length: ${coachId?.length}`);
+  console.log(`[stripe-connect-lookup] getCoachConnectAccountId called with coachId=${JSON.stringify(coachId)} (typeof=${typeof coachId}, length=${coachId?.length})`);
   
   try {
     // First try to get from database
     const account = await getCoachConnectAccount(coachId);
-    console.log(`Database lookup result: ${account?.stripe_account_id || 'null'}`);
+    console.log(`[stripe-connect-lookup] getCoachConnectAccountId DB account result:`, account ?? null);
     
     if (account?.stripe_account_id) {
-      console.log(`Found Stripe account ID: ${account.stripe_account_id} for coach: ${coachId}`);
+      console.log(`[stripe-connect-lookup] Found Stripe account ID: ${account.stripe_account_id} for coach: ${coachId}`);
       return account.stripe_account_id;
+    }
+
+    if (account && !account.stripe_account_id) {
+      console.log(`[stripe-connect-lookup] DB row exists but stripe_account_id is empty — falling through to hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
+    } else {
+      console.log(`[stripe-connect-lookup] No DB row — falling through to hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
     }
     
     // If database lookup fails, use the mapping of existing coaches to their Stripe accounts
@@ -1420,17 +1450,19 @@ async function getCoachConnectAccountId(coachId) {
     
     const stripeAccountId = coachStripeAccountMapping[coachId];
     if (stripeAccountId) {
-      console.log(`Using mapped Stripe account ID: ${stripeAccountId} for coach: ${coachId}`);
+      console.log(`[stripe-connect-lookup] Using hardcoded mapping: coachId=${JSON.stringify(coachId)} -> stripeAccountId=${stripeAccountId}`);
       return stripeAccountId;
     }
+
+    console.log(`[stripe-connect-lookup] No hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
     
     // No account found - coach needs to set up Stripe Connect
-    console.error(`No Stripe Connect account found for coach: ${coachId}`);
-    console.error(`Coach ${coachId} needs to complete Stripe Connect setup before receiving payments`);
+    console.error(`[stripe-connect-lookup] No Stripe Connect account found for coach: ${coachId}`);
+    console.error(`[stripe-connect-lookup] Coach ${coachId} needs to complete Stripe Connect setup before receiving payments`);
     return null;
     
   } catch (err) {
-    console.error('Error getting coach connect account ID:', err);
+    console.error('[stripe-connect-lookup] Error getting coach connect account ID:', err);
     
     // Fallback to mapping if database fails
     const coachStripeAccountMapping = {
@@ -1441,11 +1473,11 @@ async function getCoachConnectAccountId(coachId) {
     
     const stripeAccountId = coachStripeAccountMapping[coachId];
     if (stripeAccountId) {
-      console.log(`Fallback: Using mapped Stripe account ID: ${stripeAccountId} for coach: ${coachId}`);
+      console.log(`[stripe-connect-lookup] Fallback (after DB error): Using hardcoded mapping coachId=${JSON.stringify(coachId)} -> stripeAccountId=${stripeAccountId}`);
       return stripeAccountId;
     }
     
-    console.error(`No Stripe Connect account available for coach: ${coachId}`);
+    console.error(`[stripe-connect-lookup] No Stripe Connect account available for coach: ${coachId}`);
     return null;
   }
 }
@@ -1453,6 +1485,13 @@ async function getCoachConnectAccountId(coachId) {
 /**
  * Conversations and Messages Management
  */
+
+function isPlaceholderPlayerId(playerId) {
+  if (!playerId) return true;
+  if (['temp_user', 'temp_user_session', 'temp_player'].includes(playerId)) return true;
+  if (playerId.startsWith('player_')) return true;
+  return false;
+}
 
 /**
  * Find or create/update a conversation between player and coach
@@ -2072,6 +2111,7 @@ module.exports = {
   updateTransferStatus,
   getCoachTransfers,
   getCoachConnectAccountId,
+  isPlaceholderPlayerId,
   createConversation,
   findOrUpdateConversation,
   getConversations,

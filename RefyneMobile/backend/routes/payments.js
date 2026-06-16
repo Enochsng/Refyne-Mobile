@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
 const { stripe, getPackageInfo, calculatePlatformFee, calculateTransferAmount, DEFAULT_CURRENCY } = require('../config/stripe');
-const { getCoachConnectAccountId, saveCoachingSession, saveTransfer, findOrUpdateConversation } = require('../services/database');
+const { getCoachConnectAccountId, saveCoachingSession, saveTransfer, findOrUpdateConversation, isPlaceholderPlayerId } = require('../services/database');
 
 const router = express.Router();
 
@@ -322,17 +322,18 @@ router.post('/confirm', async (req, res) => {
       // This ensures conversations are always created, even if webhooks fail
       try {
         const { playerId, playerName } = paymentIntent.metadata;
-        const actualPlayerId = playerId || `player_${paymentIntent.customer || 'unknown'}`;
-        const actualPlayerName = playerName || 'Player';
         
         console.log(`\n💬 [confirm] Attempting to create/update conversation:`);
-        console.log(`   - playerId: ${actualPlayerId}`);
-        console.log(`   - playerName: ${actualPlayerName}`);
+        console.log(`   - playerId from metadata: ${playerId || 'not provided'}`);
         console.log(`   - coachId: ${paymentIntent.metadata.coachId}`);
         console.log(`   - sessionId: ${sessionId}`);
         
-        // Skip conversation creation for temp users
-        if (actualPlayerId !== 'temp_user' && actualPlayerId !== 'temp_player') {
+        if (isPlaceholderPlayerId(playerId)) {
+          console.log(`⚠️ [confirm] Skipping conversation creation — no valid playerId in payment metadata (frontend will create with authenticated user)`);
+        } else {
+          const actualPlayerId = playerId;
+          const actualPlayerName = playerName || 'Player';
+          console.log(`   - playerName: ${actualPlayerName}`);
           const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           
           const conversationData = {
@@ -357,8 +358,6 @@ router.post('/confirm', async (req, res) => {
             console.log(`✅ [confirm]   → Chat expiration countdown has been reset`);
           }
           console.log(`✅ [confirm] ==========================================\n`);
-        } else {
-          console.log(`⚠️ [confirm] Skipping conversation creation for temp user: ${actualPlayerId}`);
         }
       } catch (conversationError) {
         console.error('\n❌ [confirm] ==========================================');
@@ -505,12 +504,12 @@ router.post('/create-destination-charge', async (req, res) => {
     console.log(`   - packageInfo.days: ${packageInfo.days}`);
     
     // Get coach's Connect account ID
-    console.log(`Looking up Connect account for coachId: ${coachId}`);
+    console.log(`[stripe-connect-lookup] create-destination-charge: looking up Connect account for coachId=${JSON.stringify(coachId)} (typeof=${typeof coachId}, length=${coachId?.length}), coachName=${coachName}`);
     const coachAccountId = await getCoachConnectAccountId(coachId);
-    console.log(`Found coach account ID: ${coachAccountId}`);
+    console.log(`[stripe-connect-lookup] create-destination-charge: lookup result coachAccountId=${coachAccountId ?? 'null'}`);
     
     if (!coachAccountId) {
-      console.log(`No Connect account found for coach: ${coachId}`);
+      console.log(`[stripe-connect-lookup] create-destination-charge FAILED — no Connect account for coachId=${JSON.stringify(coachId)} (typeof=${typeof coachId}), coachName=${coachName}, coachAccountId=null`);
       return res.status(400).json({
         error: 'Coach not ready for payments',
         message: 'Coach has not completed Stripe Connect setup'

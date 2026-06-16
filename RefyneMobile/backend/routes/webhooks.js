@@ -8,7 +8,8 @@ const {
   getCoachConnectAccountId,
   createConversation,
   findOrUpdateConversation,
-  addMessageToConversation
+  addMessageToConversation,
+  isPlaceholderPlayerId
 } = require('../services/database');
 
 const router = express.Router();
@@ -198,53 +199,49 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
       console.log(`\n💬 [webhook] Attempting to create/update conversation via webhook:`);
       console.log(`   - paymentIntentId: ${paymentIntent.id}`);
       
-      // Use player information from payment intent metadata
-      const actualPlayerId = playerId || `player_${paymentIntent.customer || 'unknown'}`;
-      const actualPlayerName = playerName || 'Player';
-      
       console.log(`   - playerId from metadata: ${playerId || 'not provided'}`);
-      console.log(`   - actualPlayerId: ${actualPlayerId}`);
-      console.log(`   - playerName: ${actualPlayerName}`);
       console.log(`   - coachId: ${coachId}`);
       console.log(`   - coachName: ${coachName}`);
       console.log(`   - sport: ${sport}`);
       console.log(`   - sessionId: ${sessionData.id}`);
       
-      // Skip conversation creation for temp users
-      if (actualPlayerId === 'temp_user' || actualPlayerId === 'temp_player') {
-        console.log(`⚠️ [webhook] Skipping conversation creation for temp user: ${actualPlayerId}`);
-        return;
-      }
-      
-      const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      const conversationData = {
-        id: conversationId,
-        playerId: actualPlayerId,
-        playerName: actualPlayerName,
-        coachId: coachId,
-        coachName: coachName,
-        sport: sport,
-        sessionId: sessionData.id,
-        lastMessage: null,
-        lastMessageAt: null
-      };
-
-      console.log(`   - conversationData:`, JSON.stringify(conversationData, null, 2));
-      
-      const conversation = await findOrUpdateConversation(conversationData);
-      
-      console.log(`\n✅ [webhook] ==========================================`);
-      console.log(`✅ [webhook] Conversation found or updated: ${conversation.id}`);
-      if (conversation.id === conversationId) {
-        console.log(`✅ [webhook]   → New conversation created via webhook`);
+      if (isPlaceholderPlayerId(playerId)) {
+        console.log(`⚠️ [webhook] Skipping conversation creation — no valid playerId in payment metadata (frontend will create with authenticated user)`);
       } else {
-        console.log(`✅ [webhook]   → Existing conversation updated with new session_id`);
-        console.log(`✅ [webhook]   → Chat expiration countdown has been reset`);
-      }
-      console.log(`✅ [webhook] ==========================================\n`);
+        const actualPlayerId = playerId;
+        const actualPlayerName = playerName || 'Player';
+        console.log(`   - playerName: ${actualPlayerName}`);
+        
+        const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        const conversationData = {
+          id: conversationId,
+          playerId: actualPlayerId,
+          playerName: actualPlayerName,
+          coachId: coachId,
+          coachName: coachName,
+          sport: sport,
+          sessionId: sessionData.id,
+          lastMessage: null,
+          lastMessageAt: null
+        };
 
-      // Note: Welcome message is now handled by the frontend to avoid duplicates
+        console.log(`   - conversationData:`, JSON.stringify(conversationData, null, 2));
+        
+        const conversation = await findOrUpdateConversation(conversationData);
+        
+        console.log(`\n✅ [webhook] ==========================================`);
+        console.log(`✅ [webhook] Conversation found or updated: ${conversation.id}`);
+        if (conversation.id === conversationId) {
+          console.log(`✅ [webhook]   → New conversation created via webhook`);
+        } else {
+          console.log(`✅ [webhook]   → Existing conversation updated with new session_id`);
+          console.log(`✅ [webhook]   → Chat expiration countdown has been reset`);
+        }
+        console.log(`✅ [webhook] ==========================================\n`);
+
+        // Note: Welcome message is now handled by the frontend to avoid duplicates
+      }
 
     } catch (conversationError) {
       console.error('\n❌ [webhook] ==========================================');

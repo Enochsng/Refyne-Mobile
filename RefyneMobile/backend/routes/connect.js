@@ -1,10 +1,18 @@
 const express = require('express');
 const Joi = require('joi');
 const { stripe, calculateTransferAmount } = require('../config/stripe');
-const { saveCoachConnectAccount, getCoachConnectAccount, updateCoachAccountStatus, getCoachTransfers, getCoachConnectAccountId } = require('../services/database');
+const { saveCoachConnectAccount, getCoachConnectAccount, updateCoachAccountStatus, getCoachTransfers, getCoachConnectAccountId, isPlaceholderPlayerId } = require('../services/database');
 const { supabase } = require('../services/database');
 
 const router = express.Router();
+
+function getPayingCustomerId(transfer) {
+  const playerId = transfer.metadata?.player_id || transfer.metadata?.playerId;
+  if (playerId && !isPlaceholderPlayerId(playerId)) {
+    return playerId;
+  }
+  return transfer.metadata?.customer_id || transfer.metadata?.customer_email || null;
+}
 
 // Helper function to ensure APP_URL has a protocol
 function getAppUrl() {
@@ -864,6 +872,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
         metadata: {
           payment_intent_id: pi.id,
           customer_id: pi.customer,
+          player_id: pi.metadata?.playerId || null,
           source: 'stripe_payment_intent'
         }
       }));
@@ -938,83 +947,14 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
       .filter(t => t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0);
     
-    // Count unique customers from conversations/DMs instead of payments
-    let uniqueCustomers = 0;
-    try {
-      console.log(`🔍 Fetching conversation count for coach: ${coachId}`);
-      
-      // If coachId is a Stripe account ID, we need to find the actual coach user ID
-      let actualCoachId = coachId;
-      
-      // Check if this is a Stripe account ID (starts with 'acct_')
-      if (coachId.startsWith('acct_')) {
-        console.log(`🔍 Coach ID is a Stripe account ID, looking up actual coach user ID...`);
-        
-        // Try to find the coach user ID from the database
-        const { data: coachAccount, error: accountError } = await supabase
-          .from('coach_connect_accounts')
-          .select('coach_id')
-          .eq('stripe_account_id', coachId)
-          .single();
-        
-        if (accountError || !coachAccount) {
-          console.log(`⚠️ Could not find coach user ID for Stripe account ${coachId}, using fallback`);
-          // Fallback to payment-based counting
-          uniqueCustomers = new Set(
-            uniqueTransfers
-              .filter(t => t.status === 'paid' || t.status === 'succeeded')
-              .map(t => t.metadata?.customer_id || t.metadata?.player_id || t.metadata?.customer_email)
-              .filter(Boolean)
+    // Count unique paying customers from successful payments (not conversation rows)
+    const paidTransfers = filteredTransfers.filter(
+      t => t.status === 'paid' || t.status === 'succeeded'
+    );
+    const uniqueCustomers = new Set(
+      paidTransfers.map(getPayingCustomerId).filter(Boolean)
     ).size;
-        } else {
-          actualCoachId = coachAccount.coach_id;
-          console.log(`✅ Found actual coach user ID: ${actualCoachId}`);
-        }
-      }
-      
-      // Get conversations for this coach to count unique players/students
-      const { data: conversations, error: convError } = await supabase
-        .from('conversations')
-        .select('player_id, player_name')
-        .eq('coach_id', actualCoachId);
-      
-      if (convError) {
-        console.error('Error fetching conversations for customer count:', convError);
-        // Fallback to payment-based counting if conversation fetch fails
-        uniqueCustomers = new Set(
-          uniqueTransfers
-            .filter(t => t.status === 'paid' || t.status === 'succeeded')
-            .map(t => t.metadata?.customer_id || t.metadata?.player_id || t.metadata?.customer_email)
-            .filter(Boolean)
-        ).size;
-        console.log(`⚠️ Using payment-based customer count: ${uniqueCustomers}`);
-      } else if (conversations.length === 0) {
-        console.log(`ℹ️ No conversations found for coach ${actualCoachId}, using payment-based counting`);
-        // Count unique customers from successful payments
-        uniqueCustomers = new Set(
-          uniqueTransfers
-            .filter(t => t.status === 'paid' || t.status === 'succeeded')
-            .map(t => t.metadata?.customer_id || t.metadata?.player_id || t.metadata?.customer_email)
-            .filter(Boolean)
-        ).size;
-        console.log(`✅ Found ${uniqueCustomers} unique customers from payments`);
-      } else {
-        // Count unique players from conversations
-        uniqueCustomers = new Set(
-          conversations.map(conv => conv.player_id).filter(Boolean)
-        ).size;
-        console.log(`✅ Found ${uniqueCustomers} unique customers from conversations`);
-      }
-    } catch (error) {
-      console.error('Error counting customers from conversations:', error.message);
-      // Fallback to payment-based counting
-      uniqueCustomers = new Set(
-        uniqueTransfers
-          .filter(t => t.status === 'paid' || t.status === 'succeeded')
-          .map(t => t.metadata?.customer_id || t.metadata?.player_id || t.metadata?.customer_email)
-          .filter(Boolean)
-      ).size;
-    }
+    console.log(`✅ Found ${uniqueCustomers} unique paying customers from ${paidTransfers.length} successful payments`);
     
     res.json({
       success: true,
