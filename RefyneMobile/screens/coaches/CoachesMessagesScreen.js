@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -19,7 +19,9 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getConversations, formatConversationForDisplay } from '../../services/conversationService';
+import { Swipeable } from 'react-native-gesture-handler';
+import { useFocusEffect } from '@react-navigation/native';
+import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
 import { supabase } from '../../supabaseClient';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -64,10 +66,13 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [tutorials, setTutorials] = useState([]);
   const [loadingTutorials, setLoadingTutorials] = useState(false);
+  const [coachId, setCoachId] = useState(null);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
+  const swipeableRefs = useRef({});
+  const isFirstFocus = useRef(true);
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
@@ -164,134 +169,144 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
   }, [selectedConversation, messages.length]);
 
-  // Load conversations on component mount
-  useEffect(() => {
-    const loadConversations = async () => {
-      try {
-        setLoading(true);
-        
-        // Reset connection state to ensure we try the new URLs
+  // Load conversations on component mount and when tab regains focus
+  const loadConversations = useCallback(async (options = {}) => {
+    const { skipConnectionReset = false } = options;
+
+    try {
+      setLoading(true);
+
+      if (!skipConnectionReset) {
         const { resetConnectionState } = await import('../../services/conversationService');
         resetConnectionState();
-        
-        // Add a small delay to allow connection state to reset
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Get the authenticated user with timeout
-        const authPromise = supabase.auth.getUser();
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Authentication timeout')), 15000) // Increased timeout to 15 seconds
-        );
-        
-        const { data: { user }, error: authError } = await Promise.race([authPromise, timeoutPromise]);
-        
-        if (authError) {
-          console.error('Authentication error:', authError);
-          throw authError;
-        }
-        
-        if (!user) {
-          console.error('No authenticated user found');
-          Alert.alert('Authentication Error', 'Please sign in to view your conversations.');
-          return;
-        }
-        
-        const coachId = user.id;
-        console.log('Loading conversations for authenticated coach:', coachId);
-        
-        const conversationsData = await getConversations(coachId, 'coach');
-        console.log('Coach conversations data:', conversationsData);
-        console.log('[loadConversations] raw API sessionStatus:', conversationsData.map((conv) => ({
-          id: conv.id,
-          sessionStatus: conv.sessionStatus ?? null,
-        })));
-        
-        // Format conversations for display (now async)
-        const formattedConversations = await Promise.all(
-          conversationsData.map(async (conv) => {
-            console.log('Processing conversation:', {
-              id: conv.id,
-              player_name: conv.player_name,
-              coach_name: conv.coach_name,
-              sport: conv.sport
-            });
-            
-            try {
-              const formatted = await formatConversationForDisplay(conv, 'coach');
-              console.log('Formatted conversation result:', {
-                id: formatted.id,
-                otherPartyName: formatted.otherPartyName,
-                playerName: formatted.playerName,
-                sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
-              });
-              return {
-                ...formatted,
-                sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
-              };
-            } catch (error) {
-              console.log('Error formatting conversation:', error);
-              // Return a fallback formatted conversation with actual player name
-              const fallback = {
-                id: conv.id,
-                otherPartyName: conv.player_name || 'Student',
-                sport: conv.sport,
-                lastMessage: conv.last_message,
-                lastMessageAt: conv.last_message_at,
-                unreadCount: conv.coach_unread_count,
-                sessionId: conv.session_id,
-                isOnline: false,
-                avatar: null,
-                sessionStatus: conv.sessionStatus ?? null,
-              };
-              console.log('Using fallback conversation:', fallback);
-              return fallback;
-            }
-          })
-        );
-        
-        console.log('Formatted conversations:', formattedConversations);
-        setConversations(formattedConversations);
-        setFilteredConversations(formattedConversations);
-      } catch (error) {
-        console.error('Error loading conversations:', error);
-        
-        if (error.message === 'Authentication timeout') {
-          Alert.alert(
-            'Connection Timeout', 
-            'The connection is taking longer than expected. This might be due to network issues. Would you like to try again?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Retry', onPress: () => loadConversations() }
-            ]
-          );
-        } else if (error.message?.includes('Authentication')) {
-          Alert.alert(
-            'Authentication Error', 
-            'There was an issue with your login session. Please sign out and sign in again.',
-            [
-              { text: 'OK', onPress: () => {
-                // Optionally sign out the user
-                supabase.auth.signOut();
-              }}
-            ]
-          );
-        } else {
-          Alert.alert(
-            'Error', 
-            'Failed to load conversations. Please check your internet connection and try again.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Retry', onPress: () => loadConversations() }
-            ]
-          );
-        }
-      } finally {
-        setLoading(false);
       }
-    };
 
+      const authPromise = supabase.auth.getUser();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Authentication timeout')), 15000)
+      );
+
+      const { data: { user }, error: authError } = await Promise.race([authPromise, timeoutPromise]);
+
+      if (authError) {
+        console.error('Authentication error:', authError);
+        throw authError;
+      }
+
+      if (!user) {
+        console.error('No authenticated user found');
+        Alert.alert('Authentication Error', 'Please sign in to view your conversations.');
+        return;
+      }
+
+      const currentCoachId = user.id;
+      setCoachId(currentCoachId);
+      console.log('Loading conversations for authenticated coach:', currentCoachId);
+
+      const conversationsData = await getConversations(currentCoachId, 'coach');
+      console.log('Coach conversations data:', conversationsData);
+      console.log('[loadConversations] raw API sessionStatus:', conversationsData.map((conv) => ({
+        id: conv.id,
+        sessionStatus: conv.sessionStatus ?? null,
+      })));
+
+      const formattedConversations = await Promise.all(
+        conversationsData.map(async (conv) => {
+          console.log('Processing conversation:', {
+            id: conv.id,
+            player_name: conv.player_name,
+            coach_name: conv.coach_name,
+            sport: conv.sport
+          });
+
+          try {
+            const formatted = await formatConversationForDisplay(conv, 'coach');
+            console.log('Formatted conversation result:', {
+              id: formatted.id,
+              otherPartyName: formatted.otherPartyName,
+              playerName: formatted.playerName,
+              sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
+            });
+            return {
+              ...formatted,
+              sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
+            };
+          } catch (error) {
+            console.log('Error formatting conversation:', error);
+            const fallback = {
+              id: conv.id,
+              otherPartyName: conv.player_name || 'Student',
+              sport: conv.sport,
+              lastMessage: conv.last_message,
+              lastMessageAt: conv.last_message_at,
+              unreadCount: conv.coach_unread_count,
+              sessionId: conv.session_id,
+              isOnline: false,
+              avatar: null,
+              sessionStatus: conv.sessionStatus ?? null,
+            };
+            console.log('Using fallback conversation:', fallback);
+            return fallback;
+          }
+        })
+      );
+
+      console.log('Formatted conversations:', formattedConversations);
+      setConversations(formattedConversations);
+      setFilteredConversations(formattedConversations);
+    } catch (error) {
+      console.error('Error loading conversations:', error);
+
+      if (error.message === 'Authentication timeout') {
+        Alert.alert(
+          'Connection Timeout',
+          'The connection is taking longer than expected. This might be due to network issues. Would you like to try again?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Retry', onPress: () => loadConversations() }
+          ]
+        );
+      } else if (error.message?.includes('Authentication')) {
+        Alert.alert(
+          'Authentication Error',
+          'There was an issue with your login session. Please sign out and sign in again.',
+          [
+            { text: 'OK', onPress: () => {
+              supabase.auth.signOut();
+            }}
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Error',
+          'Failed to load conversations. Please check your internet connection and try again.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Retry', onPress: () => loadConversations() }
+          ]
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
     loadConversations();
-  }, [route?.params?.coachId]);
+  }, [loadConversations, route?.params?.coachId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isFirstFocus.current) {
+        isFirstFocus.current = false;
+        return;
+      }
+      if (!selectedConversation) {
+        loadConversations({ skipConnectionReset: true });
+      }
+    }, [loadConversations, selectedConversation])
+  );
 
   useEffect(() => {
     // Start entrance animations
@@ -697,6 +712,48 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
   };
 
+  const handleDeleteConversation = (conversation) => {
+    Alert.alert(
+      'Delete Chat',
+      'Are you sure you want to delete this chat?',
+      [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: async () => {
+            if (!coachId) {
+              Alert.alert('Error', 'Unable to delete chat. Please try again.');
+              return;
+            }
+            try {
+              await hideConversationForCoach(conversation.id, coachId);
+              setConversations(prev => prev.filter(c => c.id !== conversation.id));
+              setFilteredConversations(prev => prev.filter(c => c.id !== conversation.id));
+            } catch (error) {
+              console.error('Error hiding conversation:', error);
+              Alert.alert('Error', 'Failed to delete chat. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderRightActions = (conversation) => (
+    <TouchableOpacity
+      style={styles.deleteAction}
+      onPress={() => {
+        swipeableRefs.current[conversation.id]?.close();
+        handleDeleteConversation(conversation);
+      }}
+      activeOpacity={0.8}
+    >
+      <Ionicons name="trash-outline" size={22} color="#FFFFFF" />
+      <Text style={styles.deleteActionText}>Delete</Text>
+    </TouchableOpacity>
+  );
+
   const getTotalUnreadCount = () => {
     return conversations.reduce((total, conv) => total + conv.unreadCount, 0);
   };
@@ -1092,6 +1149,24 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                     transform: [{ translateY: slideAnim }],
                   }}
                 >
+                  <Swipeable
+                    ref={(ref) => {
+                      if (ref) {
+                        swipeableRefs.current[conversation.id] = ref;
+                      } else {
+                        delete swipeableRefs.current[conversation.id];
+                      }
+                    }}
+                    renderRightActions={() => renderRightActions(conversation)}
+                    overshootRight={false}
+                    onSwipeableWillOpen={() => {
+                      Object.entries(swipeableRefs.current).forEach(([id, ref]) => {
+                        if (id !== conversation.id) {
+                          ref?.close();
+                        }
+                      });
+                    }}
+                  >
                   <TouchableOpacity
                     style={styles.conversationRow}
                     onPress={() => handleConversationPress(conversation)}
@@ -1161,6 +1236,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                       )}
                     </View>
                   </TouchableOpacity>
+                  </Swipeable>
                   {!isLastRow && <View style={styles.rowDivider} />}
                 </Animated.View>
               );
@@ -1335,7 +1411,21 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(12, 41, 92, 0.06)',
   },
   conversationRow: {
-    backgroundColor: 'transparent',
+    backgroundColor: '#FFFFFF',
+  },
+  deleteAction: {
+    backgroundColor: '#EF4444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 90,
+    marginLeft: 8,
+    borderRadius: 10,
+  },
+  deleteActionText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontFamily: 'Manrope-SemiBold',
+    marginTop: 4,
   },
   rowInner: {
     flexDirection: 'row',

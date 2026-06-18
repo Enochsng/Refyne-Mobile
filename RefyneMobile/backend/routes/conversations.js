@@ -6,6 +6,7 @@ const {
   addMessageToConversation, 
   getConversationMessages,
   markConversationAsRead,
+  markConversationDeletedByCoach,
   createConversation,
   findOrUpdateConversation,
   getRemainingClipsForConversation,
@@ -81,6 +82,12 @@ const getMessagesSchema = Joi.object({
 const markAsReadSchema = Joi.object({
   conversationId: Joi.string().required(),
   userType: Joi.string().valid('player', 'coach').required()
+});
+
+const coachDeleteSchema = Joi.object({
+  coachId: Joi.string().required().pattern(UUID_REGEX).messages({
+    'string.pattern.base': 'coachId must be a valid UUID (Supabase auth user id)'
+  })
 });
 
 const createConversationSchema = Joi.object({
@@ -615,6 +622,51 @@ router.post('/:conversationId/read', async (req, res) => {
     console.error('Error marking conversation as read:', err);
     res.status(500).json({
       error: 'Failed to mark conversation as read',
+      message: err.message
+    });
+  }
+});
+
+/**
+ * POST /api/conversations/:conversationId/coach-delete
+ * Hide a conversation from the coach's list (soft delete)
+ */
+router.post('/:conversationId/coach-delete', async (req, res) => {
+  try {
+    const { error, value } = coachDeleteSchema.validate(req.body);
+
+    if (error) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: error.details[0].message
+      });
+    }
+
+    const { conversationId } = req.params;
+    const { coachId } = value;
+
+    const conversation = await getConversation(conversationId);
+    if (!conversation) {
+      return res.status(404).json({
+        error: 'Conversation not found'
+      });
+    }
+
+    const conversationCoachId = conversation.coach_id || conversation.coachId;
+    if (conversationCoachId !== coachId) {
+      return res.status(403).json({
+        error: 'Not authorized to delete this conversation'
+      });
+    }
+
+    await markConversationDeletedByCoach(conversationId);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.error('Error hiding conversation for coach:', err);
+    res.status(500).json({
+      error: 'Failed to hide conversation',
       message: err.message
     });
   }

@@ -699,6 +699,21 @@ export const markConversationAsRead = async (conversationId, userType) => {
 };
 
 /**
+ * Hide a conversation from the coach's list (soft delete)
+ */
+export const hideConversationForCoach = async (conversationId, coachId) => {
+  try {
+    console.log(`Hiding conversation for coach: ${conversationId}`);
+    const data = await apiService.post(`/api/conversations/${conversationId}/coach-delete`, { coachId });
+    console.log('Conversation hidden for coach');
+    return data;
+  } catch (error) {
+    console.error('Error hiding conversation for coach:', error);
+    throw error;
+  }
+};
+
+/**
  * Get remaining daily messages for a conversation
  */
 export const getRemainingDailyMessages = async (conversationId) => {

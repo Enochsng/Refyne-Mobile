@@ -1678,9 +1678,11 @@ async function getConversations(userId, userType) {
       
       // Return conversations from in-memory storage
       const column = userType === 'player' ? 'player_id' : 'coach_id';
-      const userConversations = conversations.filter(conv => 
-        conv[column] === userId && conv.status === 'active'
-      );
+      const userConversations = conversations.filter(conv => {
+        if (conv[column] !== userId || conv.status !== 'active') return false;
+        if (userType === 'coach' && conv.coach_deleted === true) return false;
+        return true;
+      });
       
       console.log(`Retrieved ${userConversations.length} conversations from memory for ${userType}: ${userId}`);
       return userConversations;
@@ -1688,11 +1690,17 @@ async function getConversations(userId, userType) {
 
     const column = userType === 'player' ? 'player_id' : 'coach_id';
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('conversations')
       .select('*')
       .eq(column, userId)
-      .eq('status', 'active')
+      .eq('status', 'active');
+
+    if (userType === 'coach') {
+      query = query.eq('coach_deleted', false);
+    }
+
+    const { data, error } = await query
       .order('last_message_at', { ascending: false, nullsFirst: false });
 
     if (error) {
@@ -1708,9 +1716,11 @@ async function getConversations(userId, userType) {
     // Fallback to in-memory storage if Supabase fails
     console.log('Falling back to in-memory storage due to database error');
     const column = userType === 'player' ? 'player_id' : 'coach_id';
-    const userConversations = conversations.filter(conv => 
-      conv[column] === userId && conv.status === 'active'
-    );
+    const userConversations = conversations.filter(conv => {
+      if (conv[column] !== userId || conv.status !== 'active') return false;
+      if (userType === 'coach' && conv.coach_deleted === true) return false;
+      return true;
+    });
     
     console.log(`Retrieved ${userConversations.length} conversations from memory (fallback) for ${userType}: ${userId}`);
     return userConversations;
@@ -1797,6 +1807,7 @@ async function addMessageToConversation(messageData) {
         if (messageData.senderType !== 'system') {
           if (messageData.senderType === 'player') {
             conversations[conversationIndex].coach_unread_count = (conversations[conversationIndex].coach_unread_count || 0) + 1;
+            conversations[conversationIndex].coach_deleted = false;
           } else {
             conversations[conversationIndex].player_unread_count = (conversations[conversationIndex].player_unread_count || 0) + 1;
           }
@@ -1838,10 +1849,13 @@ async function addMessageToConversation(messageData) {
       if (!fetchError && currentConv) {
         if (messageData.senderType === 'player') {
           updateData.coach_unread_count = (currentConv.coach_unread_count || 0) + 1;
+          updateData.coach_deleted = false;
         } else {
           updateData.player_unread_count = (currentConv.player_unread_count || 0) + 1;
         }
       }
+    } else if (messageData.senderType === 'player') {
+      updateData.coach_deleted = false;
     }
 
     const { error: updateError } = await supabase
@@ -1953,6 +1967,47 @@ async function markConversationAsRead(conversationId, userType) {
     return data;
   } catch (err) {
     console.error('Database error in markConversationAsRead:', err);
+    throw err;
+  }
+}
+
+/**
+ * Soft-delete a conversation from the coach's list (coach_deleted = true)
+ */
+async function markConversationDeletedByCoach(conversationId) {
+  try {
+    if (!isSupabaseConfigured) {
+      console.log('Using in-memory storage for coach-delete (Supabase not configured)');
+
+      const conversationIndex = conversations.findIndex(conv => conv.id === conversationId);
+      if (conversationIndex !== -1) {
+        conversations[conversationIndex].coach_deleted = true;
+        conversations[conversationIndex].updated_at = new Date().toISOString();
+      }
+
+      console.log(`Conversation hidden for coach in memory: ${conversationId}`);
+      return conversations[conversationIndex] || null;
+    }
+
+    const { data, error } = await supabase
+      .from('conversations')
+      .update({
+        coach_deleted: true,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', conversationId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error marking conversation deleted by coach:', error);
+      throw error;
+    }
+
+    console.log(`Conversation hidden for coach: ${conversationId}`);
+    return data;
+  } catch (err) {
+    console.error('Database error in markConversationDeletedByCoach:', err);
     throw err;
   }
 }
@@ -2119,6 +2174,7 @@ module.exports = {
   addMessageToConversation,
   getConversationMessages,
   markConversationAsRead,
+  markConversationDeletedByCoach,
   updateConversationLastMessage,
   clearAllConversations,
   initializeDatabase
