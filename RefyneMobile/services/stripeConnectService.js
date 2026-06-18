@@ -9,7 +9,7 @@ class StripeConnectService {
     this.statusCache = new Map(); // Cache status responses
     this.cacheTimeout = 120000; // 2 minutes cache timeout
     this.lastStatusCheck = new Map(); // Track last status check time
-    this.minStatusCheckInterval = 60000; // Minimum 60 seconds between status checks
+    this.minStatusCheckInterval = 15000; // Minimum 15 seconds between status checks
     this.pendingStatusChecks = new Map(); // Dedupe concurrent in-flight requests
   }
 
@@ -75,7 +75,7 @@ class StripeConnectService {
    * Check Stripe account status for a coach
    * @param {string} coachId - The coach ID
    * @param {string} email - Optional email for lookup
-   * @param {boolean} forceRefresh - Invalidate cache but still respect cooldown
+   * @param {boolean} forceRefresh - Invalidate cache and bypass cooldown for explicit refreshes
    * @returns {Promise<Object>} - The status response
    */
   async checkStripeAccountStatus(coachId, email = null, forceRefresh = false) {
@@ -96,19 +96,17 @@ class StripeConnectService {
 
   async _fetchStripeAccountStatus(coachId, email = null, forceRefresh = false) {
     try {
-      // Force refresh invalidates cache only; cooldown still applies
       if (forceRefresh) {
         this.statusCache.delete(coachId);
         console.log(`🧹 Invalidated status cache for coach ${coachId}`);
       }
 
-      // Cooldown always applies
-      if (!this.canCheckStatus(coachId)) {
+      if (!forceRefresh && !this.canCheckStatus(coachId)) {
         const cached = this.getCachedStatus(coachId) || this.getStaleCachedStatus(coachId);
         if (cached) {
           return cached;
         }
-        throw new Error('Rate limited: Too frequent status checks');
+        console.log(`No cached status for coach ${coachId} during cooldown — allowing request`);
       }
 
       // Check cache first

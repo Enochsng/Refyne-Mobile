@@ -11,7 +11,9 @@ import {
   Linking,
   Clipboard,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,6 +25,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function CoachesEarningsScreen({ navigation }) {
   const [stripeAccountStatus, setStripeAccountStatus] = useState('not_connected');
+  const [isCheckingStatus, setIsCheckingStatus] = useState(true);
   const [isConnectingStripe, setIsConnectingStripe] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [earningsData, setEarningsData] = useState({
@@ -39,8 +42,18 @@ export default function CoachesEarningsScreen({ navigation }) {
     }
   }, [stripeAccountStatus]);
 
-  const checkStripeAccountStatus = async (forceRefresh = false) => {
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('Earnings screen focused - checking Stripe status');
+      checkStripeAccountStatus();
+    }, [])
+  );
+
+  const checkStripeAccountStatus = async (forceRefresh = false, showLoading = true) => {
     try {
+      if (showLoading) {
+        setIsCheckingStatus(true);
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -98,6 +111,10 @@ export default function CoachesEarningsScreen({ navigation }) {
       }
       
       setStripeAccountStatus('not_connected');
+    } finally {
+      if (showLoading) {
+        setIsCheckingStatus(false);
+      }
     }
   };
 
@@ -298,7 +315,7 @@ export default function CoachesEarningsScreen({ navigation }) {
 
   const onRefresh = async () => {
     setIsRefreshing(true);
-    await checkStripeAccountStatus(true);
+    await checkStripeAccountStatus(true, false);
     if (stripeAccountStatus === 'connected') {
       await fetchEarningsData();
     }
@@ -470,9 +487,20 @@ export default function CoachesEarningsScreen({ navigation }) {
     </View>
   );
 
+  const renderLoadingState = () => (
+    <View style={styles.centerContainer}>
+      <ActivityIndicator size="large" color="#0C295C" />
+      <Text style={styles.loadingText}>Checking account status...</Text>
+    </View>
+  );
+
   const displayStatus = stripeAccountStatus ?? 'not_connected';
 
   const renderContent = () => {
+    if (isCheckingStatus) {
+      return renderLoadingState();
+    }
+
     switch (displayStatus) {
       case 'connected':
         return renderConnectedState();
@@ -529,6 +557,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: width * 0.04,
+    fontFamily: 'Manrope-Medium',
+    color: '#90A4AE',
   },
   iconContainer: {
     marginBottom: 24,
