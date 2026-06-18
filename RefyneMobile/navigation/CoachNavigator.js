@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
@@ -8,6 +8,8 @@ import CoachesMessagesScreen from '../screens/coaches/CoachesMessagesScreen';
 import CoachesTutorialsScreen from '../screens/coaches/CoachesTutorialsScreen';
 import CoachesEarningsScreen from '../screens/coaches/CoachesEarningsScreen';
 import CoachesProfileScreen from '../screens/coaches/CoachesProfileScreen';
+import { getConversations } from '../services/conversationService';
+import { supabase } from '../supabaseClient';
 
 const Tab = createBottomTabNavigator();
 const { width } = Dimensions.get('window');
@@ -29,7 +31,41 @@ const defaultTabBarStyle = {
   elevation: 10,
 };
 
+function formatUnreadBadge(total) {
+  return total > 0 ? (total > 99 ? '99+' : total) : undefined;
+}
+
 export default function CoachNavigator() {
+  const [messagesBadge, setMessagesBadge] = useState(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user || cancelled) return;
+
+        const conversations = await getConversations(user.id, 'coach');
+        if (cancelled) return;
+
+        const total = conversations.reduce(
+          (sum, conv) => sum + (conv.coach_unread_count || 0),
+          0
+        );
+        setMessagesBadge(formatUnreadBadge(total));
+      } catch (error) {
+        console.warn('Failed to fetch unread message count for tab badge:', error.message);
+      }
+    };
+
+    fetchUnreadCount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -76,6 +112,7 @@ export default function CoachNavigator() {
         component={CoachesMessagesScreen}
         options={{
           tabBarLabel: 'Messages',
+          tabBarBadge: messagesBadge,
           tabBarBadgeStyle: {
             backgroundColor: '#FF6B35',
             color: '#FFFFFF',
