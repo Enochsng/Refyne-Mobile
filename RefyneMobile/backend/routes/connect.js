@@ -14,6 +14,128 @@ function getPayingCustomerId(transfer) {
   return transfer.metadata?.customer_id || transfer.metadata?.customer_email || null;
 }
 
+const PLACEHOLDER_PLAYER_NAMES = new Set(['player', 'student']);
+
+function isValidPlayerDisplayName(name) {
+  if (!name || typeof name !== 'string') return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  return !PLACEHOLDER_PLAYER_NAMES.has(trimmed.toLowerCase());
+}
+
+function pickPlayerDisplayName(name) {
+  return isValidPlayerDisplayName(name) ? name.trim() : null;
+}
+
+function extractProfileDisplayName(profileRow) {
+  if (!profileRow) return null;
+  const meta = profileRow.user_metadata || {};
+  return pickPlayerDisplayName(
+    meta.full_name ||
+    meta.name ||
+    meta.display_name ||
+    (profileRow.email ? profileRow.email.split('@')[0] : null)
+  );
+}
+
+async function resolvePlayerNamesFromProfiles(playerIds) {
+  const uniqueIds = [...new Set(playerIds.filter((id) => id && !isPlaceholderPlayerId(id)))];
+  if (!uniqueIds.length || !supabase) return {};
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, user_metadata')
+    .in('id', uniqueIds);
+
+  if (error) {
+    console.log('Could not resolve player names from profiles:', error.message);
+    return {};
+  }
+
+  const map = {};
+  (data || []).forEach((row) => {
+    const name = extractProfileDisplayName(row);
+    if (name) map[row.id] = name;
+  });
+  return map;
+}
+
+async function resolvePaymentIntentConversationLinks(paymentIntentIds, conversations) {
+  const uniquePiIds = [...new Set(paymentIntentIds.filter(Boolean))];
+  const empty = { playerIdByPiId: {}, sessionNameByPiId: {} };
+  if (!uniquePiIds.length || !supabase) return empty;
+
+  const { data: sessions, error } = await supabase
+    .from('coaching_sessions')
+    .select('id, payment_intent_id')
+    .in('payment_intent_id', uniquePiIds);
+
+  if (error) {
+    console.log('Could not resolve sessions for payment intents:', error.message);
+    return empty;
+  }
+
+  const convBySessionId = {};
+  (conversations || []).forEach((conv) => {
+    if (!conv.session_id) return;
+    if (!convBySessionId[conv.session_id]) {
+      convBySessionId[conv.session_id] = conv;
+    }
+  });
+
+  const playerIdByPiId = {};
+  const sessionNameByPiId = {};
+  (sessions || []).forEach((session) => {
+    if (!session.payment_intent_id || !session.id) return;
+    const conv = convBySessionId[session.id];
+    if (!conv) return;
+
+    if (conv.player_id && !isPlaceholderPlayerId(conv.player_id)) {
+      playerIdByPiId[session.payment_intent_id] = conv.player_id;
+    }
+    const name = pickPlayerDisplayName(conv.player_name);
+    if (name) {
+      sessionNameByPiId[session.payment_intent_id] = name;
+    }
+  });
+
+  return { playerIdByPiId, sessionNameByPiId };
+}
+
+function resolveEffectivePlayerId(transfer, playerIdByPiId) {
+  const metadata = transfer.metadata || {};
+  const fromMetadata = metadata.player_id || metadata.playerId;
+  if (fromMetadata && !isPlaceholderPlayerId(fromMetadata)) {
+    return fromMetadata;
+  }
+  const piId = metadata.payment_intent_id || transfer.payment_intent_id;
+  if (piId && playerIdByPiId[piId]) {
+    return playerIdByPiId[piId];
+  }
+  return null;
+}
+
+function enrichTransferPlayerName(transfer, { piPlayerNameById, profileNamesById, sessionNameByPiId, playerIdByPiId }) {
+  const metadata = { ...(transfer.metadata || {}) };
+  const existingName = metadata.playerName || metadata.player_name;
+  const piId = metadata.payment_intent_id || transfer.payment_intent_id;
+  const playerId = resolveEffectivePlayerId(transfer, playerIdByPiId);
+
+  const resolvedName =
+    pickPlayerDisplayName(existingName) ||
+    (piId && piPlayerNameById[piId]) ||
+    (playerId && profileNamesById[playerId]) ||
+    (piId && sessionNameByPiId[piId]);
+
+  if (resolvedName) {
+    metadata.playerName = resolvedName;
+  }
+  if (playerId && (!metadata.player_id || isPlaceholderPlayerId(metadata.player_id))) {
+    metadata.player_id = playerId;
+  }
+  return { ...transfer, metadata };
+}
+
 // Helper function to ensure APP_URL has a protocol
 function getAppUrl() {
   let appUrl = process.env.APP_URL || 'https://app.refyne-coaching.com';
@@ -782,6 +904,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
     
     // Get payments from Stripe
     let stripePayments = [];
+    let piPlayerNameById = {};
     try {
       console.log(`🔍 Fetching payments from Stripe for connected account: ${stripeAccountId}`);
       
@@ -792,7 +915,8 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
       try {
         console.log(`🔍 Fetching payment intents from main account...`);
         const mainPiResponse = await stripe.paymentIntents.list({
-          limit: 100 // Get more to account for filtering
+          limit: 100, // Get more to account for filtering
+          expand: ['data.customer']
         });
         
         console.log(`📊 Total payment intents from main account: ${mainPiResponse.data.length}`);
@@ -834,6 +958,23 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
           return hasDestination || isDirectDestination;
         });
         console.log(`✅ Found ${paymentIntents.length} payment intents for connected account ${stripeAccountId}`);
+
+        paymentIntents.forEach((pi) => {
+          if (piPlayerNameById[pi.id]) return;
+          const metaName = pickPlayerDisplayName(pi.metadata?.playerName);
+          if (metaName) {
+            piPlayerNameById[pi.id] = metaName;
+            return;
+          }
+          const customer = pi.customer;
+          const customerName =
+            typeof customer === 'object' && customer
+              ? pickPlayerDisplayName(customer.name)
+              : null;
+          if (customerName) {
+            piPlayerNameById[pi.id] = customerName;
+          }
+        });
       } catch (mainPiError) {
         console.log(`⚠️ Could not fetch payment intents from main account: ${mainPiError.message}`);
       }
@@ -856,6 +997,15 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
           return isForConnectedAccount;
         });
         console.log(`✅ Found ${charges.length} charges for connected account ${stripeAccountId}`);
+
+        charges.forEach((charge) => {
+          const piId = charge.payment_intent;
+          if (!piId || piPlayerNameById[piId]) return;
+          const billingName = pickPlayerDisplayName(charge.billing_details?.name);
+          if (billingName) {
+            piPlayerNameById[piId] = billingName;
+          }
+        });
       } catch (mainChargesError) {
         console.log(`⚠️ Could not fetch charges from main account: ${mainChargesError.message}`);
       }
@@ -873,6 +1023,7 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
           payment_intent_id: pi.id,
           customer_id: pi.customer,
           player_id: pi.metadata?.playerId || null,
+          playerName: pi.metadata?.playerName || null,
           source: 'stripe_payment_intent'
         }
       }));
@@ -955,10 +1106,47 @@ router.get('/coach/:coachId/transfers', async (req, res) => {
       paidTransfers.map(getPayingCustomerId).filter(Boolean)
     ).size;
     console.log(`✅ Found ${uniqueCustomers} unique paying customers from ${paidTransfers.length} successful payments`);
+
+    const paymentIntentIds = filteredTransfers.map(
+      (t) => t.metadata?.payment_intent_id || t.payment_intent_id
+    );
+
+    let coachConversations = [];
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('player_id, player_name, session_id')
+        .eq('coach_id', coachId);
+      if (error) {
+        console.log('Could not load conversations for transfer name enrichment:', error.message);
+      } else {
+        coachConversations = data || [];
+      }
+    }
+
+    const { playerIdByPiId, sessionNameByPiId } = await resolvePaymentIntentConversationLinks(
+      paymentIntentIds,
+      coachConversations
+    );
+
+    const playerIds = filteredTransfers
+      .map((t) => resolveEffectivePlayerId(t, playerIdByPiId))
+      .filter(Boolean);
+
+    const profileNamesById = await resolvePlayerNamesFromProfiles(playerIds);
+
+    const transfersWithPlayerNames = filteredTransfers.map((transfer) =>
+      enrichTransferPlayerName(transfer, {
+        piPlayerNameById,
+        profileNamesById,
+        sessionNameByPiId,
+        playerIdByPiId,
+      })
+    );
     
     res.json({
       success: true,
-      transfers: filteredTransfers.map(transfer => ({
+      transfers: transfersWithPlayerNames.map(transfer => ({
         id: transfer.id,
         transfer_id: transfer.transfer_id,
         amount: transfer.amount,

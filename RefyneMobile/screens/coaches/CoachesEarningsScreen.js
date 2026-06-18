@@ -118,6 +118,91 @@ export default function CoachesEarningsScreen({ navigation }) {
     }
   };
 
+  const PLACEHOLDER_PLAYER_NAMES = new Set(['player', 'student']);
+  const DEFAULT_PLAYER_DISPLAY_NAME = 'a player';
+
+  const isValidPlayerDisplayName = (name) => {
+    if (!name || typeof name !== 'string') return false;
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    return !PLACEHOLDER_PLAYER_NAMES.has(trimmed.toLowerCase());
+  };
+
+  const resolvePlayerDisplayName = (transfer, byPlayerId, bySessionId, byPaymentIntentId) => {
+    const metadata = transfer.metadata || {};
+    const fromMetadata = metadata.playerName || metadata.player_name;
+    if (isValidPlayerDisplayName(fromMetadata)) {
+      return fromMetadata.trim();
+    }
+    const paymentIntentId = metadata.payment_intent_id;
+    if (paymentIntentId && isValidPlayerDisplayName(byPaymentIntentId[paymentIntentId])) {
+      return byPaymentIntentId[paymentIntentId].trim();
+    }
+    const sessionId = metadata.sessionId;
+    if (sessionId && isValidPlayerDisplayName(bySessionId[sessionId])) {
+      return bySessionId[sessionId].trim();
+    }
+    const playerId = metadata.player_id || metadata.playerId;
+    if (playerId && isValidPlayerDisplayName(byPlayerId[playerId])) {
+      return byPlayerId[playerId].trim();
+    }
+    return null;
+  };
+
+  const enrichTransfersWithPlayerNames = async (transfers, coachId) => {
+    const { data: conversations } = await supabase
+      .from('conversations')
+      .select('player_id, player_name, session_id')
+      .eq('coach_id', coachId);
+
+    const paymentIntentIds = transfers
+      .map((transfer) => transfer.metadata?.payment_intent_id)
+      .filter(Boolean);
+
+    const sessionIdByPaymentIntentId = {};
+    if (paymentIntentIds.length > 0) {
+      const { data: sessions } = await supabase
+        .from('coaching_sessions')
+        .select('id, payment_intent_id')
+        .in('payment_intent_id', [...new Set(paymentIntentIds)]);
+
+      (sessions || []).forEach((session) => {
+        if (session.payment_intent_id && session.id) {
+          sessionIdByPaymentIntentId[session.payment_intent_id] = session.id;
+        }
+      });
+    }
+
+    const byPlayerId = {};
+    const bySessionId = {};
+    const byPaymentIntentId = {};
+    (conversations || []).forEach((conv) => {
+      if (!isValidPlayerDisplayName(conv.player_name)) return;
+      const name = conv.player_name.trim();
+      if (conv.session_id) {
+        bySessionId[conv.session_id] = name;
+      }
+      if (conv.player_id) {
+        if (!byPlayerId[conv.player_id] || !isValidPlayerDisplayName(byPlayerId[conv.player_id])) {
+          byPlayerId[conv.player_id] = name;
+        }
+      }
+    });
+
+    Object.entries(sessionIdByPaymentIntentId).forEach(([paymentIntentId, sessionId]) => {
+      if (bySessionId[sessionId]) {
+        byPaymentIntentId[paymentIntentId] = bySessionId[sessionId];
+      }
+    });
+
+    return transfers.map((transfer) => ({
+      ...transfer,
+      playerDisplayName:
+        resolvePlayerDisplayName(transfer, byPlayerId, bySessionId, byPaymentIntentId) ||
+        DEFAULT_PLAYER_DISPLAY_NAME,
+    }));
+  };
+
   const fetchEarningsData = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -134,19 +219,20 @@ export default function CoachesEarningsScreen({ navigation }) {
         // Use the summary data from the backend
         const { totalEarnings, pendingEarnings, totalCustomers } = result.summary;
         const transfers = result.transfers || [];
+        const enrichedTransfers = await enrichTransfersWithPlayerNames(transfers, user.id);
 
         console.log('✅ Setting earnings data:', {
           totalEarnings,
           pendingEarnings,
           totalCustomers,
-          transferCount: transfers.length
+          transferCount: enrichedTransfers.length
         });
 
         setEarningsData({
           totalEarnings: totalEarnings || 0,
           pendingEarnings: pendingEarnings || 0,
           totalCustomers: totalCustomers || 0,
-          recentTransfers: transfers.slice(0, 10)
+          recentTransfers: enrichedTransfers.slice(0, 10)
         });
       } else {
         console.log('⚠️ No earnings data found or error in response:', result.error);
@@ -422,6 +508,7 @@ export default function CoachesEarningsScreen({ navigation }) {
                 <View style={styles.transferInfo}>
                   <Text style={styles.transferAmount}>{formatCurrency(transfer.amount)}</Text>
                   <Text style={styles.transferDate}>{formatDate(transfer.created_at)}</Text>
+                  <Text style={styles.transferFrom}>From {transfer.playerDisplayName}</Text>
                   {transfer.description && (
                     <Text style={styles.transferDescription}>{transfer.description}</Text>
                   )}
@@ -716,6 +803,12 @@ const styles = StyleSheet.create({
     fontSize: width * 0.035,
     fontFamily: 'Manrope-Medium',
     color: '#64748B',
+  },
+  transferFrom: {
+    fontSize: width * 0.033,
+    fontFamily: 'Manrope-Medium',
+    color: '#90A4AE',
+    marginTop: 2,
   },
   transferDescription: {
     fontSize: width * 0.032,
