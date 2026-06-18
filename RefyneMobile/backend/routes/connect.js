@@ -186,7 +186,7 @@ const createAccountSchema = Joi.object({
   coachId: Joi.string().required(),
   coachName: Joi.string().required(),
   email: Joi.string().email().required(),
-  sport: Joi.string().valid('badminton', 'golf').required(),
+  sport: Joi.string().lowercase().valid('badminton', 'golf', 'volleyball', 'weightlifting').required(),
   country: Joi.string().length(2).default('CA'), // ISO country code
   businessType: Joi.string().valid('individual', 'company').default('individual')
 });
@@ -509,9 +509,15 @@ router.post('/account/:id/onboarding-link', async (req, res) => {
  */
 router.post('/start-onboarding', async (req, res) => {
   try {
+    console.log('start-onboarding request body:', req.body);
+
     // Validate request body
     const { error, value } = createAccountSchema.validate(req.body);
     if (error) {
+      console.error('start-onboarding validation failed:', {
+        body: req.body,
+        details: error.details.map((d) => d.message),
+      });
       return res.status(400).json({
         error: 'Validation error',
         details: error.details[0].message
@@ -1224,47 +1230,8 @@ router.get('/coach/:coachId/status', async (req, res) => {
       }
     }
 
-    // Last-resort fallback: find account directly in Stripe by coach metadata/email
     if (!dbAccount) {
-      try {
-        console.log('🔎 Falling back to Stripe account search by coach metadata/email');
-        const stripeAccounts = await stripe.accounts.list({ limit: 100 });
-        const matchedAccount = stripeAccounts.data.find((acct) =>
-          acct.metadata?.coachId === coachId || (email && acct.email && acct.email.toLowerCase() === email.toLowerCase())
-        );
-
-        if (matchedAccount) {
-          await saveCoachConnectAccount({
-            coachId,
-            stripeAccountId: matchedAccount.id,
-            accountType: matchedAccount.type,
-            country: matchedAccount.country,
-            email: matchedAccount.email || email,
-            chargesEnabled: matchedAccount.charges_enabled,
-            payoutsEnabled: matchedAccount.payouts_enabled,
-            detailsSubmitted: matchedAccount.details_submitted,
-            onboardingCompleted: matchedAccount.charges_enabled && matchedAccount.payouts_enabled && matchedAccount.details_submitted,
-            businessProfile: matchedAccount.business_profile
-          });
-
-          dbAccount = {
-            coach_id: coachId,
-            stripe_account_id: matchedAccount.id,
-            email: matchedAccount.email || email,
-            charges_enabled: matchedAccount.charges_enabled,
-            payouts_enabled: matchedAccount.payouts_enabled,
-            details_submitted: matchedAccount.details_submitted,
-            onboarding_completed: matchedAccount.charges_enabled && matchedAccount.payouts_enabled && matchedAccount.details_submitted
-          };
-          console.log('✅ Recovered Stripe account from Stripe API search:', matchedAccount.id);
-        }
-      } catch (stripeSearchErr) {
-        console.log('⚠️ Stripe fallback search failed:', stripeSearchErr.message);
-      }
-    }
-
-    if (!dbAccount) {
-      console.log('🔍 No Stripe Connect account found for coach after all lookups');
+      console.log('🔍 No Stripe Connect account found for coach — not connected');
       return res.status(404).json({
         success: false,
         error: 'Coach account not found',
