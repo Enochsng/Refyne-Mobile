@@ -31,21 +31,56 @@ const coachStatusLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/connect/coach/:coachId/status', coachStatusLimiter);
 
-// Rate limiting - more lenient for development
+// Dedicated rate limit for conversation routes (chat is chatty during normal use)
+const conversationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 2000 : 300,
+  message: 'Too many conversation requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/test/player',
+});
+
+// Stricter rate limit for payment routes
+const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 500 : 60,
+  message: 'Too many payment requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Stricter rate limit for upload routes
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 500 : 60,
+  message: 'Too many upload requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Global rate limiting for remaining API routes (connect, webhooks, etc.)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: process.env.NODE_ENV === 'development' ? 500 : 100, // More lenient in development
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Skip rate limiting for health checks and coach status (has dedicated limiter)
   skip: (req) => {
     if (req.path === '/health' || req.path === '/test') return true;
+    if (req.path === '/conversations/test/player') return true;
+    if (req.path.startsWith('/conversations')) return true;
+    if (req.path.startsWith('/payments')) return true;
+    if (req.path.startsWith('/upload')) return true;
     return /^\/connect\/coach\/[^/]+\/status$/.test(req.path);
   }
 });
+
+app.use('/api/connect/coach/:coachId/status', coachStatusLimiter);
+app.use('/api/conversations', conversationLimiter);
+app.use('/api/payments', paymentLimiter);
+app.use('/api/upload', uploadLimiter);
 app.use('/api/', limiter);
 
 // CORS configuration

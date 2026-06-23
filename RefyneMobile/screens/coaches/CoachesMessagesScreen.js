@@ -170,17 +170,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   }, [selectedConversation, messages.length]);
 
   // Load conversations on component mount and when tab regains focus
-  const loadConversations = useCallback(async (options = {}) => {
-    const { skipConnectionReset = false } = options;
-
+  const loadConversations = useCallback(async () => {
     try {
       setLoading(true);
-
-      if (!skipConnectionReset) {
-        const { resetConnectionState } = await import('../../services/conversationService');
-        resetConnectionState();
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
 
       const authPromise = supabase.auth.getUser();
       const timeoutPromise = new Promise((_, reject) =>
@@ -303,7 +295,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         return;
       }
       if (!selectedConversation) {
-        loadConversations({ skipConnectionReset: true });
+        loadConversations();
       }
     }, [loadConversations, selectedConversation])
   );

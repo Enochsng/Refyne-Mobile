@@ -49,6 +49,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const scrollViewRef = useRef(null);
   const isLoadingConversationsRef = useRef(false);
   const selectedConversationIdRef = useRef(null);
+  const selectedConversationRef = useRef(null);
   const clipsRequestIdRef = useRef(0);
   const dailyMessagesRequestIdRef = useRef(0);
   const lastConversationsLoadAtRef = useRef(0);
@@ -230,7 +231,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           return;
         }
 
-        if (!selectedConversation) {
+        const activeConversation = selectedConversationRef.current;
+        if (!activeConversation) {
           await loadConversations({
             // Keep the previous list visible on tab returns; refresh silently.
             showLoader: conversations.length === 0,
@@ -240,8 +242,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         }
 
         // If user is actively in chat, refresh counters when screen regains focus.
-        loadRemainingClips(selectedConversation.id);
-        loadRemainingDailyMessages(selectedConversation.id);
+        loadRemainingClips(activeConversation.id);
+        loadRemainingDailyMessages(activeConversation.id);
       };
 
       refreshOnFocus();
@@ -249,11 +251,12 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       return () => {
         isActive = false;
       };
-    }, [navigation, route?.params?.isNewSession, selectedConversation?.id, conversations.length])
+    }, [navigation, route?.params?.isNewSession, conversations.length])
   );
 
   // Refresh clip counter and daily messages when selected conversation changes
   useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
     selectedConversationIdRef.current = selectedConversation?.id || null;
     if (selectedConversation?.id) {
       loadRemainingClips(selectedConversation.id);
@@ -307,15 +310,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       return msUntilMidnight;
     };
 
-    // Refresh immediately and then set up interval
     const refreshDailyMessages = () => {
       if (selectedConversation?.id) {
         loadRemainingDailyMessages(selectedConversation.id);
       }
     };
-
-    // Refresh now
-    refreshDailyMessages();
 
     // Calculate time until midnight EST
     const msUntilMidnight = getTimeUntilMidnightEST();
@@ -473,12 +472,6 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           }
         }
       }, 1000); // Longer delay to ensure user has time to see the messages
-      
-      // Load remaining clips for this conversation
-      loadRemainingClips(conversationId);
-      
-      // Load remaining daily messages for this conversation
-      loadRemainingDailyMessages(conversationId);
       
     } catch (error) {
       console.warn('⚠️ Error loading messages:', error.message);
