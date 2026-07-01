@@ -14,32 +14,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAllCoachProfiles, getCoachesBySport, formatExperience, formatExpertise, cleanupDeletedProfiles, migrateCoachNames, removeAllCoachProfiles } from '../../utils/coachData';
+import { sports } from '../../utils/sportsData';
 
 const { width, height } = Dimensions.get('window');
-
-const sports = [
-  {
-    id: 1,
-    name: 'Golf',
-    description: 'Perfect your swing and improve your game with professional coaching',
-    image: require('../../assets/golf.jpg'),
-    gradient: ['#4CAF50', '#2E7D32'],
-  },
-  {
-    id: 2,
-    name: 'Badminton',
-    description: 'Enhance your badminton skills with expert guidance',
-    image: require('../../assets/badmintonphoto.jpg'),
-    gradient: ['#2196F3', '#1976D2'],
-  },
-  {
-    id: 4,
-    name: 'Volleyball',
-    description: 'Master the fundamentals and advanced techniques with expert volleyball coaching',
-    image: require('../../assets/volleyballpic.webp'),
-    gradient: ['#FF6B6B', '#EE5A6F'],
-  },
-];
 
 export default function ExploreSportsScreen({ navigation }) {
   const [selectedSport, setSelectedSport] = useState(null);

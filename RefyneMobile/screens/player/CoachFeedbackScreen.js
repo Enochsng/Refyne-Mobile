@@ -53,6 +53,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const clipsRequestIdRef = useRef(0);
   const dailyMessagesRequestIdRef = useRef(0);
   const lastConversationsLoadAtRef = useRef(0);
+  const conversationsRef = useRef([]);
+  const routeRef = useRef(route);
+
+  routeRef.current = route;
+
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   const CONVERSATION_REFRESH_DEBOUNCE_MS = 15000;
   const CONVERSATION_FORMAT_TIMEOUT_MS = 2500;
@@ -87,7 +95,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     } = options;
 
     const now = Date.now();
-    const hasExistingConversations = conversations.length > 0;
+    const hasExistingConversations = conversationsRef.current.length > 0;
     const shouldDebounce =
       !force &&
       hasExistingConversations &&
@@ -129,7 +137,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       const playerId = user.id;
       console.log('✅ Loading conversations for authenticated player:', playerId);
       
-      const conversationsData = await getConversations(playerId, 'player');
+      let conversationsData;
+      try {
+        conversationsData = await getConversations(playerId, 'player');
+      } catch (error) {
+        if (error.rateLimited) {
+          console.log('⏳ Rate limited - keeping last known conversation list');
+          return;
+        }
+        throw error;
+      }
       console.log('✅ Retrieved conversations data:', conversationsData);
       
       const withTimeout = (promise, timeoutMs, fallbackValue) => {
@@ -207,18 +224,13 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
   };
 
-  // Load conversations on component mount
-  useEffect(() => {
-    loadConversations();
-  }, []);
-
   // Handle route params when screen comes into focus (for tab navigator)
   useFocusEffect(
     React.useCallback(() => {
       let isActive = true;
 
       const refreshOnFocus = async () => {
-        const isNewSession = route?.params?.isNewSession;
+        const isNewSession = routeRef.current?.params?.isNewSession;
 
         // A new purchase should trigger one refresh, then clear the param to prevent focus loops.
         if (isNewSession) {
@@ -235,7 +247,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         if (!activeConversation) {
           await loadConversations({
             // Keep the previous list visible on tab returns; refresh silently.
-            showLoader: conversations.length === 0,
+            showLoader: conversationsRef.current.length === 0,
             preserveSelectedConversation: true
           });
           return;
@@ -251,7 +263,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       return () => {
         isActive = false;
       };
-    }, [navigation, route?.params?.isNewSession, conversations.length])
+    }, [navigation])
   );
 
   // Refresh clip counter and daily messages when selected conversation changes

@@ -15,8 +15,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../supabaseClient';
 import { getConversations, formatConversationForDisplay } from '../../services/conversationService';
 import { getCoachProfilePhoto } from '../../services/conversationService';
+import { getAllCoachProfiles } from '../../utils/coachData';
+import { sports } from '../../utils/sportsData';
 
 const { width, height } = Dimensions.get('window');
+const SPORT_CARD_WIDTH = width * 0.72;
+const SPORT_CARD_HEIGHT = 190;
 
 // Motivational quotes array
 const motivationalQuotes = [
@@ -51,6 +55,7 @@ export default function HomeScreen({ navigation }) {
   const [todaysQuote, setTodaysQuote] = useState(motivationalQuotes[0]);
   const [hasFeedback, setHasFeedback] = useState(false); // Default to no feedback
   const [recentFeedback, setRecentFeedback] = useState(null);
+  const [coachesBySport, setCoachesBySport] = useState({});
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -108,6 +113,10 @@ export default function HomeScreen({ navigation }) {
         conversationsData = await getConversations(playerId, 'player');
         console.log('Retrieved conversations data:', conversationsData);
       } catch (conversationError) {
+        if (conversationError?.rateLimited) {
+          console.log('⏳ Rate limited loading recent feedback - keeping current state');
+          return;
+        }
         // Handle backend connection errors gracefully
         const errorMessage = conversationError?.message || '';
         const isBackendConnectionError = 
@@ -273,6 +282,38 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
+  const loadCoachCounts = async () => {
+    try {
+      const coaches = await getAllCoachProfiles();
+      const groupedCoaches = {};
+      coaches.forEach(coach => {
+        if (coach.sport) {
+          if (!groupedCoaches[coach.sport]) {
+            groupedCoaches[coach.sport] = [];
+          }
+          groupedCoaches[coach.sport].push(coach);
+        }
+      });
+      setCoachesBySport(groupedCoaches);
+    } catch (error) {
+      console.error('Error loading coach counts:', error);
+    }
+  };
+
+  const handleSportCardPress = (sport) => {
+    navigation.navigate('ExploreSports', {
+      screen: 'Coaches',
+      params: { sport: sport.name },
+    });
+  };
+
+  const getCoachCountForSport = (sportName) => {
+    const match = Object.entries(coachesBySport).find(
+      ([key]) => key.toLowerCase() === sportName.toLowerCase()
+    );
+    return match ? match[1].length : 0;
+  };
+
   useEffect(() => {
     // Get today's motivational quote (based on day of year)
     const getTodaysQuote = () => {
@@ -285,6 +326,7 @@ export default function HomeScreen({ navigation }) {
     getUserName();
     getTodaysQuote();
     loadRecentFeedback();
+    loadCoachCounts();
     
     // Start entrance animations
     Animated.parallel([
@@ -313,6 +355,7 @@ export default function HomeScreen({ navigation }) {
       // Add a small delay to ensure any recent updates have propagated
       const timer = setTimeout(() => {
         loadRecentFeedback();
+        loadCoachCounts();
       }, 500);
       
       return () => clearTimeout(timer);
@@ -350,7 +393,7 @@ export default function HomeScreen({ navigation }) {
               <View style={styles.headerContent}>
                 <Text style={styles.greeting}>Hi {userName}!</Text>
                 <Text style={styles.headerSubtext}>
-                  Upload your clips and get personalized feedback from expert coaches to improve your game.
+                  Pick a sport, find your coach, and start getting personalized feedback.
                 </Text>
               </View>
             </View>
@@ -359,68 +402,72 @@ export default function HomeScreen({ navigation }) {
 
         {/* Main Content */}
         <View style={styles.mainContent}>
-          {/* Today's Motivation Card */}
-          <Animated.View 
+          {/* Find a Coach Section */}
+          <Animated.View
             style={[
-              styles.motivationCard,
+              styles.findCoachSection,
               {
                 opacity: fadeAnim,
                 transform: [
                   { translateY: slideAnim },
-                  { scale: scaleAnim }
-                ]
-              }
+                  { scale: scaleAnim },
+                ],
+              },
             ]}
           >
-            <LinearGradient
-              colors={['#FFFFFF', '#F8FAFF']}
-              style={styles.motivationGradient}
-            >
-              <View style={styles.motivationHeader}>
-                <Ionicons name="flame" size={24} color="#FF6B35" />
-                <Text style={styles.motivationTitle}>Today's Motivation</Text>
-              </View>
-              <Text style={styles.motivationQuote}>"{todaysQuote.quote}"</Text>
-            </LinearGradient>
-          </Animated.View>
-
-          {/* Explore Sports Card */}
-          <Animated.View 
-            style={[
-              styles.exploreSportsCard,
-              {
-                opacity: fadeAnim,
-                transform: [
-                  { translateY: slideAnim },
-                  { scale: scaleAnim }
-                ]
-              }
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.exploreSportsTouchable}
-              onPress={() => navigation.navigate('ExploreSports', { screen: 'ExploreSportsMain' })}
-            >
-              <LinearGradient
-                colors={['#0C295C', '#1A4A7A', '#A9C3DD']}
-                style={styles.exploreSportsGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
+            <View style={styles.findCoachHeader}>
+              <Text style={styles.findCoachTitle}>Find a Coach</Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('ExploreSports', { screen: 'ExploreSportsMain' })}
               >
-                <View style={styles.exploreSportsContent}>
-                  <View style={styles.exploreSportsIcon}>
-                    <Ionicons name="search" size={32} color="white" />
-                  </View>
-                  <View style={styles.exploreSportsText}>
-                    <Text style={styles.exploreSportsTitle}>Explore Sports</Text>
-                    <Text style={styles.exploreSportsSubtitle}>
-                      Discover sports and connect with professional coaches.
-                    </Text>
-                  </View>
-                  <Ionicons name="arrow-forward" size={24} color="white" />
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
+                <Text style={styles.seeAllLink}>See all</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.findCoachSubtitle}>
+              Choose a sport to browse expert coaches
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled={true}
+              style={styles.sportCardsScroll}
+              contentContainerStyle={styles.sportCardsContainer}
+            >
+              {sports.map((sport) => {
+                const coachCount = getCoachCountForSport(sport.name);
+                return (
+                  <TouchableOpacity
+                    key={sport.id}
+                    style={styles.sportCard}
+                    activeOpacity={0.9}
+                    onPress={() => handleSportCardPress(sport)}
+                  >
+                    <Image
+                      source={sport.image}
+                      style={styles.sportCardImage}
+                      resizeMode="cover"
+                    />
+                    <LinearGradient
+                      colors={['transparent', 'rgba(12, 41, 92, 0.75)']}
+                      style={styles.sportCardGradient}
+                    />
+                    <View style={styles.coachCountBadge}>
+                      <View style={styles.coachCountDot} />
+                      <Text style={styles.coachCountText}>
+                        {coachCount} coach{coachCount !== 1 ? 'es' : ''}
+                      </Text>
+                    </View>
+                    <View style={styles.sportCardContent}>
+                      <Text style={styles.sportCardName}>{sport.name}</Text>
+                      <View style={styles.browseCoachesRow}>
+                        <Text style={styles.browseCoachesText}>Browse coaches</Text>
+                        <Ionicons name="arrow-forward" size={14} color="white" />
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </Animated.View>
 
           {/* Recent Feedback Section */}
@@ -487,24 +534,26 @@ export default function HomeScreen({ navigation }) {
                 colors={['#FFFFFF', '#F8FAFF']}
                 style={styles.noFeedbackCard}
               >
-                <View style={styles.noFeedbackIconContainer}>
-                  <Ionicons name="chatbubbles-outline" size={48} color="#A9C3DD" />
+                <View style={styles.noFeedbackIconWrapper}>
+                  <View style={styles.noFeedbackIconContainer}>
+                    <Ionicons name="chatbubbles" size={36} color="#0C295C" />
+                  </View>
+                  <View style={styles.noFeedbackPlusBadge}>
+                    <Ionicons name="add" size={14} color="white" />
+                  </View>
                 </View>
                 <Text style={styles.noFeedbackTitle}>No feedback yet</Text>
                 <Text style={styles.noFeedbackSubtitle}>
-                  Explore and connect with coaches to start receiving personalized feedback.
+                  Pick a sport above and send your first clip — your coach's feedback will show up right here.
                 </Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.getStartedButton}
                   onPress={() => navigation.navigate('ExploreSports', { screen: 'ExploreSportsMain' })}
                 >
-                  <LinearGradient
-                    colors={['#0C295C', '#1A4A7A']}
-                    style={styles.getStartedGradient}
-                  >
+                  <View style={styles.getStartedButtonInner}>
+                    <Text style={styles.getStartedButtonText}>Find your first coach</Text>
                     <Ionicons name="arrow-forward" size={16} color="white" />
-                    <Text style={styles.getStartedButtonText}>Get Started</Text>
-                  </LinearGradient>
+                  </View>
                 </TouchableOpacity>
               </LinearGradient>
             )}
@@ -748,31 +797,104 @@ const styles = StyleSheet.create({
     fontFamily: 'Rubik-Medium',
     color: 'white',
   },
-  exploreSportsCard: {
-    borderRadius: 15,
+  findCoachSection: {
+    marginBottom: 28,
+  },
+  findCoachHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  findCoachTitle: {
+    fontSize: width * 0.05,
+    fontFamily: 'Rubik-Bold',
+    color: '#0C295C',
+  },
+  seeAllLink: {
+    fontSize: width * 0.038,
+    fontFamily: 'Manrope-Medium',
+    color: '#2D5A8A',
+  },
+  findCoachSubtitle: {
+    fontSize: width * 0.038,
+    fontFamily: 'Manrope-Regular',
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  sportCardsScroll: {
+    marginHorizontal: -24,
+  },
+  sportCardsContainer: {
+    paddingLeft: 24,
+    paddingRight: 24,
+  },
+  sportCard: {
+    width: SPORT_CARD_WIDTH,
+    height: SPORT_CARD_HEIGHT,
+    borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 30,
+    marginRight: 12,
     shadowColor: '#0C295C',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 6,
   },
-  exploreSportsGradient: {
-    padding: 25,
+  sportCardImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
-  exploreSportsTitle: {
-    fontSize: width * 0.06,
+  sportCardGradient: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  coachCountBadge: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  coachCountDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4CAF50',
+    marginRight: 6,
+  },
+  coachCountText: {
+    fontSize: width * 0.03,
+    fontFamily: 'Manrope-Medium',
+    color: '#0C295C',
+  },
+  sportCardContent: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+  },
+  sportCardName: {
+    fontSize: width * 0.055,
     fontFamily: 'Rubik-Bold',
     color: 'white',
-    marginBottom: 8,
+    marginBottom: 4,
   },
-  exploreSportsSubtitle: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Regular',
+  browseCoachesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  browseCoachesText: {
+    fontSize: width * 0.035,
+    fontFamily: 'Manrope-Medium',
     color: 'white',
-    opacity: 0.9,
-    lineHeight: 22,
+    marginRight: 4,
   },
   noFeedbackCard: {
     borderRadius: 20,
@@ -789,14 +911,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(12, 41, 92, 0.08)',
   },
+  noFeedbackIconWrapper: {
+    position: 'relative',
+    marginBottom: 20,
+  },
   noFeedbackIconContainer: {
     width: 80,
     height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(169, 195, 221, 0.1)',
+    borderRadius: 20,
+    backgroundColor: 'rgba(169, 195, 221, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 20,
+  },
+  noFeedbackPlusBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FF6B35',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
   },
   noFeedbackTitle: {
     fontSize: width * 0.045,
@@ -813,17 +951,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   getStartedButton: {
-    borderRadius: 16,
-    shadowColor: '#0C295C',
+    borderRadius: 30,
+    backgroundColor: '#FF6B35',
+    shadowColor: '#FF6B35',
     shadowOffset: {
       width: 0,
       height: 6,
     },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.3,
     shadowRadius: 16,
     elevation: 8,
   },
-  getStartedGradient: {
+  getStartedButtonInner: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
@@ -834,55 +973,6 @@ const styles = StyleSheet.create({
     fontSize: width * 0.04,
     fontFamily: 'Manrope-SemiBold',
     color: 'white',
-    marginLeft: 8,
-  },
-  exploreSportsCard: {
-    marginBottom: 24,
-    shadowColor: '#0C295C',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 12,
-  },
-  exploreSportsTouchable: {
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  exploreSportsGradient: {
-    padding: 24,
-  },
-  exploreSportsContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  exploreSportsIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  exploreSportsText: {
-    flex: 1,
-  },
-  exploreSportsTitle: {
-    fontSize: width * 0.05,
-    fontFamily: 'Rubik-Bold',
-    color: 'white',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  exploreSportsSubtitle: {
-    fontSize: width * 0.04,
-    fontFamily: 'Manrope-Regular',
-    color: 'rgba(255, 255, 255, 0.9)',
-    lineHeight: 22,
+    marginRight: 8,
   },
 });

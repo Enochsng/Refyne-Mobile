@@ -202,50 +202,60 @@ export const checkBackendHealth = async () => {
   }
 };
 
+const conversationsInFlight = new Map();
+
 /**
  * Get conversations for a user (player or coach)
  */
 export const getConversations = async (userId, userType) => {
-  try {
-    console.log(`🔍 Starting getConversations for ${userType}: ${userId}`);
-    
-    // Use apiService for rate-limited requests
-    const data = await apiService.get(`/api/conversations/${userId}/${userType}`);
-    console.log(`✅ Retrieved ${data.conversations?.length || 0} conversations`);
-    return data.conversations || [];
-  } catch (error) {
-    // Handle 429 rate limit errors gracefully
-    if (error.status === 429 || (error.message && error.message.includes('429'))) {
-      console.log(`⏳ Rate limited getting conversations - returning empty array`);
-      return [];
-    }
-    
-    // Handle rate limit exceeded message
-    if (error.message && error.message.includes('Rate limit exceeded')) {
-      console.log(`⏳ Rate limit exceeded - returning empty array`);
-      return [];
-    }
-    
-    // Use console.warn instead of console.error to avoid triggering React Native error overlay
-    console.warn('⚠️ Error getting conversations:', error.message);
-    
-    // Provide more helpful error messages based on error type
-    if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-      resetConnectionState();
-      throw new Error('Network request failed. Unable to reach the backend server. Please check:\n• Backend server is running (node backend/server.js)\n• Device and computer are on the same network\n• Firewall allows connections on port 3001');
-    } else if (error.message.includes('No working backend URL found')) {
-      resetConnectionState();
-      throw error;
-    } else if (error.message.includes('Request timeout') || error.message.includes('timed out')) {
-      throw new Error('Request timed out. The server is taking too long to respond. Please check if the backend server is running and try again.');
-    } else if (error.message.includes('Network request failed')) {
-      resetConnectionState();
-      throw new Error('Network request failed. Please check your internet connection and ensure the backend server is running.');
-    } else {
-      const errorMsg = error.message || 'Failed to get conversations';
-      throw new Error(errorMsg);
-    }
+  const cacheKey = `${userId}/${userType}`;
+  if (conversationsInFlight.has(cacheKey)) {
+    return conversationsInFlight.get(cacheKey);
   }
+
+  const request = (async () => {
+    try {
+      console.log(`🔍 Starting getConversations for ${userType}: ${userId}`);
+
+      const data = await apiService.get(`/api/conversations/${userId}/${userType}`);
+      console.log(`✅ Retrieved ${data.conversations?.length || 0} conversations`);
+      return data.conversations || [];
+    } catch (error) {
+      if (
+        error.status === 429 ||
+        error.message?.includes('429') ||
+        error.message?.includes('Rate limit exceeded')
+      ) {
+        console.log(`⏳ Rate limited getting conversations for ${userType}: ${userId}`);
+        const rateLimitError = new Error('Conversations rate limited');
+        rateLimitError.rateLimited = true;
+        throw rateLimitError;
+      }
+
+      console.warn('⚠️ Error getting conversations:', error.message);
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        resetConnectionState();
+        throw new Error('Network request failed. Unable to reach the backend server. Please check:\n• Backend server is running (node backend/server.js)\n• Device and computer are on the same network\n• Firewall allows connections on port 3001');
+      } else if (error.message.includes('No working backend URL found')) {
+        resetConnectionState();
+        throw error;
+      } else if (error.message.includes('Request timeout') || error.message.includes('timed out')) {
+        throw new Error('Request timed out. The server is taking too long to respond. Please check if the backend server is running and try again.');
+      } else if (error.message.includes('Network request failed')) {
+        resetConnectionState();
+        throw new Error('Network request failed. Please check your internet connection and ensure the backend server is running.');
+      } else {
+        const errorMsg = error.message || 'Failed to get conversations';
+        throw new Error(errorMsg);
+      }
+    } finally {
+      conversationsInFlight.delete(cacheKey);
+    }
+  })();
+
+  conversationsInFlight.set(cacheKey, request);
+  return request;
 };
 
 /**
