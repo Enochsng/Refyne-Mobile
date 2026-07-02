@@ -206,10 +206,13 @@ const conversationsInFlight = new Map();
 
 /**
  * Get conversations for a user (player or coach)
+ * @param {Object} [options]
+ * @param {boolean} [options.forceRefresh=false] - Skip in-flight dedup so callers get a fresh request (rate limiting still applies)
  */
-export const getConversations = async (userId, userType) => {
+export const getConversations = async (userId, userType, options = {}) => {
+  const { forceRefresh = false } = options;
   const cacheKey = `${userId}/${userType}`;
-  if (conversationsInFlight.has(cacheKey)) {
+  if (!forceRefresh && conversationsInFlight.has(cacheKey)) {
     return conversationsInFlight.get(cacheKey);
   }
 

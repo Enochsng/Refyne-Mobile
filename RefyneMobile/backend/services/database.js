@@ -561,12 +561,14 @@ async function getRemainingClipsForConversation(conversationId) {
     let totalRemaining = 0;
     let totalUsed = 0;
     let totalClips = 0;
+    let linkedSession = null;
 
     // First, try to get the session directly from conversation.session_id if it exists
     if (conversation.session_id) {
       console.log(`🔍 Trying to get session directly: ${conversation.session_id}`);
       const session = await getCoachingSession(conversation.session_id);
       if (session) {
+        linkedSession = session;
         console.log(`✅ Session found in database: status=${session.status}, clips_remaining=${session.clips_remaining}, clips_uploaded=${session.clips_uploaded}`);
         console.log(`   Session details: expiry=${session.session_expiry}, created_at=${session.created_at}`);
         
@@ -666,7 +668,7 @@ async function getRemainingClipsForConversation(conversationId) {
         // First, check ALL sessions (not just active) to see what exists
         const { data: allSessionsAnyStatus, error: allStatusError } = await supabase
           .from('coaching_sessions')
-          .select('id, status, clips_remaining, created_at, session_expiry')
+          .select('id, status, clips_remaining, clips_uploaded, created_at, session_expiry')
           .eq('coach_id', conversation.coach_id)
           .order('created_at', { ascending: false })
           .limit(10);
@@ -677,6 +679,13 @@ async function getRemainingClipsForConversation(conversationId) {
             console.log(`     - ${s.id}: status=${s.status}, clips=${s.clips_remaining}, created=${s.created_at}, expiry=${s.session_expiry}`);
           });
         }
+
+        const { data: playerConversations, error: playerConvError } = await supabase
+          .from('conversations')
+          .select('session_id, id')
+          .eq('player_id', conversation.player_id)
+          .eq('coach_id', conversation.coach_id)
+          .eq('status', 'active');
         
         // Get all active sessions for this coach
         const { data: allCoachSessions, error: allSessionsError } = await supabase
@@ -693,14 +702,6 @@ async function getRemainingClipsForConversation(conversationId) {
         if (!allSessionsError && allCoachSessions && allCoachSessions.length > 0) {
           console.log(`   ✅ Found ${allCoachSessions.length} active sessions for coach`);
           console.log(`Found ${allCoachSessions.length} active sessions for coach (aggressive fallback)`);
-          
-          // Get all conversations for this player-coach pair (regardless of session_id)
-          const { data: playerConversations, error: playerConvError } = await supabase
-            .from('conversations')
-            .select('session_id, id')
-            .eq('player_id', conversation.player_id)
-            .eq('coach_id', conversation.coach_id)
-            .eq('status', 'active');
 
           if (!playerConvError && playerConversations) {
             console.log(`Found ${playerConversations.length} conversations for player-coach pair`);
@@ -810,6 +811,47 @@ async function getRemainingClipsForConversation(conversationId) {
             totalClips = totalRemaining + totalUsed;
           }
         }
+
+        // Secondary fallback: show stored totals from expired/inactive sessions linked via conversation rows
+        if (totalRemaining === 0 && totalUsed === 0 && !linkedSession && !allStatusError && allSessionsAnyStatus && !playerConvError && playerConversations) {
+          const currentConvSessionId = playerConversations.find((conv) => conv.id === conversationId)?.session_id;
+          const playerSessionIds = currentConvSessionId
+            ? [currentConvSessionId]
+            : playerConversations.map((conv) => conv.session_id).filter(Boolean);
+
+          for (const session of allSessionsAnyStatus) {
+            if (playerSessionIds.includes(session.id)) {
+              const storedUsed = session.clips_uploaded || 0;
+              const storedRemaining = session.clips_remaining || 0;
+              const storedTotal = storedUsed + storedRemaining;
+
+              if (storedTotal > 0) {
+                console.log(`📦 Using expired/inactive session ${session.id} for display: total=${storedTotal}, used=${storedUsed}`);
+                return {
+                  remaining: 0,
+                  total: storedTotal,
+                  used: storedUsed,
+                };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Display-only fallback for expired/inactive linked sessions (no new clips allowed)
+    if (totalRemaining === 0 && totalUsed === 0 && linkedSession) {
+      const storedUsed = linkedSession.clips_uploaded || 0;
+      const storedRemaining = linkedSession.clips_remaining || 0;
+      const storedTotal = storedUsed + storedRemaining;
+
+      if (storedTotal > 0) {
+        console.log(`📦 Using linked expired/inactive session ${linkedSession.id} for display: total=${storedTotal}, used=${storedUsed}`);
+        return {
+          remaining: 0,
+          total: storedTotal,
+          used: storedUsed,
+        };
       }
     }
 

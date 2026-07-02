@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,16 @@ import {
   Dimensions,
   Animated,
   Image,
+  RefreshControl,
+  Modal,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../supabaseClient';
 import { getConversations, formatConversationForDisplay } from '../../services/conversationService';
-import { getCoachProfilePhoto } from '../../services/conversationService';
+import { getCoachProfilePhoto, getRemainingDailyMessages, getRemainingClips } from '../../services/conversationService';
 import { getAllCoachProfiles } from '../../utils/coachData';
 import { sports } from '../../utils/sportsData';
 
@@ -50,17 +53,177 @@ const motivationalQuotes = [
   }
 ];
 
+const LAST_QUOTE_SHOWN_DATE_KEY = 'lastQuoteShownDate';
+
+const getTodayDateString = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getTodaysQuoteByDayOfYear = () => {
+  const today = new Date();
+  const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
+  const quoteIndex = dayOfYear % motivationalQuotes.length;
+  return motivationalQuotes[quoteIndex];
+};
+
+const getQuoteText = (quoteEntry) => {
+  const suffix = ` - ${quoteEntry.author}`;
+  if (quoteEntry.quote.endsWith(suffix)) {
+    return quoteEntry.quote.slice(0, -suffix.length);
+  }
+  return quoteEntry.quote;
+};
+
+const getConversationRecency = (conv) =>
+  new Date(conv.last_message_at || conv.created_at || 0).getTime();
+
+const RECENT_FEEDBACK_FOCUS_DEBOUNCE_MS = 3000;
+const RECENT_FEEDBACK_LIST_LIMIT = 10;
+
+const capitalizeSport = (sport) => {
+  if (!sport) return '';
+  return sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
+};
+
+const buildFeedbackItem = async (conv) => {
+  const formattedConversation = await formatConversationForDisplay(conv, 'player');
+
+  const chatNotExpired =
+    formattedConversation.chatExpiry &&
+    !formattedConversation.chatExpiry.isExpired &&
+    formattedConversation.chatExpiry.daysRemaining !== 0;
+
+  const sessionPromise = formattedConversation.sessionId
+    ? supabase
+        .from('coaching_sessions')
+        .select('*')
+        .eq('id', formattedConversation.sessionId)
+        .single()
+        .then(({ data, error }) => (error ? null : data))
+        .catch((error) => {
+          console.log('Error fetching session info:', error);
+          return null;
+        })
+    : Promise.resolve(null);
+
+  const [session, clipInfo, dailyInfo] = await Promise.all([
+    sessionPromise,
+    getRemainingClips(formattedConversation.id),
+    chatNotExpired ? getRemainingDailyMessages(formattedConversation.id) : Promise.resolve(null),
+  ]);
+
+  const clipsSent = clipInfo?.used ?? 0;
+  const clipsTotal = clipInfo?.total ?? 0;
+
+  const sport = capitalizeSport(formattedConversation.sport || session?.sport || '');
+
+  let packageLabel;
+  if (session) {
+    const clips = clipsTotal > 0 ? clipsTotal : session.clips_remaining || 0;
+    packageLabel =
+      session.package_type === 'subscription'
+        ? `${clips} Clips Subscription`
+        : `${clips} Clips Package`;
+  } else if (clipsTotal > 0) {
+    packageLabel = `${clipsTotal} Clips Package`;
+  } else {
+    packageLabel = 'Package';
+  }
+
+  const packageText = sport ? `${packageLabel} • ${sport}` : packageLabel;
+
+  let status = 'Active';
+
+  if (formattedConversation.chatExpiry) {
+    if (
+      formattedConversation.chatExpiry.isExpired ||
+      formattedConversation.chatExpiry.daysRemaining === 0
+    ) {
+      status = 'Inactive';
+    }
+  }
+
+  if (status === 'Active' && session) {
+    if (session.status === 'active') {
+      status = 'Active';
+    } else if (session.status === 'completed') {
+      status = 'Completed';
+    } else if (session.status === 'expired') {
+      status = 'Expired';
+    }
+  }
+
+  // Only treat as a real "0 days left" when chat expiry actually loaded; otherwise leave null so
+  // the card can show "—" rather than implying the session expires today.
+  let daysLeft = null;
+  if (
+    formattedConversation.chatExpiry &&
+    typeof formattedConversation.chatExpiry.daysRemaining === 'number'
+  ) {
+    daysLeft = formattedConversation.chatExpiry.daysRemaining;
+  }
+
+  let messagesToday = null;
+  if (status === 'Active' && dailyInfo && typeof dailyInfo.remaining === 'number') {
+    messagesToday = dailyInfo.remaining;
+  }
+
+  let avatarUrl = formattedConversation.avatar;
+  if (!avatarUrl && formattedConversation.coachName) {
+    try {
+      const { data: convRow } = await supabase
+        .from('conversations')
+        .select('coach_id')
+        .eq('id', formattedConversation.id)
+        .single();
+
+      if (convRow?.coach_id) {
+        avatarUrl = await getCoachProfilePhoto(convRow.coach_id);
+      }
+    } catch (error) {
+      console.log('Error fetching coach profile photo:', error);
+    }
+  }
+
+  const coachName =
+    formattedConversation.otherPartyName || formattedConversation.coachName || 'Coach';
+
+  return {
+    id: formattedConversation.id,
+    coachName,
+    coachInitial: coachName.charAt(0).toUpperCase(),
+    sport,
+    packageLabel,
+    package: packageText,
+    status,
+    daysLeft,
+    clipsSent,
+    clipsTotal,
+    messagesToday,
+    sessionEndedNote: 'Session ended · review archived',
+    message: formattedConversation.lastMessage || 'Click to view feedback and chat',
+    avatar: avatarUrl,
+    conversationId: formattedConversation.id,
+    recency: getConversationRecency(conv),
+  };
+};
+
 export default function HomeScreen({ navigation }) {
   const [userName, setUserName] = useState('Player');
   const [todaysQuote, setTodaysQuote] = useState(motivationalQuotes[0]);
+  const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [hasFeedback, setHasFeedback] = useState(false); // Default to no feedback
-  const [recentFeedback, setRecentFeedback] = useState(null);
+  const [recentFeedback, setRecentFeedback] = useState([]);
   const [coachesBySport, setCoachesBySport] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const lastRecentFeedbackLoadAtRef = useRef(0);
+  const loadRecentFeedbackRef = useRef(null);
 
   // Get user's name from Supabase
   const getUserName = async () => {
@@ -94,13 +257,23 @@ export default function HomeScreen({ navigation }) {
   };
 
   // Function to load recent feedback from conversations
-  const loadRecentFeedback = async () => {
+  const loadRecentFeedback = useCallback(async ({ forceRefresh = false, skipDebounce = false } = {}) => {
+    const now = Date.now();
+    if (
+      !skipDebounce &&
+      lastRecentFeedbackLoadAtRef.current &&
+      now - lastRecentFeedbackLoadAtRef.current < RECENT_FEEDBACK_FOCUS_DEBOUNCE_MS
+    ) {
+      return;
+    }
+    lastRecentFeedbackLoadAtRef.current = now;
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.log('No authenticated user found');
         setHasFeedback(false);
-        setRecentFeedback(null);
+        setRecentFeedback([]);
         return;
       }
 
@@ -110,7 +283,7 @@ export default function HomeScreen({ navigation }) {
       // Get conversations for this player
       let conversationsData;
       try {
-        conversationsData = await getConversations(playerId, 'player');
+        conversationsData = await getConversations(playerId, 'player', { forceRefresh });
         console.log('Retrieved conversations data:', conversationsData);
       } catch (conversationError) {
         if (conversationError?.rateLimited) {
@@ -133,7 +306,7 @@ export default function HomeScreen({ navigation }) {
             console.log('   To enable feedback: cd backend && node server.js');
           }
           setHasFeedback(false);
-          setRecentFeedback(null);
+          setRecentFeedback([]);
           return;
         }
         // Re-throw other errors
@@ -143,123 +316,26 @@ export default function HomeScreen({ navigation }) {
       if (!conversationsData || conversationsData.length === 0) {
         console.log('No conversations found for player');
         setHasFeedback(false);
-        setRecentFeedback(null);
+        setRecentFeedback([]);
         return;
       }
 
-      // Get the most recent conversation
-      const mostRecentConv = conversationsData[0]; // Conversations are already sorted by last_message_at
+      const feedbackItems = await Promise.all(
+        conversationsData.map((conv) => buildFeedbackItem(conv))
+      );
 
-      // Format the conversation for display
-      const formattedConversation = await formatConversationForDisplay(mostRecentConv, 'player');
-      console.log('Formatted conversation:', formattedConversation);
+      feedbackItems.sort((a, b) => {
+        const aActive = a.status === 'Active';
+        const bActive = b.status === 'Active';
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return b.recency - a.recency;
+      });
 
-      // Get coaching session info for package details
-      let packageText = 'Package';
-      if (formattedConversation.sessionId) {
-        try {
-          const { data: session, error: sessionError } = await supabase
-            .from('coaching_sessions')
-            .select('*')
-            .eq('id', formattedConversation.sessionId)
-            .single();
+      const limitedFeedbackItems = feedbackItems.slice(0, RECENT_FEEDBACK_LIST_LIMIT);
 
-          if (!sessionError && session) {
-            const totalClips = (session.clips_remaining || 0) + (session.clips_uploaded || 0);
-            const clips = totalClips > 0 ? totalClips : (session.clips_remaining || 0);
-            const sport = formattedConversation.sport || session.sport || '';
-            const capitalizedSport = sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
-            
-            if (session.package_type === 'subscription') {
-              packageText = `${clips} Clips Subscription • ${capitalizedSport}`;
-            } else {
-              packageText = `${clips} Clips Package • ${capitalizedSport}`;
-            }
-          } else {
-            // Fallback if session not found
-            const sport = formattedConversation.sport || '';
-            const capitalizedSport = sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
-            packageText = `Package • ${capitalizedSport}`;
-          }
-        } catch (error) {
-          console.log('Error fetching session info:', error);
-          const sport = formattedConversation.sport || '';
-          const capitalizedSport = sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
-          packageText = `Package • ${capitalizedSport}`;
-        }
-      } else {
-        const sport = formattedConversation.sport || '';
-        const capitalizedSport = sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
-        packageText = `Package • ${capitalizedSport}`;
-      }
-
-      // Determine status - check chat expiry first, then session status
-      let status = 'Active';
-      
-      // Check if chat is expired (0 days left or isExpired = true)
-      if (formattedConversation.chatExpiry) {
-        if (formattedConversation.chatExpiry.isExpired || 
-            formattedConversation.chatExpiry.daysRemaining === 0) {
-          status = 'Inactive';
-        }
-      }
-      
-      // If chat is not expired, check session status
-      if (status === 'Active' && formattedConversation.sessionId) {
-        try {
-          const { data: session } = await supabase
-            .from('coaching_sessions')
-            .select('status')
-            .eq('id', formattedConversation.sessionId)
-            .single();
-          
-          if (session) {
-            if (session.status === 'active') {
-              status = 'Active';
-            } else if (session.status === 'completed') {
-              status = 'Completed';
-            } else if (session.status === 'expired') {
-              status = 'Expired';
-            }
-          }
-        } catch (error) {
-          console.log('Error checking session status:', error);
-        }
-      }
-
-      // Get coach profile photo if not already in formatted conversation
-      let avatarUrl = formattedConversation.avatar;
-      if (!avatarUrl && formattedConversation.coachName) {
-        try {
-          // Try to get coach ID from conversation
-          const { data: conv } = await supabase
-            .from('conversations')
-            .select('coach_id')
-            .eq('id', formattedConversation.id)
-            .single();
-          
-          if (conv && conv.coach_id) {
-            avatarUrl = await getCoachProfilePhoto(conv.coach_id);
-          }
-        } catch (error) {
-          console.log('Error fetching coach profile photo:', error);
-        }
-      }
-
-      const feedbackData = {
-        id: formattedConversation.id,
-        coachName: formattedConversation.otherPartyName || formattedConversation.coachName || 'Coach',
-        coachInitial: (formattedConversation.otherPartyName || formattedConversation.coachName || 'C').charAt(0).toUpperCase(),
-        package: packageText,
-        status: status,
-        message: formattedConversation.lastMessage || 'Click to view feedback and chat',
-        avatar: avatarUrl,
-        conversationId: formattedConversation.id,
-      };
-
-      console.log('Loaded recent feedback:', feedbackData);
-      setRecentFeedback(feedbackData);
-      setHasFeedback(true);
+      console.log('Loaded recent feedback:', limitedFeedbackItems);
+      setRecentFeedback(limitedFeedbackItems);
+      setHasFeedback(limitedFeedbackItems.length > 0);
     } catch (error) {
       // Only log non-backend-connection errors
       const errorMessage = error?.message || '';
@@ -278,9 +354,11 @@ export default function HomeScreen({ navigation }) {
       }
       
       setHasFeedback(false);
-      setRecentFeedback(null);
+      setRecentFeedback([]);
     }
-  };
+  }, []);
+
+  loadRecentFeedbackRef.current = loadRecentFeedback;
 
   const loadCoachCounts = async () => {
     try {
@@ -315,19 +393,24 @@ export default function HomeScreen({ navigation }) {
   };
 
   useEffect(() => {
-    // Get today's motivational quote (based on day of year)
-    const getTodaysQuote = () => {
-      const today = new Date();
-      const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / (1000 * 60 * 60 * 24));
-      const quoteIndex = dayOfYear % motivationalQuotes.length;
-      setTodaysQuote(motivationalQuotes[quoteIndex]);
+    const checkDailyQuote = async () => {
+      try {
+        const todayStr = getTodayDateString();
+        const lastShown = await AsyncStorage.getItem(LAST_QUOTE_SHOWN_DATE_KEY);
+        if (lastShown !== todayStr) {
+          setTodaysQuote(getTodaysQuoteByDayOfYear());
+          setShowQuoteModal(true);
+          await AsyncStorage.setItem(LAST_QUOTE_SHOWN_DATE_KEY, todayStr);
+        }
+      } catch (error) {
+        console.log('Error checking daily quote:', error);
+      }
     };
 
-    getUserName();
-    getTodaysQuote();
-    loadRecentFeedback();
-    loadCoachCounts();
-    
+    checkDailyQuote();
+  }, []);
+
+  useEffect(() => {
     // Start entrance animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -348,23 +431,33 @@ export default function HomeScreen({ navigation }) {
     ]).start();
   }, []);
 
-  // Refresh user name and recent feedback when screen comes into focus
+  // Load user name, coach counts, and recent feedback when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       getUserName();
-      // Add a small delay to ensure any recent updates have propagated
-      const timer = setTimeout(() => {
-        loadRecentFeedback();
-        loadCoachCounts();
-      }, 500);
-      
-      return () => clearTimeout(timer);
+      loadCoachCounts();
+      loadRecentFeedbackRef.current?.({ forceRefresh: false });
     }, [])
   );
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadRecentFeedbackRef.current?.({ forceRefresh: true, skipDebounce: true });
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {/* Header with Dark Blue Background */}
         <Animated.View 
           style={[
@@ -487,48 +580,131 @@ export default function HomeScreen({ navigation }) {
               <Ionicons name="chatbubbles" size={20} color="#0C295C" />
               <Text style={styles.sectionTitle}>Recent Feedback</Text>
             </View>
-            {hasFeedback && recentFeedback ? (
-              <>
-                <TouchableOpacity 
-                  style={styles.feedbackCard}
-                  onPress={() => navigation.navigate('CoachFeedback', { conversationId: recentFeedback.conversationId })}
-                >
-                  <View style={styles.feedbackAvatar}>
-                    {recentFeedback.avatar ? (
-                      <Image 
-                        source={{ uri: recentFeedback.avatar }} 
-                        style={styles.feedbackAvatarImage}
-                        resizeMode="cover"
-                        onError={() => {
-                          console.log('Failed to load coach profile image for:', recentFeedback.coachName);
-                        }}
-                      />
-                    ) : (
-                      <Text style={styles.feedbackInitial}>{recentFeedback.coachInitial}</Text>
-                    )}
-                  </View>
-                  <View style={styles.feedbackContent}>
-                    <Text style={styles.feedbackCoachName}>{recentFeedback.coachName}</Text>
-                    <Text style={styles.feedbackPackage}>{recentFeedback.package}</Text>
-                    <View style={styles.feedbackStatus}>
-                      <View style={styles.statusDot} />
-                      <Text style={styles.feedbackStatusText}>{recentFeedback.message}</Text>
+            {hasFeedback && recentFeedback.length > 0 ? (
+              recentFeedback.map((item) =>
+                item.status === 'Active' ? (
+                  <View key={item.id} style={styles.feedbackCard}>
+                    <View style={styles.feedbackTopRow}>
+                      <View style={styles.feedbackAvatar}>
+                        {item.avatar ? (
+                          <Image
+                            source={{ uri: item.avatar }}
+                            style={styles.feedbackAvatarImage}
+                            resizeMode="cover"
+                            onError={() => {
+                              console.log('Failed to load coach profile image for:', item.coachName);
+                            }}
+                          />
+                        ) : (
+                          <Text style={styles.feedbackInitial}>{item.coachInitial}</Text>
+                        )}
+                      </View>
+                      <View style={styles.feedbackTopInfo}>
+                        <Text style={styles.feedbackCoachName}>{item.coachName}</Text>
+                        <Text style={styles.feedbackPackage} numberOfLines={1}>
+                          {item.sport ? `${item.sport} · ${item.packageLabel}` : item.packageLabel}
+                        </Text>
+                      </View>
+                      <View style={[styles.statusPill, styles.statusPillActive]}>
+                        <View style={styles.statusPillDot} />
+                        <Text style={styles.statusPillText}>Active</Text>
+                      </View>
                     </View>
-                  </View>
-                  <View style={styles.feedbackRight}>
-                    <View style={[
-                      styles.activeBadge,
-                      recentFeedback.status === 'Active' && styles.activeBadgeActive,
-                      recentFeedback.status === 'Inactive' && styles.activeBadgeInactive,
-                      recentFeedback.status === 'Completed' && styles.activeBadgeCompleted,
-                      recentFeedback.status === 'Expired' && styles.activeBadgeExpired
-                    ]}>
-                      <Text style={styles.activeBadgeText}>{recentFeedback.status}</Text>
+
+                    <View style={styles.statsRow}>
+                      <View style={styles.statColumn}>
+                        <Text style={styles.statValue}>
+                          {item.daysLeft != null ? item.daysLeft : '—'}
+                        </Text>
+                        <View style={styles.statLabelContainer}>
+                          <Text style={styles.statLabel} numberOfLines={1}>DAYS LEFT</Text>
+                        </View>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statColumn}>
+                        <Text style={styles.statValue}>
+                          {item.clipsSent}
+                          <Text style={styles.statValueMuted}>/{item.clipsTotal}</Text>
+                        </Text>
+                        <View style={styles.statLabelContainer}>
+                          <Text style={styles.statLabel} numberOfLines={1}>CLIPS SENT</Text>
+                        </View>
+                      </View>
+                      <View style={styles.statDivider} />
+                      <View style={styles.statColumn}>
+                        <Text style={[styles.statValue, styles.statValueAccent]}>
+                          {item.messagesToday != null ? item.messagesToday : '—'}
+                        </Text>
+                        <View style={styles.statLabelContainer}>
+                          <Text style={[styles.statLabel, styles.statLabelLong]} numberOfLines={2}>
+                            MESSAGES TODAY
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                    <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+
+                    <TouchableOpacity
+                      style={styles.continueButton}
+                      activeOpacity={0.85}
+                      onPress={() =>
+                        navigation.navigate({
+                          name: 'CoachFeedback',
+                          params: { conversationId: item.conversationId },
+                          merge: true,
+                        })
+                      }
+                    >
+                      <Ionicons name="chatbubble-ellipses-outline" size={18} color="white" />
+                      <Text style={styles.continueButtonText}>Continue chat</Text>
+                    </TouchableOpacity>
                   </View>
-                </TouchableOpacity>
-              </>
+                ) : (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.feedbackCardInactive}
+                    activeOpacity={0.9}
+                    onPress={() => navigation.navigate('CoachFeedback', { conversationId: item.conversationId })}
+                  >
+                    <View style={styles.feedbackAvatar}>
+                      {item.avatar ? (
+                        <Image
+                          source={{ uri: item.avatar }}
+                          style={styles.feedbackAvatarImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log('Failed to load coach profile image for:', item.coachName);
+                          }}
+                        />
+                      ) : (
+                        <Text style={styles.feedbackInitial}>{item.coachInitial}</Text>
+                      )}
+                    </View>
+                    <View style={styles.feedbackContent}>
+                      <Text style={styles.feedbackCoachName}>{item.coachName}</Text>
+                      <Text style={styles.feedbackPackage} numberOfLines={1}>
+                        {item.sport ? `${item.sport} · ${item.clipsTotal} Clips` : `${item.clipsTotal} Clips`}
+                      </Text>
+                      <View style={styles.inactiveNoteRow}>
+                        <View style={styles.inactiveDot} />
+                        <Text style={styles.inactiveNoteText} numberOfLines={1}>
+                          {item.sessionEndedNote}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.feedbackRight}>
+                      <View style={[
+                        styles.activeBadge,
+                        styles.activeBadgeInactive,
+                        item.status === 'Completed' && styles.activeBadgeCompleted,
+                        item.status === 'Expired' && styles.activeBadgeExpired
+                      ]}>
+                        <Text style={styles.activeBadgeText}>{item.status}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+                    </View>
+                  </TouchableOpacity>
+                )
+              )
             ) : (
               <LinearGradient
                 colors={['#FFFFFF', '#F8FAFF']}
@@ -560,6 +736,31 @@ export default function HomeScreen({ navigation }) {
           </Animated.View>
         </View>
       </ScrollView>
+
+      <Modal
+        visible={showQuoteModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowQuoteModal(false)}
+      >
+        <View style={styles.quoteModalOverlay}>
+          <View style={styles.quoteModalCard}>
+            <View style={styles.quoteModalIconCircle}>
+              <Ionicons name="flame" size={32} color="#FF6B35" />
+            </View>
+            <Text style={styles.quoteModalLabel}>TODAY'S MOTIVATION</Text>
+            <Text style={styles.quoteModalText}>{getQuoteText(todaysQuote)}</Text>
+            <Text style={styles.quoteModalAuthor}>— {todaysQuote.author}</Text>
+            <TouchableOpacity
+              style={styles.quoteModalButton}
+              activeOpacity={0.85}
+              onPress={() => setShowQuoteModal(false)}
+            >
+              <Text style={styles.quoteModalButtonText}>Let's go</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -696,6 +897,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 20,
     padding: 20,
+    marginBottom: 16,
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(12, 41, 92, 0.08)',
+  },
+  feedbackCardInactive: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
@@ -709,6 +926,14 @@ const styles = StyleSheet.create({
     elevation: 8,
     borderWidth: 1,
     borderColor: 'rgba(12, 41, 92, 0.08)',
+  },
+  feedbackTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  feedbackTopInfo: {
+    flex: 1,
+    marginRight: 8,
   },
   feedbackAvatar: {
     width: 52,
@@ -796,6 +1021,115 @@ const styles = StyleSheet.create({
     fontSize: width * 0.035,
     fontFamily: 'Rubik-Medium',
     color: 'white',
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  statusPillActive: {
+    backgroundColor: '#E7F6EC',
+  },
+  statusPillDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#2E9E5B',
+    marginRight: 6,
+  },
+  statusPillText: {
+    fontSize: width * 0.033,
+    fontFamily: 'Rubik-Medium',
+    color: '#2E9E5B',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 18,
+    marginBottom: 18,
+  },
+  statColumn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 10,
+  },
+  statDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: 'rgba(12, 41, 92, 0.1)',
+    marginHorizontal: 6,
+  },
+  statValue: {
+    fontSize: width * 0.055,
+    fontFamily: 'Rubik-Bold',
+    color: '#0C295C',
+    marginBottom: 4,
+  },
+  statValueMuted: {
+    fontSize: width * 0.045,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#90A4AE',
+  },
+  statValueAccent: {
+    color: '#FF6B35',
+  },
+  statLabel: {
+    fontSize: width * 0.023,
+    fontFamily: 'Manrope-Medium',
+    color: '#64748B',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  statLabelContainer: {
+    minHeight: width * 0.06,
+    width: '100%',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+  },
+  statLabelLong: {
+    letterSpacing: 0.6,
+    lineHeight: width * 0.03,
+  },
+  continueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0C295C',
+    borderRadius: 14,
+    paddingVertical: 14,
+    gap: 8,
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  continueButtonText: {
+    fontSize: width * 0.04,
+    fontFamily: 'Rubik-SemiBold',
+    color: 'white',
+  },
+  inactiveNoteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inactiveDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#B0BEC5',
+    marginRight: 8,
+  },
+  inactiveNoteText: {
+    fontSize: width * 0.033,
+    fontFamily: 'Manrope-Regular',
+    color: '#90A4AE',
+    flexShrink: 1,
   },
   findCoachSection: {
     marginBottom: 28,
@@ -974,5 +1308,80 @@ const styles = StyleSheet.create({
     fontFamily: 'Manrope-SemiBold',
     color: 'white',
     marginRight: 8,
+  },
+  quoteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(12, 41, 92, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 28,
+  },
+  quoteModalCard: {
+    backgroundColor: 'white',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    maxWidth: 360,
+    alignItems: 'center',
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  quoteModalIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 107, 53, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  quoteModalLabel: {
+    fontSize: width * 0.032,
+    fontFamily: 'Rubik-SemiBold',
+    color: '#64748B',
+    letterSpacing: 1.5,
+    marginBottom: 16,
+  },
+  quoteModalText: {
+    fontSize: width * 0.042,
+    fontFamily: 'Manrope-Regular',
+    color: '#2C3E50',
+    lineHeight: 26,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  quoteModalAuthor: {
+    fontSize: width * 0.038,
+    fontFamily: 'Manrope-Medium',
+    color: '#90A4AE',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  quoteModalButton: {
+    width: '100%',
+    backgroundColor: '#0C295C',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    shadowColor: '#0C295C',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  quoteModalButtonText: {
+    fontSize: width * 0.04,
+    fontFamily: 'Rubik-SemiBold',
+    color: 'white',
   },
 });

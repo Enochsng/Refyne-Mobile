@@ -380,8 +380,29 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
   }, [selectedConversation]);
 
-  // Load messages when a conversation is selected via route params
-  // Note: Manual selection from list calls loadMessages directly, so we don't need a useEffect for that
+  // Auto-select conversation when conversationId is passed via route params (e.g. Home Continue chat)
+  useEffect(() => {
+    const conversationId = route?.params?.conversationId;
+    if (!conversationId || conversations.length === 0) {
+      return;
+    }
+
+    if (selectedConversation?.id === conversationId) {
+      return;
+    }
+
+    const conversationToSelect = conversationsRef.current.find(
+      (conv) => conv.id === conversationId
+    );
+    if (!conversationToSelect) {
+      return;
+    }
+
+    console.log('Auto-selecting conversation from route params:', conversationId);
+    setSelectedConversation(conversationToSelect);
+    loadMessages(conversationToSelect.id);
+    navigation.setParams({ conversationId: undefined });
+  }, [route?.params?.conversationId, conversations.length, selectedConversation?.id, navigation]);
 
   // Filter conversations based on search query
   const filteredConversations = conversations.filter(conversation =>
