@@ -593,31 +593,17 @@ async function getRemainingClipsForConversation(conversationId) {
         } else {
           console.log(`⚠️ Session is not active (status: ${session.status})`);
         }
-      } else {
-        console.log(`❌ Session not found by ID: ${conversation.session_id}`);
-        console.log(`   This means the session doesn't exist in the database.`);
-        console.log(`   Possible reasons:`);
-        console.log(`   1. The webhook didn't create the session`);
-        console.log(`   2. The session was created with a different ID`);
-        console.log(`   3. The session was deleted`);
-        
-        // Check if there are any sessions in the database at all for this coach
-        if (isSupabaseConfigured) {
-          const { data: anySessions, error: anyError } = await supabase
-            .from('coaching_sessions')
-            .select('id, status, clips_remaining, created_at, session_expiry')
-            .eq('coach_id', conversation.coach_id)
-            .order('created_at', { ascending: false })
-            .limit(5);
-          
-          if (!anyError && anySessions) {
-            console.log(`   Found ${anySessions.length} total sessions for this coach (any status):`);
-            anySessions.forEach(s => {
-              console.log(`     - ${s.id}: status=${s.status}, clips=${s.clips_remaining}, created=${s.created_at}`);
-            });
-          }
-        }
+
+        // When a session is linked, only use that session — don't aggregate older packages
+        return {
+          remaining: totalRemaining,
+          total: totalClips,
+          used: totalUsed,
+        };
       }
+
+      console.log(`❌ Session not found by ID: ${conversation.session_id}`);
+      return { remaining: 0, total: 0, used: 0 };
     } else {
       console.log('⚠️ Conversation does not have a session_id');
     }
@@ -1312,8 +1298,19 @@ async function getRemainingDailyMessagesForConversation(conversationId) {
     // JavaScript Date constructor automatically converts these to UTC
     const startOfDay = new Date(`${estParts.year}-${estParts.month}-${estParts.day}T00:00:00${offset}`);
     const endOfDay = new Date(`${estParts.year}-${estParts.month}-${estParts.day}T23:59:59.999${offset}`);
+
+    // Scope daily counts to the linked session so repurchases reset today's limit
+    let countFrom = startOfDay;
+    if (conversation.session_id) {
+      const session = await getCoachingSession(conversation.session_id);
+      if (session?.created_at) {
+        countFrom = new Date(
+          Math.max(startOfDay.getTime(), new Date(session.created_at).getTime())
+        );
+      }
+    }
     
-    // Count text messages sent by the player today
+    // Count text messages sent by the player today (since session start if repurchased today)
     const { data: messages, error } = await supabase
       .from('messages')
       .select('id')
@@ -1321,7 +1318,7 @@ async function getRemainingDailyMessagesForConversation(conversationId) {
       .eq('sender_id', conversation.player_id)
       .eq('sender_type', 'player')
       .eq('message_type', 'text')
-      .gte('created_at', startOfDay.toISOString())
+      .gte('created_at', countFrom.toISOString())
       .lte('created_at', endOfDay.toISOString());
 
     if (error) {
@@ -1535,6 +1532,225 @@ function isPlaceholderPlayerId(playerId) {
   return false;
 }
 
+async function expireCoachingSession(sessionId) {
+  if (!sessionId || !isSupabaseConfigured || !supabase) return;
+
+  try {
+    await supabase
+      .from('coaching_sessions')
+      .update({ status: 'expired', updated_at: new Date().toISOString() })
+      .eq('id', sessionId);
+    console.log(`✅ Expired prior coaching session: ${sessionId}`);
+  } catch (err) {
+    console.error(`Error expiring coaching session ${sessionId}:`, err);
+  }
+}
+
+async function findExistingConversationForPlayerCoach(conversationData) {
+  const { playerId, coachId, existingConversationId } = conversationData;
+
+  if (!isSupabaseConfigured || !supabase) {
+    if (existingConversationId) {
+      const explicitConv = conversations.find((conv) => conv.id === existingConversationId);
+      if (
+        explicitConv &&
+        explicitConv.player_id === playerId &&
+        explicitConv.coach_id === coachId
+      ) {
+        return explicitConv;
+      }
+    }
+
+    const matches = conversations.filter(
+      (conv) => conv.player_id === playerId && conv.coach_id === coachId
+    );
+    if (matches.length === 0) return null;
+    return matches.sort(
+      (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
+    )[0];
+  }
+
+  if (existingConversationId) {
+    const explicitConv = await getConversation(existingConversationId);
+    if (
+      explicitConv &&
+      explicitConv.player_id === playerId &&
+      explicitConv.coach_id === coachId
+    ) {
+      return explicitConv;
+    }
+  }
+
+  const { data: existingConversations, error: findError } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('player_id', playerId)
+    .eq('coach_id', coachId)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+
+  if (findError) {
+    console.error('Error finding existing conversation:', findError);
+    return null;
+  }
+
+  return existingConversations?.[0] || null;
+}
+
+function isUniqueViolationError(error) {
+  return error?.code === '23505';
+}
+
+async function isReactivationScenario(existingConv, conversationData) {
+  const { existingConversationId, sessionId } = conversationData;
+
+  if (existingConversationId && existingConv.id === existingConversationId) {
+    return true;
+  }
+
+  if (sessionId && sessionId !== existingConv.session_id) {
+    const chatExpiry = await checkChatExpiry(existingConv.id);
+    if (chatExpiry?.isExpired) {
+      return true;
+    }
+  }
+
+  if (existingConv.session_id) {
+    const linkedSession = await getCoachingSession(existingConv.session_id);
+    if (linkedSession && (linkedSession.status || '').toLowerCase() !== 'active') {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function updateConversationRow(conversationId, updatePayload) {
+  if (!isSupabaseConfigured || !supabase) {
+    const inMemoryConv = conversations.find((conv) => conv.id === conversationId);
+    if (!inMemoryConv) {
+      throw new Error(`Conversation not found in memory: ${conversationId}`);
+    }
+    Object.assign(inMemoryConv, updatePayload);
+    return { ...inMemoryConv };
+  }
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .update(updatePayload)
+    .eq('id', conversationId)
+    .select()
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+async function resolveReactivationUniqueViolation(existingConv, conversationData, updatePayload) {
+  const newSessionId = conversationData.sessionId;
+
+  if (isSupabaseConfigured && supabase) {
+    const { data: conflicts, error: conflictError } = await supabase
+      .from('conversations')
+      .select('id')
+      .eq('player_id', conversationData.playerId)
+      .eq('coach_id', conversationData.coachId)
+      .eq('session_id', newSessionId)
+      .neq('id', existingConv.id);
+
+    if (conflictError) {
+      console.error('Error finding conflicting conversation rows:', conflictError);
+    } else if (conflicts?.length) {
+      const conflictIds = conflicts.map((row) => row.id);
+      await supabase.from('conversations').delete().in('id', conflictIds);
+      console.log(`Removed ${conflictIds.length} duplicate conversation row(s) blocking reactivation`);
+    }
+  }
+
+  let targetConv = existingConv;
+  if (conversationData.existingConversationId) {
+    const explicitConv = await getConversation(conversationData.existingConversationId);
+    if (
+      explicitConv &&
+      explicitConv.player_id === conversationData.playerId &&
+      explicitConv.coach_id === conversationData.coachId
+    ) {
+      targetConv = explicitConv;
+    }
+  }
+
+  return updateConversationRow(targetConv.id, updatePayload);
+}
+
+async function reactivateConversationRow(existingConv, conversationData) {
+  const newSessionId = conversationData.sessionId;
+
+  let convToUpdate = existingConv;
+  if (conversationData.existingConversationId) {
+    const explicitConv = await getConversation(conversationData.existingConversationId);
+    if (
+      explicitConv &&
+      explicitConv.player_id === conversationData.playerId &&
+      explicitConv.coach_id === conversationData.coachId
+    ) {
+      convToUpdate = explicitConv;
+    }
+  }
+
+  const oldSessionId =
+    convToUpdate.session_id && convToUpdate.session_id !== newSessionId
+      ? convToUpdate.session_id
+      : null;
+
+  const updatePayload = {
+    session_id: newSessionId,
+    status: 'active',
+    updated_at: new Date().toISOString(),
+  };
+
+  let updatedConv;
+  try {
+    updatedConv = await updateConversationRow(convToUpdate.id, updatePayload);
+  } catch (updateError) {
+    if (!isUniqueViolationError(updateError)) {
+      throw updateError;
+    }
+
+    console.warn(
+      `Unique violation reactivating conversation ${convToUpdate.id}, resolving and retrying`
+    );
+    updatedConv = await resolveReactivationUniqueViolation(
+      convToUpdate,
+      conversationData,
+      updatePayload
+    );
+  }
+
+  if (oldSessionId) {
+    await expireCoachingSession(oldSessionId);
+  }
+
+  console.log(`✅ Reactivated conversation ${updatedConv.id} with new session ${newSessionId}`);
+  return { ...updatedConv, reactivated: true };
+}
+
+async function lightweightUpdateConversationRow(existingConv, conversationData) {
+  const updatePayload = {
+    session_id: conversationData.sessionId,
+    updated_at: new Date().toISOString(),
+  };
+
+  const updatedConv = await updateConversationRow(existingConv.id, updatePayload);
+  console.log(
+    `✅ Updated existing conversation ${existingConv.id} with new session ${conversationData.sessionId}`
+  );
+  console.log('   This will reset the chat expiration countdown');
+  return { ...updatedConv, reactivated: false };
+}
+
 /**
  * Find or create/update a conversation between player and coach
  * If a conversation already exists, update its session_id to the new session
@@ -1542,82 +1758,55 @@ function isPlaceholderPlayerId(playerId) {
  */
 async function findOrUpdateConversation(conversationData) {
   try {
+    const existingConv = await findExistingConversationForPlayerCoach(conversationData);
+
+    if (existingConv && conversationData.sessionId) {
+      const isReactivation = await isReactivationScenario(existingConv, conversationData);
+      if (isReactivation) {
+        return await reactivateConversationRow(existingConv, conversationData);
+      }
+      return await lightweightUpdateConversationRow(existingConv, conversationData);
+    }
+
+    if (existingConv) {
+      return existingConv;
+    }
+
+    // Safety net: if lookup missed an expired row, reactivate instead of inserting a duplicate
+    if (conversationData.sessionId) {
+      const expiredRow = await findExistingConversationForPlayerCoach(conversationData);
+      if (expiredRow) {
+        const chatExpiry = await checkChatExpiry(expiredRow.id);
+        if (chatExpiry?.isExpired) {
+          return await reactivateConversationRow(expiredRow, conversationData);
+        }
+      }
+    }
+
     // Check if Supabase is configured
     if (!isSupabaseConfigured) {
       console.log('Using in-memory storage for conversation (Supabase not configured)');
-      
-      // Check if conversation already exists in memory
-      const existingConv = conversations.find(conv => 
-        conv.player_id === conversationData.playerId &&
-        conv.coach_id === conversationData.coachId &&
-        conv.status === 'active'
-      );
-      
-      if (existingConv) {
-        // Update existing conversation with new session_id
-        existingConv.session_id = conversationData.sessionId;
-        existingConv.updated_at = new Date().toISOString();
-        console.log(`Updated existing conversation ${existingConv.id} with new session ${conversationData.sessionId}`);
-        return existingConv;
-      } else {
-        // Create new conversation
-        const conversation = {
-          id: conversationData.id,
-          player_id: conversationData.playerId,
-          player_name: conversationData.playerName,
-          coach_id: conversationData.coachId,
-          coach_name: conversationData.coachName,
-          sport: conversationData.sport,
-          session_id: conversationData.sessionId,
-          last_message: conversationData.lastMessage || null,
-          last_message_at: conversationData.lastMessageAt || null,
-          player_unread_count: 0,
-          coach_unread_count: 0,
-          status: 'active',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        conversations.push(conversation);
-        console.log(`Conversation created in memory: ${conversationData.id}`);
-        return conversation;
-      }
-    }
 
-    // Check if conversation already exists in Supabase
-    const { data: existingConversations, error: findError } = await supabase
-      .from('conversations')
-      .select('*')
-      .eq('player_id', conversationData.playerId)
-      .eq('coach_id', conversationData.coachId)
-      .eq('status', 'active')
-      .limit(1);
-
-    if (findError) {
-      console.error('Error finding existing conversation:', findError);
-      // Continue to create new conversation if find fails
-    }
-
-    if (existingConversations && existingConversations.length > 0) {
-      // Update existing conversation with new session_id
-      const existingConv = existingConversations[0];
-      const { data: updatedConv, error: updateError } = await supabase
-        .from('conversations')
-        .update({
-          session_id: conversationData.sessionId,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingConv.id)
-        .select()
-        .single();
-
-      if (updateError) {
-        console.error('Error updating conversation:', updateError);
-        throw updateError;
-      }
-
-      console.log(`✅ Updated existing conversation ${existingConv.id} with new session ${conversationData.sessionId}`);
-      console.log(`   This will reset the chat expiration countdown`);
-      return updatedConv;
+      // Create new conversation
+      const conversation = {
+        id: conversationData.id,
+        player_id: conversationData.playerId,
+        player_name: conversationData.playerName,
+        coach_id: conversationData.coachId,
+        coach_name: conversationData.coachName,
+        sport: conversationData.sport,
+        session_id: conversationData.sessionId,
+        last_message: conversationData.lastMessage || null,
+        last_message_at: conversationData.lastMessageAt || null,
+        player_unread_count: 0,
+        coach_unread_count: 0,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      conversations.push(conversation);
+      console.log(`Conversation created in memory: ${conversationData.id}`);
+      return conversation;
     }
 
     // No existing conversation found, create a new one

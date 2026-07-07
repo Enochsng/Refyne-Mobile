@@ -29,6 +29,9 @@ import { supabase } from '../../supabaseClient';
 
 const { width } = Dimensions.get('window');
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isValidAuthUuid = (id) => typeof id === 'string' && UUID_REGEX.test(id);
+
 const COLORS = {
   primary: '#0C295C',
   primaryMid: '#1A4A7A',
@@ -84,7 +87,7 @@ const getCoachingPackages = (sport) => {
 };
 
 export default function PaywallScreen({ route, navigation }) {
-  const { coach, sport } = route.params;
+  const { coach, sport, existingConversationId } = route.params;
   const [selectedPackage, setSelectedPackage] = useState(2);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [paymentSheetEnabled, setPaymentSheetEnabled] = useState(false);
@@ -234,51 +237,59 @@ export default function PaywallScreen({ route, navigation }) {
         // Continue with the flow even if backend confirmation fails
       }
 
-      // Create conversation between player and coach (Paywall flow — backend skips placeholder playerId)
+      // Create or reactivate conversation only after backend payment confirmation
       let conversation = null;
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        console.log('Authentication check - User:', user ? 'Found' : 'Not found');
-
-        if (user) {
-          const playerId = user.id;
-          const { createConversation, resolveAuthenticatedPlayerName } = await import('../../services/conversationService');
-
-          let playerName = null;
-          const maxAttempts = 3;
-          for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            playerName = await resolveAuthenticatedPlayerName(playerId, {
-              refreshSession: attempt === 0,
-            });
-            if (playerName) break;
-            if (attempt < maxAttempts - 1) {
-              await new Promise((resolve) => setTimeout(resolve, 300));
-            }
-          }
-
-          if (!playerName) {
-            console.log('Skipping conversation creation — real player name not available yet (payment flow continues)');
-          } else {
-            console.log('Creating conversation after payment success...');
-            console.log('  - playerId:', playerId);
-            console.log('  - playerName:', playerName);
-            console.log('  - coachId:', coach.id);
-            console.log('  - coachName:', coach.name);
-            console.log('  - sport:', sport);
-            console.log('  - sessionId:', confirmedSession?.id || newSession.id);
-
-            conversation = await createConversation({
-              playerId,
-              playerName,
-              coachId: coach.id,
-              coachName: coach.name,
-              sport,
-              sessionId: confirmedSession?.id || newSession.id,
-            });
-            console.log('✅ Conversation created successfully:', conversation.id);
-          }
+        if (!confirmedSession?.id) {
+          console.log('Skipping conversation creation — waiting for confirmed backend session');
         } else {
-          console.log('No authenticated user found - skipping conversation creation');
+          const { data: { user } } = await supabase.auth.getUser();
+          console.log('Authentication check - User:', user ? 'Found' : 'Not found');
+
+          if (user && isValidAuthUuid(user.id)) {
+            const playerId = user.id;
+            const { createConversation, resolveAuthenticatedPlayerName } = await import('../../services/conversationService');
+
+            let playerName = null;
+            const maxAttempts = 3;
+            for (let attempt = 0; attempt < maxAttempts; attempt++) {
+              playerName = await resolveAuthenticatedPlayerName(playerId, {
+                refreshSession: attempt === 0,
+              });
+              if (playerName) break;
+              if (attempt < maxAttempts - 1) {
+                await new Promise((resolve) => setTimeout(resolve, 300));
+              }
+            }
+
+            if (!playerName) {
+              console.log('Skipping conversation creation — real player name not available yet (payment flow continues)');
+            } else if (!isValidAuthUuid(coach.id)) {
+              console.log('Skipping conversation creation — coach id is not a valid auth UUID');
+            } else {
+              console.log('Creating or reactivating conversation after payment success...');
+              console.log('  - playerId:', playerId);
+              console.log('  - playerName:', playerName);
+              console.log('  - coachId:', coach.id);
+              console.log('  - coachName:', coach.name);
+              console.log('  - sport:', sport);
+              console.log('  - sessionId:', confirmedSession.id);
+              console.log('  - existingConversationId:', existingConversationId || 'none');
+
+              conversation = await createConversation({
+                playerId,
+                playerName,
+                coachId: coach.id,
+                coachName: coach.name,
+                sport,
+                sessionId: confirmedSession.id,
+                existingConversationId: existingConversationId || undefined,
+              });
+              console.log('✅ Conversation ready:', conversation.id);
+            }
+          } else {
+            console.log('No authenticated user with valid UUID found - skipping conversation creation');
+          }
         }
       } catch (conversationError) {
         console.log('Conversation creation skipped or failed (non-critical):', conversationError?.message);
@@ -293,11 +304,10 @@ export default function PaywallScreen({ route, navigation }) {
           {
             text: 'Start Session',
             onPress: () => {
-              // Navigate to coaching session screen
               navigation.navigate('CoachFeedback', { 
-                sessionId: newSession.id,
+                sessionId: confirmedSession?.id || newSession.id,
                 sessionData: newSession,
-                conversationId: conversation?.id, // Include conversation ID if available
+                conversationId: conversation?.id || existingConversationId,
                 isNewSession: true 
               });
             },

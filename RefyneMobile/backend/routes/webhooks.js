@@ -267,7 +267,7 @@ async function handlePaymentIntentSucceeded(paymentIntent) {
         amount: parseInt(coachAmount),
         currency: paymentIntent.currency,
         platformFee: parseInt(platformFee),
-        status: 'completed',
+        status: 'paid',
         description: `Destination charge for ${coachName}`,
         metadata: {
           paymentType: 'destination_charge',

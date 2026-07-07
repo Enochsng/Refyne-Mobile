@@ -100,7 +100,8 @@ const createConversationSchema = Joi.object({
   }),
   coachName: Joi.string().required(),
   sport: Joi.string().required(),
-  sessionId: Joi.string().optional()
+  sessionId: Joi.string().optional(),
+  existingConversationId: Joi.string().optional(),
 });
 
 /**
@@ -688,7 +689,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const { playerId, playerName, coachId, coachName, sport, sessionId } = value;
+    const { playerId, playerName, coachId, coachName, sport, sessionId, existingConversationId } = value;
 
     // Generate unique conversation ID (will only be used if creating new conversation)
     const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -701,6 +702,7 @@ router.post('/', async (req, res) => {
       coachName,
       sport,
       sessionId: sessionId || null,
+      existingConversationId: existingConversationId || null,
       lastMessage: null,
       lastMessageAt: null
     };
@@ -716,6 +718,7 @@ router.post('/', async (req, res) => {
     res.json({
       success: true,
       conversation,
+      reactivated: !isNewConversation,
       message: isNewConversation 
         ? 'Conversation created successfully' 
         : 'Conversation updated with new session - chat expiration reset'

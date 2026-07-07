@@ -172,14 +172,16 @@ export default function CoachFeedbackScreen({ navigation, route }) {
             sessionId: conv.session_id,
             isOnline: false,
             avatar: null,
-            chatExpiry: conv.chatExpiry || null
+            chatExpiry: conv.chatExpiry || null,
+            coachId: conv.coach_id,
           };
 
-          return withTimeout(
+          const formatted = await withTimeout(
             formatConversationForDisplay(conv, 'player'),
             CONVERSATION_FORMAT_TIMEOUT_MS,
             fallbackConversation
           );
+          return { ...formatted, coachId: conv.coach_id };
         })
       );
       
@@ -365,6 +367,25 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     const stateExpired = chatExpiry && chatExpiry.isExpired;
     const conversationExpired = selectedConversation?.chatExpiry && selectedConversation.chatExpiry.isExpired;
     return stateExpired || conversationExpired;
+  };
+
+  const handleBookAgain = () => {
+    if (!selectedConversation?.coachId || !selectedConversation?.sport) {
+      Alert.alert('Unable to Book', 'Coach information is missing. Please try again.');
+      return;
+    }
+
+    navigation.navigate('ExploreSports', {
+      screen: 'Paywall',
+      params: {
+        coach: {
+          id: selectedConversation.coachId,
+          name: selectedConversation.coachName || selectedConversation.otherPartyName,
+        },
+        sport: selectedConversation.sport,
+        existingConversationId: selectedConversation.id,
+      },
+    });
   };
 
   // Clear chat state when selectedConversation becomes null
@@ -1092,9 +1113,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           {isChatExpired() ? (
             <View style={styles.readOnlyBanner}>
               <Ionicons name="lock-closed" size={16} color="#90A4AE" />
-              <Text style={styles.readOnlyText}>
-                This chat has expired and is now read-only. Purchase a new package to continue messaging.
-              </Text>
+              <View style={styles.readOnlyTextContainer}>
+                <Text style={styles.readOnlyText}>
+                  This chat has expired and is now read-only. Purchase a new package to continue messaging.{' '}
+                  <Text style={styles.bookAgainLink} onPress={handleBookAgain}>
+                    Book Again
+                  </Text>
+                </Text>
+              </View>
             </View>
           ) : (
             <View style={styles.inputWrapper}>
@@ -1746,13 +1772,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FFB74D',
   },
-  readOnlyText: {
+  readOnlyTextContainer: {
     flex: 1,
     marginLeft: 8,
+  },
+  readOnlyText: {
     fontSize: width * 0.035,
     fontFamily: 'Manrope-Regular',
     color: '#E65100',
     lineHeight: 18,
+  },
+  bookAgainLink: {
+    fontFamily: 'Manrope-Bold',
+    textDecorationLine: 'underline',
+    color: '#E65100',
   },
   // Search Bar Styles
   searchContainer: {
