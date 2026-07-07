@@ -11,12 +11,14 @@ import {
   Image,
   Modal,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabaseClient';
+import { confirmDeleteAccount } from '../../services/accountService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -33,6 +35,7 @@ export default function ProfileScreen({ navigation }) {
   const [profilePhotoUri, setProfilePhotoUri] = useState(null);
   const [showNameModal, setShowNameModal] = useState(false);
   const [newName, setNewName] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -383,6 +386,17 @@ export default function ProfileScreen({ navigation }) {
               <Text style={styles.actionButtonText}>Change Password</Text>
               <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteAccountButton]}
+              onPress={() => confirmDeleteAccount({ onDeletingChange: setIsDeletingAccount })}
+              disabled={isDeletingAccount}
+            >
+              <Ionicons name="trash-outline" size={24} color="#D32F2F" />
+              <Text style={[styles.actionButtonText, styles.deleteAccountText]}>Delete Account</Text>
+              {isDeletingAccount ? (
+                <ActivityIndicator size="small" color="#D32F2F" />
+              ) : null}
+            </TouchableOpacity>
             <TouchableOpacity style={[styles.actionButton, styles.logoutButton]} onPress={handleLogout}>
               <Ionicons name="log-out-outline" size={24} color="#FF5722" />
               <Text style={[styles.actionButtonText, styles.logoutText]}>Logout</Text>
@@ -647,6 +661,14 @@ const styles = StyleSheet.create({
   logoutButton: {
     borderWidth: 1,
     borderColor: '#FF5722',
+  },
+  deleteAccountButton: {
+    borderWidth: 1,
+    borderColor: '#D32F2F',
+    opacity: 1,
+  },
+  deleteAccountText: {
+    color: '#D32F2F',
   },
   logoutText: {
     color: '#FF5722',

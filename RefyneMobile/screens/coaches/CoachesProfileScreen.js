@@ -15,6 +15,7 @@ import {
   Platform,
   Linking,
   Clipboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,6 +26,7 @@ import { supabase } from '../../supabaseClient';
 import { migrateCoachNames } from '../../utils/coachData';
 import { STRIPE_CONNECT_CONFIG } from '../../stripeConfig';
 import stripeConnectService from '../../services/stripeConnectService';
+import { confirmDeleteAccount } from '../../services/accountService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -48,6 +50,7 @@ export default function CoachesProfileScreen({ navigation }) {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showBioModal, setShowBioModal] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [newLanguage, setNewLanguage] = useState('');
   const [newName, setNewName] = useState('');
   const [newBio, setNewBio] = useState('');
@@ -989,18 +992,20 @@ export default function CoachesProfileScreen({ navigation }) {
     </Animated.View>
   );
 
-  const ProfileItem = ({ icon, title, subtitle, onPress, rightElement }) => (
+  const ProfileItem = ({ icon, title, subtitle, onPress, rightElement, destructive, disabled }) => (
     <TouchableOpacity 
       style={styles.profileItem} 
       onPress={onPress}
-      disabled={!onPress}
+      disabled={disabled || !onPress}
     >
       <View style={styles.profileItemLeft}>
         <View style={styles.profileItemIcon}>
-          <Ionicons name={icon} size={20} color="#0C295C" />
+          <Ionicons name={icon} size={20} color={destructive ? '#D32F2F' : '#0C295C'} />
         </View>
         <View style={styles.profileItemContent}>
-          <Text style={styles.profileItemTitle}>{title}</Text>
+          <Text style={[styles.profileItemTitle, destructive && styles.profileItemTitleDestructive]}>
+            {title}
+          </Text>
           {subtitle && <Text style={styles.profileItemSubtitle}>{subtitle}</Text>}
         </View>
       </View>
@@ -1204,6 +1209,20 @@ export default function CoachesProfileScreen({ navigation }) {
                 icon="camera"
                 title="Add or change profile photo"
                 onPress={handleChangeProfilePhoto}
+              />
+              <ProfileItem
+                icon="trash"
+                title="Delete Account"
+                destructive
+                disabled={isDeletingAccount}
+                onPress={() => confirmDeleteAccount({ onDeletingChange: setIsDeletingAccount })}
+                rightElement={
+                  isDeletingAccount ? (
+                    <ActivityIndicator size="small" color="#D32F2F" />
+                  ) : (
+                    <Ionicons name="chevron-forward" size={20} color="#90A4AE" />
+                  )
+                }
               />
             </View>
           </ProfileSection>
@@ -1688,6 +1707,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Rubik-SemiBold',
     color: '#0C295C',
     marginBottom: 2,
+  },
+  profileItemTitleDestructive: {
+    color: '#D32F2F',
   },
   profileItemSubtitle: {
     fontSize: width * 0.04,

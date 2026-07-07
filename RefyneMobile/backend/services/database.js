@@ -2377,6 +2377,173 @@ async function initializeDatabase() {
   }
 }
 
+const AVATARS_BUCKET = 'avatars';
+const CHAT_MEDIA_BUCKET = 'chat-media';
+
+/**
+ * Extract bucket-relative object path from a Supabase public storage URL.
+ * Returns null for non-Supabase or legacy file:// URLs.
+ */
+function parseStoragePathFromPublicUrl(url, bucket) {
+  if (!url || typeof url !== 'string' || url.startsWith('file://')) {
+    return null;
+  }
+
+  const marker = `/storage/v1/object/public/${bucket}/`;
+  const idx = url.indexOf(marker);
+  if (idx === -1) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(url.slice(idx + marker.length).split('?')[0]);
+  } catch {
+    return url.slice(idx + marker.length).split('?')[0];
+  }
+}
+
+async function listStorageObjectPaths(bucket, prefix) {
+  if (!supabase || !prefix) {
+    return [];
+  }
+
+  const paths = [];
+  const queue = [prefix.replace(/\/$/, '')];
+
+  while (queue.length > 0) {
+    const currentPrefix = queue.shift();
+    const { data, error } = await supabase.storage.from(bucket).list(currentPrefix, { limit: 1000 });
+
+    if (error) {
+      console.warn(`Storage list failed for ${bucket}/${currentPrefix}:`, error.message);
+      continue;
+    }
+
+    for (const item of data || []) {
+      const itemPath = currentPrefix ? `${currentPrefix}/${item.name}` : item.name;
+      if (item.id) {
+        paths.push(itemPath);
+      } else {
+        queue.push(itemPath);
+      }
+    }
+  }
+
+  return paths;
+}
+
+async function removeStoragePaths(bucket, paths) {
+  if (!supabase || !paths || paths.length === 0) {
+    return;
+  }
+
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  const { error } = await supabase.storage.from(bucket).remove(uniquePaths);
+
+  if (error) {
+    console.warn(`Storage remove failed for ${bucket}:`, error.message);
+  }
+}
+
+async function cleanupStorageAfterAccountDelete(storagePaths) {
+  if (!storagePaths || !supabase) {
+    return;
+  }
+
+  const avatarPaths = new Set();
+  const chatMediaPaths = new Set();
+
+  for (const url of storagePaths.avatars || []) {
+    const path = parseStoragePathFromPublicUrl(url, AVATARS_BUCKET);
+    if (path) {
+      avatarPaths.add(path);
+    }
+  }
+
+  if (storagePaths.avatarPrefix) {
+    const prefixPaths = await listStorageObjectPaths(AVATARS_BUCKET, storagePaths.avatarPrefix);
+    prefixPaths.forEach((path) => avatarPaths.add(path));
+  }
+
+  for (const url of storagePaths.chatMedia || []) {
+    const path = parseStoragePathFromPublicUrl(url, CHAT_MEDIA_BUCKET);
+    if (path) {
+      chatMediaPaths.add(path);
+    }
+  }
+
+  await removeStoragePaths(AVATARS_BUCKET, [...avatarPaths]);
+  await removeStoragePaths(CHAT_MEDIA_BUCKET, [...chatMediaPaths]);
+}
+
+/**
+ * Permanently delete a user account and all related data in a single DB transaction.
+ * Storage cleanup runs best-effort after the transaction commits.
+ */
+async function deleteUserAccount(userId, userType) {
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const { data, error } = await supabase.rpc('delete_user_account', {
+    p_user_id: userId,
+    p_user_type: userType
+  });
+
+  if (error) {
+    if (error.message && error.message.includes('USER_NOT_FOUND')) {
+      const notFound = new Error('User not found');
+      notFound.code = 'USER_NOT_FOUND';
+      throw notFound;
+    }
+    if (error.message && error.message.includes('USER_TYPE_MISMATCH')) {
+      const mismatch = new Error('User type mismatch');
+      mismatch.code = 'USER_TYPE_MISMATCH';
+      throw mismatch;
+    }
+    throw error;
+  }
+
+  const result = typeof data === 'string' ? JSON.parse(data) : data;
+
+  try {
+    await cleanupStorageAfterAccountDelete(result?.storagePaths);
+  } catch (storageErr) {
+    console.warn('Post-delete storage cleanup failed (account already deleted):', storageErr.message);
+  }
+
+  return result;
+}
+
+/**
+ * Resolve the authenticated Supabase user from a Bearer access token.
+ */
+async function getUserFromAccessToken(accessToken) {
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const { data, error } = await supabase.auth.getUser(accessToken);
+
+  if (error || !data?.user) {
+    const authErr = new Error(error?.message || 'Invalid or expired token');
+    authErr.code = 'INVALID_TOKEN';
+    throw authErr;
+  }
+
+  return data.user;
+}
+
+function resolveUserTypeFromMetadata(user) {
+  const meta = user?.user_metadata || {};
+  const raw = (meta.user_type || meta.role || 'player').toString().toLowerCase();
+  return raw === 'coach' ? 'coach' : 'player';
+}
+
 module.exports = {
   supabase,
   isSupabaseConfigured,
@@ -2408,5 +2575,8 @@ module.exports = {
   markConversationDeletedByCoach,
   updateConversationLastMessage,
   clearAllConversations,
-  initializeDatabase
+  initializeDatabase,
+  deleteUserAccount,
+  getUserFromAccessToken,
+  resolveUserTypeFromMetadata
 };
