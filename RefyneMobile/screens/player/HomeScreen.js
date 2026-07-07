@@ -80,6 +80,13 @@ const getConversationRecency = (conv) =>
 
 const RECENT_FEEDBACK_FOCUS_DEBOUNCE_MS = 3000;
 const RECENT_FEEDBACK_LIST_LIMIT = 10;
+const INACTIVE_RECENT_FEEDBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const shouldShowInRecentFeedback = (item) => {
+  if (item.status !== 'Inactive') return true;
+  if (!item.inactiveSinceMs) return true;
+  return Date.now() - item.inactiveSinceMs <= INACTIVE_RECENT_FEEDBACK_MAX_AGE_MS;
+};
 
 const capitalizeSport = (sport) => {
   if (!sport) return '';
@@ -206,6 +213,9 @@ const buildFeedbackItem = async (conv) => {
     avatar: avatarUrl,
     conversationId: formattedConversation.id,
     recency: getConversationRecency(conv),
+    inactiveSinceMs: formattedConversation.chatExpiry?.expiresAt
+      ? new Date(formattedConversation.chatExpiry.expiresAt).getTime()
+      : null,
   };
 };
 
@@ -324,14 +334,16 @@ export default function HomeScreen({ navigation }) {
         conversationsData.map((conv) => buildFeedbackItem(conv))
       );
 
-      feedbackItems.sort((a, b) => {
+      const visibleFeedbackItems = feedbackItems.filter(shouldShowInRecentFeedback);
+
+      visibleFeedbackItems.sort((a, b) => {
         const aActive = a.status === 'Active';
         const bActive = b.status === 'Active';
         if (aActive !== bActive) return aActive ? -1 : 1;
         return b.recency - a.recency;
       });
 
-      const limitedFeedbackItems = feedbackItems.slice(0, RECENT_FEEDBACK_LIST_LIMIT);
+      const limitedFeedbackItems = visibleFeedbackItems.slice(0, RECENT_FEEDBACK_LIST_LIMIT);
 
       console.log('Loaded recent feedback:', limitedFeedbackItems);
       setRecentFeedback(limitedFeedbackItems);
