@@ -140,7 +140,7 @@ export default function AuthScreen({ navigation }) {
           if (!isApproved) {
             Alert.alert(
               'Coach registration is invite-only',
-              'Coach registration is currently invite-only. Please send an email to refynecoaching@gmail.com if you are interested in becoming a coach'
+              'Please send an email to refynecoaching@gmail.com if you are interested in becoming a coach. Our team will review your application and get back to you shortly!'
             );
             setLoading(false);
             return;

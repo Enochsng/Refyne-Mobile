@@ -1546,6 +1546,165 @@ async function expireCoachingSession(sessionId) {
   }
 }
 
+/**
+ * True if either user has blocked the other (A→B or B→A).
+ */
+async function isPairBlocked(userA, userB) {
+  if (!userA || !userB || !isSupabaseConfigured || !supabase) {
+    return false;
+  }
+
+  const a = String(userA);
+  const b = String(userB);
+
+  // blocks.blocker_id / blocked_id are UUID; skip query for legacy non-UUID pair ids
+  const UUID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!UUID_REGEX.test(a) || !UUID_REGEX.test(b)) {
+    console.warn(
+      `[isPairBlocked] Skipping block check — non-UUID id(s): userA=${a}, userB=${b}`
+    );
+    return false;
+  }
+
+  const { data, error } = await supabase
+    .from('blocks')
+    .select('id')
+    .or(
+      `and(blocker_id.eq.${a},blocked_id.eq.${b}),and(blocker_id.eq.${b},blocked_id.eq.${a})`
+    )
+    .limit(1);
+
+  if (error) {
+    console.error('Error checking isPairBlocked:', error);
+    throw error;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
+ * Conversations for this user pair only (player↔coach either way).
+ */
+async function findConversationsForUserPair(userA, userB) {
+  if (!userA || !userB || !isSupabaseConfigured || !supabase) {
+    return [];
+  }
+
+  const a = String(userA);
+  const b = String(userB);
+
+  const { data, error } = await supabase
+    .from('conversations')
+    .select('id, player_id, coach_id, session_id')
+    .or(
+      `and(player_id.eq.${a},coach_id.eq.${b}),and(player_id.eq.${b},coach_id.eq.${a})`
+    );
+
+  if (error) {
+    console.error('Error finding conversations for user pair:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Archive conversations for the pair and forfeit active paid sessions (no refund).
+ * Reuses expireCoachingSession — same write used when a prior session is replaced.
+ */
+async function applyBlockSideEffects(blockerId, blockedId) {
+  const pairConversations = await findConversationsForUserPair(blockerId, blockedId);
+  const archivedConversationIds = [];
+  const nowIso = new Date().toISOString();
+
+  for (const conv of pairConversations) {
+    const { error } = await supabase
+      .from('conversations')
+      .update({ archived_at: nowIso, updated_at: nowIso })
+      .eq('id', conv.id);
+
+    if (error) {
+      console.error(`Error archiving conversation ${conv.id}:`, error);
+      throw error;
+    }
+    archivedConversationIds.push(conv.id);
+  }
+
+  const expiredSessionIds = [];
+  const seenPlayerCoach = new Set();
+
+  for (const conv of pairConversations) {
+    const playerId = conv.player_id;
+    const coachId = conv.coach_id;
+    if (!playerId || !coachId) continue;
+
+    const key = `${playerId}:${coachId}`;
+    if (seenPlayerCoach.has(key)) continue;
+    seenPlayerCoach.add(key);
+
+    const activeSessions = await getActiveSessionsForPlayerCoach(playerId, coachId);
+    for (const session of activeSessions) {
+      if (!session?.id) continue;
+      await expireCoachingSession(session.id);
+      expiredSessionIds.push(session.id);
+    }
+  }
+
+  return { archivedConversationIds, expiredSessionIds };
+}
+
+/**
+ * Insert a block row, then archive the pair's conversation(s) and expire active sessions.
+ * On unique (blocker_id, blocked_id) conflict, throws ALREADY_BLOCKED (no raw Postgres error).
+ */
+async function createBlockWithSideEffects(blockerId, blockedId) {
+  if (!blockerId || !blockedId) {
+    const err = new Error('blockerId and blockedId are required');
+    err.code = 'INVALID_BLOCK';
+    throw err;
+  }
+
+  if (String(blockerId) === String(blockedId)) {
+    const err = new Error('Cannot block yourself');
+    err.code = 'SELF_BLOCK';
+    throw err;
+  }
+
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const { data: block, error: insertError } = await supabase
+    .from('blocks')
+    .insert({
+      blocker_id: blockerId,
+      blocked_id: blockedId,
+    })
+    .select()
+    .single();
+
+  if (insertError) {
+    if (isUniqueViolationError(insertError) || insertError.code === '23505') {
+      const already = new Error('You have already blocked this user');
+      already.code = 'ALREADY_BLOCKED';
+      throw already;
+    }
+    console.error('Error inserting block:', insertError);
+    throw insertError;
+  }
+
+  const sideEffects = await applyBlockSideEffects(blockerId, blockedId);
+
+  return {
+    block,
+    archivedConversationIds: sideEffects.archivedConversationIds,
+    expiredSessionIds: sideEffects.expiredSessionIds,
+  };
+}
+
 async function findExistingConversationForPlayerCoach(conversationData) {
   const { playerId, coachId, existingConversationId } = conversationData;
 
@@ -1758,6 +1917,15 @@ async function lightweightUpdateConversationRow(existingConv, conversationData) 
  */
 async function findOrUpdateConversation(conversationData) {
   try {
+    const { playerId, coachId } = conversationData;
+    if (playerId && coachId && (await isPairBlocked(playerId, coachId))) {
+      const err = new Error(
+        'Cannot start or reactivate a conversation with a blocked user'
+      );
+      err.code = 'PAIR_BLOCKED';
+      throw err;
+    }
+
     const existingConv = await findExistingConversationForPlayerCoach(conversationData);
 
     if (existingConv && conversationData.sessionId) {
@@ -2578,5 +2746,7 @@ module.exports = {
   initializeDatabase,
   deleteUserAccount,
   getUserFromAccessToken,
-  resolveUserTypeFromMetadata
+  resolveUserTypeFromMetadata,
+  isPairBlocked,
+  createBlockWithSideEffects,
 };

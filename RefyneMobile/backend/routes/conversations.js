@@ -14,7 +14,8 @@ const {
   checkChatExpiry,
   getCoachingSession,
   getRemainingDailyMessagesForConversation,
-  canPlayerSendMessageToday
+  canPlayerSendMessageToday,
+  isPairBlocked,
 } = require('../services/database');
 
 const router = express.Router();
@@ -461,6 +462,38 @@ router.post('/:conversationId/messages', async (req, res) => {
       }
     }
 
+    // Blocked / archived conversations are read-only for both player and coach
+    if (senderType === 'player' || senderType === 'coach') {
+      const playerId = conversation.player_id || conversation.playerId;
+      const coachId = conversation.coach_id || conversation.coachId;
+      let pairBlocked = false;
+      try {
+        pairBlocked = await isPairBlocked(playerId, coachId);
+      } catch (blockCheckError) {
+        console.error('Error checking block status before send:', blockCheckError);
+        return res.status(500).json({
+          error: 'Failed to verify block status',
+          message: blockCheckError.message,
+        });
+      }
+
+      if (pairBlocked) {
+        return res.status(403).json({
+          error: 'Blocked',
+          message: 'Messaging is disabled because one of you has blocked the other.',
+          blocked: true,
+        });
+      }
+
+      if (conversation.archived_at) {
+        return res.status(403).json({
+          error: 'Conversation archived',
+          message: 'This conversation is archived and read-only.',
+          conversationArchived: true,
+        });
+      }
+    }
+
     // Check if chat is expired for players (coaches can always send messages)
     // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
     // until they purchase a new coaching package with that coach.
@@ -691,6 +724,22 @@ router.post('/', async (req, res) => {
 
     const { playerId, playerName, coachId, coachName, sport, sessionId, existingConversationId } = value;
 
+    try {
+      if (await isPairBlocked(playerId, coachId)) {
+        return res.status(403).json({
+          error: 'Blocked',
+          message: 'Cannot start or reactivate a conversation with a blocked user.',
+          blocked: true,
+        });
+      }
+    } catch (blockCheckError) {
+      console.error('Error checking block status before create:', blockCheckError);
+      return res.status(500).json({
+        error: 'Failed to verify block status',
+        message: blockCheckError.message,
+      });
+    }
+
     // Generate unique conversation ID (will only be used if creating new conversation)
     const conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -725,6 +774,13 @@ router.post('/', async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === 'PAIR_BLOCKED') {
+      return res.status(403).json({
+        error: 'Blocked',
+        message: err.message,
+        blocked: true,
+      });
+    }
     console.error('Error creating/updating conversation:', err);
     res.status(500).json({
       error: 'Failed to create/update conversation',

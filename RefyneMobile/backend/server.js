@@ -18,6 +18,7 @@ const { router: webhookRoutes } = require('./routes/webhooks');
 const conversationRoutes = require('./routes/conversations');
 const uploadRoutes = require('./routes/upload');
 const accountRoutes = require('./routes/account');
+const blocksRoutes = require('./routes/blocks');
 const { clearAllConversations } = require('./services/database');
 
 // Security middleware
@@ -70,6 +71,15 @@ const accountDeleteLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Dedicated rate limit for block actions
+const blocksLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'development' ? 60 : 30,
+  message: 'Too many block requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Global rate limiting for remaining API routes (connect, webhooks, etc.)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -84,6 +94,7 @@ const limiter = rateLimit({
     if (req.path.startsWith('/payments')) return true;
     if (req.path.startsWith('/upload')) return true;
     if (req.path.startsWith('/account')) return true;
+    if (req.path.startsWith('/blocks')) return true;
     return /^\/connect\/coach\/[^/]+\/status$/.test(req.path);
   }
 });
@@ -93,6 +104,7 @@ app.use('/api/conversations', conversationLimiter);
 app.use('/api/payments', paymentLimiter);
 app.use('/api/upload', uploadLimiter);
 app.use('/api/account', accountDeleteLimiter, accountRoutes);
+app.use('/api/blocks', blocksLimiter, blocksRoutes);
 app.use('/api/', limiter);
 
 // CORS configuration
