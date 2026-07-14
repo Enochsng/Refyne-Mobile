@@ -2695,7 +2695,10 @@ async function getUserFromAccessToken(accessToken) {
     throw err;
   }
 
-  const { data, error } = await supabase.auth.getUser(accessToken);
+  const authClient = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await authClient.auth.getUser(accessToken);
 
   if (error || !data?.user) {
     const authErr = new Error(error?.message || 'Invalid or expired token');
