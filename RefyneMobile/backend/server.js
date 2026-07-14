@@ -103,8 +103,8 @@ app.use('/api/connect/coach/:coachId/status', coachStatusLimiter);
 app.use('/api/conversations', conversationLimiter);
 app.use('/api/payments', paymentLimiter);
 app.use('/api/upload', uploadLimiter);
-app.use('/api/account', accountDeleteLimiter, accountRoutes);
-app.use('/api/blocks', blocksLimiter, blocksRoutes);
+app.use('/api/account', accountDeleteLimiter);
+app.use('/api/blocks', blocksLimiter);
 app.use('/api/', limiter);
 
 // CORS configuration
@@ -777,6 +777,8 @@ app.use('/api/connect', connectRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/conversations', conversationRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/account', accountRoutes);
+app.use('/api/blocks', blocksRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
