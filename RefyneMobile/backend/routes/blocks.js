@@ -55,6 +55,8 @@ router.post('/', async (req, res) => {
     const blockerId = user.id;
     const blockedId = req.body?.blockedId;
 
+    console.log(req.body);
+
     if (!isUuid(blockedId)) {
       return res.status(400).json({
         error: 'Validation error',
