@@ -96,5 +96,7 @@ jobs:
           export BACKEND_IMAGE="ghcr.io/${OWNER_LC}/${{ env.IMAGE_NAME }}:latest"
           echo "Pulling $BACKEND_IMAGE"
           docker compose pull
-          docker compose up -d --remove-orphans
+          # Stale container from a prior manual/compose project can block recreate by name
+          docker rm -f refyne-backend 2>/dev/null || true
+          docker compose up -d --remove-orphans --force-recreate
           docker compose ps
