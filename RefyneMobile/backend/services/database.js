@@ -1705,6 +1705,130 @@ async function createBlockWithSideEffects(blockerId, blockedId) {
   };
 }
 
+/**
+ * List blocks created by the given user (blocker_id).
+ */
+async function listBlocksForUser(blockerId) {
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const { data, error } = await supabase
+    .from('blocks')
+    .select('*')
+    .eq('blocker_id', blockerId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error listing blocks:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+/**
+ * Delete a block row owned by blockerId. Idempotent: missing / not-owned rows
+ * are a no-op (caller returns 200). Does not un-archive conversations or restore sessions.
+ */
+async function deleteBlockForUser(blockId, blockerId) {
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  const { error } = await supabase
+    .from('blocks')
+    .delete()
+    .eq('id', blockId)
+    .eq('blocker_id', blockerId);
+
+  if (error) {
+    console.error('Error deleting block:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create a user report. reporterId must come from the auth token.
+ * Assumes reportedUserId format and reason allowlist were validated by the route.
+ */
+async function createReport({
+  reporterId,
+  reportedUserId,
+  conversationId,
+  messageId,
+  reason,
+  details,
+}) {
+  if (!isSupabaseConfigured || !supabase) {
+    const err = new Error('Supabase is not configured');
+    err.code = 'SUPABASE_NOT_CONFIGURED';
+    throw err;
+  }
+
+  if (!reporterId || !reportedUserId) {
+    const err = new Error('reporterId and reportedUserId are required');
+    err.code = 'INVALID_REPORT';
+    throw err;
+  }
+
+  if (String(reporterId) === String(reportedUserId)) {
+    const err = new Error('Cannot report yourself');
+    err.code = 'SELF_REPORT';
+    throw err;
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('id', reportedUserId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.error('Error checking reported user profile:', profileError);
+    throw profileError;
+  }
+
+  if (!profile) {
+    const err = new Error('reported_user_id must reference an existing user');
+    err.code = 'REPORTED_USER_NOT_FOUND';
+    throw err;
+  }
+
+  const insertPayload = {
+    reporter_id: reporterId,
+    reported_user_id: reportedUserId,
+    reason,
+  };
+
+  if (conversationId != null && conversationId !== '') {
+    insertPayload.conversation_id = conversationId;
+  }
+  if (messageId != null && messageId !== '') {
+    insertPayload.message_id = messageId;
+  }
+  if (details != null && details !== '') {
+    insertPayload.details = details;
+  }
+
+  const { data: report, error: insertError } = await supabase
+    .from('reports')
+    .insert(insertPayload)
+    .select()
+    .single();
+
+  if (insertError) {
+    console.error('Error inserting report:', insertError);
+    throw insertError;
+  }
+
+  return report;
+}
+
 async function findExistingConversationForPlayerCoach(conversationData) {
   const { playerId, coachId, existingConversationId } = conversationData;
 
@@ -2752,4 +2876,7 @@ module.exports = {
   resolveUserTypeFromMetadata,
   isPairBlocked,
   createBlockWithSideEffects,
+  listBlocksForUser,
+  deleteBlockForUser,
+  createReport,
 };
