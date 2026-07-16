@@ -865,9 +865,12 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     console.log('Error fetching profile photo:', error);
   }
   
+  const otherPartyId = isPlayer ? conversation.coach_id : conversation.player_id;
+
   const result = {
     id: conversation.id,
     otherPartyName,
+    otherPartyId: otherPartyId || null,
     playerName: conversation.player_name,
     coachName: conversation.coach_name,
     sport: conversation.sport,
@@ -879,6 +882,9 @@ export const formatConversationForDisplay = async (conversation, userType) => {
     avatar: profilePhotoUrl,
     chatExpiry: conversation.chatExpiry || null,
     sessionStatus: conversation.sessionStatus ?? null,
+    coachId: conversation.coach_id || null,
+    playerId: conversation.player_id || null,
+    archivedAt: conversation.archived_at || null,
   };
   
   console.log('formatConversationForDisplay returning:', {

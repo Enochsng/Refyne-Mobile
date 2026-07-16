@@ -84,8 +84,8 @@ router.get('/', async (req, res) => {
  * Block a user. blocker_id is taken from the Authorization Bearer token only.
  * Body: { blockedId } (UUID)
  *
- * Side effects: archives conversations for that pair; expires active paid sessions
- * via expireCoachingSession (no refund).
+ * Side effects: archives conversations for that pair (sets archived_at).
+ * Does not expire or mutate paid sessions — natural expiry continues.
  */
 router.post('/', async (req, res) => {
   try {
@@ -171,7 +171,8 @@ router.post('/', async (req, res) => {
  * DELETE /api/blocks/:id
  * Unblock by block record id. Only removes the row owned by the token user.
  * Idempotent: missing / not-owned / already deleted all return 200.
- * Does not un-archive conversations or restore forfeited sessions.
+ * Clears archived_at on pair conversations only when the pair is no longer
+ * blocked in either direction. Does not restore or mutate paid sessions.
  */
 router.delete('/:id', async (req, res) => {
   try {

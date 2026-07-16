@@ -22,6 +22,7 @@ import AuthScreen from './screens/AuthScreen';
 import PlayerNavigator from './navigation/PlayerNavigator';
 import CoachNavigator from './navigation/CoachNavigator';
 import CoachOnboardingNavigator from './navigation/CoachOnboardingNavigator';
+import ReportReasonScreen from './screens/shared/ReportReasonScreen';
 import SplashScreen from './components/SplashScreen';
 import { STRIPE_CONFIG } from './stripeConfig';
 
@@ -379,6 +380,14 @@ export default function App() {
             options={{
               headerShown: false,
               gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="ReportReason"
+            component={ReportReasonScreen}
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
             }}
           />
         </Stack.Navigator>

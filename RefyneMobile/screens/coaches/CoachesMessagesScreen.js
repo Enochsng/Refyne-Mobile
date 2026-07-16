@@ -22,9 +22,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
+import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
 import { supabase } from '../../supabaseClient';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
 
 const { width, height } = Dimensions.get('window');
 
@@ -67,6 +69,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const [tutorials, setTutorials] = useState([]);
   const [loadingTutorials, setLoadingTutorials] = useState(false);
   const [coachId, setCoachId] = useState(null);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [isOtherUserBlocked, setIsOtherUserBlocked] = useState(false);
+  const [blockRecordId, setBlockRecordId] = useState(null);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -223,12 +228,16 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             return {
               ...formatted,
               sessionStatus: formatted.sessionStatus ?? conv.sessionStatus ?? null,
+              playerId: conv.player_id || formatted.playerId || null,
+              otherPartyId: formatted.otherPartyId || conv.player_id || null,
+              archivedAt: formatted.archivedAt || conv.archived_at || null,
             };
           } catch (error) {
             console.log('Error formatting conversation:', error);
             const fallback = {
               id: conv.id,
               otherPartyName: conv.player_name || 'Student',
+              otherPartyId: conv.player_id || null,
               sport: conv.sport,
               lastMessage: conv.last_message,
               lastMessageAt: conv.last_message_at,
@@ -237,6 +246,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               isOnline: false,
               avatar: null,
               sessionStatus: conv.sessionStatus ?? null,
+              playerId: conv.player_id || null,
+              coachId: conv.coach_id || null,
+              archivedAt: conv.archived_at || null,
             };
             console.log('Using fallback conversation:', fallback);
             return fallback;
@@ -247,6 +259,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       console.log('Formatted conversations:', formattedConversations);
       setConversations(formattedConversations);
       setFilteredConversations(formattedConversations);
+      return formattedConversations;
     } catch (error) {
       console.error('Error loading conversations:', error);
 
@@ -279,6 +292,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           ]
         );
       }
+      return [];
     } finally {
       setLoading(false);
     }
@@ -512,6 +526,134 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const closeVideoModal = () => {
     setShowVideoModal(false);
     setSelectedVideo(null);
+  };
+
+  const leaveConversationAfterBlock = () => {
+    setShowProfileSheet(false);
+    setSelectedConversation(null);
+    setMessages([]);
+    setMessageText('');
+    setIsOtherUserBlocked(false);
+    setBlockRecordId(null);
+    navigation.setParams({ conversationId: undefined, hideTabBar: false });
+    loadConversations();
+  };
+
+  const openProfileSheet = async () => {
+    const otherId =
+      selectedConversation?.otherPartyId || selectedConversation?.playerId;
+    setIsOtherUserBlocked(false);
+    setBlockRecordId(null);
+    setShowProfileSheet(true);
+    if (!otherId) return;
+    try {
+      const result = await listBlocks();
+      const blocks = result?.blocks || [];
+      const match = blocks.find(
+        (b) => String(b.blocked_id) === String(otherId)
+      );
+      if (match) {
+        setIsOtherUserBlocked(true);
+        setBlockRecordId(match.id);
+      }
+    } catch (error) {
+      console.error('Error loading block status:', error);
+    }
+  };
+
+  const handleReportUser = () => {
+    setShowProfileSheet(false);
+    const reportedUserId =
+      selectedConversation?.otherPartyId || selectedConversation?.playerId;
+    if (!reportedUserId) {
+      Alert.alert('Error', 'Unable to report this user. Please try again.');
+      return;
+    }
+    navigation.navigate('ReportReason', {
+      reportedUserId,
+      conversationId: selectedConversation.id,
+      otherPartyName: selectedConversation.otherPartyName,
+    });
+  };
+
+  const handleBlockUser = () => {
+    setShowProfileSheet(false);
+    const blockedId =
+      selectedConversation?.otherPartyId || selectedConversation?.playerId;
+    if (!blockedId) {
+      Alert.alert('Error', 'Unable to block this user. Please try again.');
+      return;
+    }
+    const name = selectedConversation?.otherPartyName || 'this user';
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${name}? You will no longer be able to message each other, and any active session will end.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await blockUser(blockedId);
+              leaveConversationAfterBlock();
+              Alert.alert('User Blocked', `${name} has been blocked.`);
+            } catch (error) {
+              if (error?.status === 409) {
+                leaveConversationAfterBlock();
+                Alert.alert('User Blocked', `${name} has already been blocked.`);
+                return;
+              }
+              Alert.alert(
+                'Error',
+                error?.message || 'Failed to block user. Please try again.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleUnblockUser = () => {
+    setShowProfileSheet(false);
+    if (!blockRecordId) {
+      Alert.alert('Error', 'Unable to unblock this user. Please try again.');
+      return;
+    }
+    const name = selectedConversation?.otherPartyName || 'this user';
+    const conversationId = selectedConversation?.id;
+    Alert.alert(
+      'Unblock User',
+      `Are you sure you want to unblock ${name}? You will be able to message each other again if you start a new session.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unblock',
+          onPress: async () => {
+            try {
+              await unblockUser(blockRecordId);
+              setIsOtherUserBlocked(false);
+              setBlockRecordId(null);
+              // Refresh so archivedAt matches server (cleared only when pair is fully unblocked).
+              const refreshed = await loadConversations();
+              if (conversationId && Array.isArray(refreshed)) {
+                const match = refreshed.find((conv) => conv.id === conversationId);
+                if (match) {
+                  setSelectedConversation(match);
+                }
+              }
+              Alert.alert('User Unblocked', `${name} has been unblocked.`);
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                error?.message || 'Failed to unblock user. Please try again.'
+              );
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Load tutorials from AsyncStorage
@@ -765,6 +907,8 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
   // If a conversation is selected, show the chat view
   if (selectedConversation) {
+    const isArchived = Boolean(selectedConversation.archivedAt);
+
     return (
       <KeyboardAvoidingView 
         style={styles.container} 
@@ -778,7 +922,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             style={styles.backButton}
             onPress={() => {
               console.log('Back button pressed, returning to conversations list');
+              setShowProfileSheet(false);
               setSelectedConversation(null);
+              setIsOtherUserBlocked(false);
+              setBlockRecordId(null);
               // Clear route params to prevent auto-selection when navigating back
               navigation.setParams({ conversationId: undefined, hideTabBar: false });
             }}
@@ -787,7 +934,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           >
             <Ionicons name="arrow-back" size={24} color="#0C295C" />
           </TouchableOpacity>
-          <View style={styles.coachInfo}>
+          <TouchableOpacity
+            style={styles.coachInfo}
+            onPress={openProfileSheet}
+            activeOpacity={0.7}
+          >
             <View style={styles.coachAvatar}>
               {selectedConversation.avatar ? (
                 <Image 
@@ -804,13 +955,16 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 </Text>
               )}
             </View>
-            <View>
-              <Text style={styles.coachName}>
-                {selectedConversation.otherPartyName || 'Unknown Player'}
-              </Text>
+            <View style={styles.coachTextContainer}>
+              <View style={styles.coachNameRow}>
+                <Text style={styles.coachName}>
+                  {selectedConversation.otherPartyName || 'Unknown Player'}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color="#90A4AE" style={{ marginLeft: 4 }} />
+              </View>
               <Text style={styles.coachSport}>{selectedConversation.sport} Student</Text>
             </View>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* Messages */}
@@ -880,29 +1034,40 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
         {/* Message Input */}
         <View style={styles.inputContainer} {...inputBarPanResponder.panHandlers}>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.messageInput}
-              placeholder="Type a message..."
-              placeholderTextColor="#90A4AE"
-              value={messageText}
-              onChangeText={setMessageText}
-              multiline
-              blurOnSubmit={false}
-              returnKeyType="default"
-              editable={true}
-            />
-            <TouchableOpacity 
-              style={styles.tutorialButton} 
-              onPress={handleOpenTutorialModal}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="videocam" size={20} color="#0C295C" />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-              <Ionicons name="send" size={20} color="white" />
-            </TouchableOpacity>
-          </View>
+          {isArchived ? (
+            <View style={styles.readOnlyBanner}>
+              <Ionicons name="lock-closed" size={16} color="#90A4AE" />
+              <View style={styles.readOnlyTextContainer}>
+                <Text style={styles.readOnlyText}>
+                  This conversation is archived — you can't send new messages
+                </Text>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.messageInput}
+                placeholder="Type a message..."
+                placeholderTextColor="#90A4AE"
+                value={messageText}
+                onChangeText={setMessageText}
+                multiline
+                blurOnSubmit={false}
+                returnKeyType="default"
+                editable={true}
+              />
+              <TouchableOpacity 
+                style={styles.tutorialButton} 
+                onPress={handleOpenTutorialModal}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="videocam" size={20} color="#0C295C" />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
+                <Ionicons name="send" size={20} color="white" />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Video Modal */}
@@ -1010,6 +1175,18 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             </View>
           </View>
         </Modal>
+
+        <ChatProfileBottomSheet
+          visible={showProfileSheet}
+          onClose={() => setShowProfileSheet(false)}
+          name={selectedConversation.otherPartyName || 'Unknown Player'}
+          role={`${selectedConversation.sport} Student`}
+          avatar={selectedConversation.avatar}
+          onReport={handleReportUser}
+          onBlock={handleBlockUser}
+          onUnblock={handleUnblockUser}
+          isBlocked={isOtherUserBlocked}
+        />
       </KeyboardAvoidingView>
     );
   }
@@ -1664,6 +1841,13 @@ const styles = StyleSheet.create({
     color: '#0C295C',
     letterSpacing: 0.2,
   },
+  coachTextContainer: {
+    flexShrink: 1,
+  },
+  coachNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   coachSport: {
     fontSize: 13,
     fontFamily: 'Manrope-Medium',
@@ -1744,6 +1928,26 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
     minHeight: 70,
     zIndex: 10,
+  },
+  readOnlyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFB74D',
+  },
+  readOnlyTextContainer: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  readOnlyText: {
+    fontSize: width * 0.035,
+    fontFamily: 'Manrope-Regular',
+    color: '#E65100',
+    lineHeight: 18,
   },
   inputWrapper: {
     flexDirection: 'row',

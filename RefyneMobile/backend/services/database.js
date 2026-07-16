@@ -1610,8 +1610,8 @@ async function findConversationsForUserPair(userA, userB) {
 }
 
 /**
- * Archive conversations for the pair and forfeit active paid sessions (no refund).
- * Reuses expireCoachingSession — same write used when a prior session is replaced.
+ * Archive conversations for the pair. Does not expire or otherwise mutate paid sessions —
+ * natural session expiry continues to count down while blocked.
  */
 async function applyBlockSideEffects(blockerId, blockedId) {
   const pairConversations = await findConversationsForUserPair(blockerId, blockedId);
@@ -1631,31 +1631,12 @@ async function applyBlockSideEffects(blockerId, blockedId) {
     archivedConversationIds.push(conv.id);
   }
 
-  const expiredSessionIds = [];
-  const seenPlayerCoach = new Set();
-
-  for (const conv of pairConversations) {
-    const playerId = conv.player_id;
-    const coachId = conv.coach_id;
-    if (!playerId || !coachId) continue;
-
-    const key = `${playerId}:${coachId}`;
-    if (seenPlayerCoach.has(key)) continue;
-    seenPlayerCoach.add(key);
-
-    const activeSessions = await getActiveSessionsForPlayerCoach(playerId, coachId);
-    for (const session of activeSessions) {
-      if (!session?.id) continue;
-      await expireCoachingSession(session.id);
-      expiredSessionIds.push(session.id);
-    }
-  }
-
-  return { archivedConversationIds, expiredSessionIds };
+  // Response shape kept for API compatibility; sessions are no longer force-expired on block.
+  return { archivedConversationIds, expiredSessionIds: [] };
 }
 
 /**
- * Insert a block row, then archive the pair's conversation(s) and expire active sessions.
+ * Insert a block row, then archive the pair's conversation(s).
  * On unique (blocker_id, blocked_id) conflict, throws ALREADY_BLOCKED (no raw Postgres error).
  */
 async function createBlockWithSideEffects(blockerId, blockedId) {
@@ -1731,7 +1712,9 @@ async function listBlocksForUser(blockerId) {
 
 /**
  * Delete a block row owned by blockerId. Idempotent: missing / not-owned rows
- * are a no-op (caller returns 200). Does not un-archive conversations or restore sessions.
+ * are a no-op (caller returns 200).
+ * After delete, clears archived_at on pair conversations only when the pair is
+ * no longer blocked in either direction (mutual-block safe).
  */
 async function deleteBlockForUser(blockId, blockerId) {
   if (!isSupabaseConfigured || !supabase) {
@@ -1739,6 +1722,24 @@ async function deleteBlockForUser(blockId, blockerId) {
     err.code = 'SUPABASE_NOT_CONFIGURED';
     throw err;
   }
+
+  const { data: existingBlock, error: lookupError } = await supabase
+    .from('blocks')
+    .select('id, blocker_id, blocked_id')
+    .eq('id', blockId)
+    .eq('blocker_id', blockerId)
+    .maybeSingle();
+
+  if (lookupError) {
+    console.error('Error looking up block before delete:', lookupError);
+    throw lookupError;
+  }
+
+  if (!existingBlock) {
+    return;
+  }
+
+  const blockedId = existingBlock.blocked_id;
 
   const { error } = await supabase
     .from('blocks')
@@ -1749,6 +1750,26 @@ async function deleteBlockForUser(blockId, blockerId) {
   if (error) {
     console.error('Error deleting block:', error);
     throw error;
+  }
+
+  const stillBlocked = await isPairBlocked(blockerId, blockedId);
+  if (stillBlocked) {
+    return;
+  }
+
+  const pairConversations = await findConversationsForUserPair(blockerId, blockedId);
+  const nowIso = new Date().toISOString();
+
+  for (const conv of pairConversations) {
+    const { error: clearError } = await supabase
+      .from('conversations')
+      .update({ archived_at: null, updated_at: nowIso })
+      .eq('id', conv.id);
+
+    if (clearError) {
+      console.error(`Error clearing archived_at for conversation ${conv.id}:`, clearError);
+      throw clearError;
+    }
   }
 }
 

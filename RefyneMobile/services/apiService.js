@@ -56,6 +56,7 @@ class APIService {
       
       try {
         const response = await fetch(fullUrl, {
+          ...options,
           method: 'GET',
           headers: {
             'Accept': 'application/json',
@@ -63,7 +64,6 @@ class APIService {
             ...options.headers
           },
           signal: controller.signal,
-          ...options
         });
 
         clearTimeout(timeoutId);
@@ -129,6 +129,7 @@ class APIService {
       
       try {
         const response = await fetch(fullUrl, {
+          ...options,
           method: 'POST',
           headers: {
             'Accept': 'application/json',
@@ -137,7 +138,6 @@ class APIService {
           },
           body: data ? JSON.stringify(data) : undefined,
           signal: controller.signal,
-          ...options
         });
 
         clearTimeout(timeoutId);
@@ -203,6 +203,7 @@ class APIService {
       
       try {
         const response = await fetch(fullUrl, {
+          ...options,
           method: 'PUT',
           headers: {
             'Accept': 'application/json',
@@ -211,7 +212,6 @@ class APIService {
           },
           body: data ? JSON.stringify(data) : undefined,
           signal: controller.signal,
-          ...options
         });
 
         clearTimeout(timeoutId);
@@ -276,6 +276,7 @@ class APIService {
       
       try {
         const response = await fetch(fullUrl, {
+          ...options,
           method: 'DELETE',
           headers: {
             'Accept': 'application/json',
@@ -283,7 +284,6 @@ class APIService {
             ...options.headers
           },
           signal: controller.signal,
-          ...options
         });
 
         clearTimeout(timeoutId);
