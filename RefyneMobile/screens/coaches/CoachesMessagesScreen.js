@@ -21,12 +21,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Clipboard from 'expo-clipboard';
 import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
 import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
 import { supabase } from '../../supabaseClient';
 import { Video, ResizeMode } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
+import MessageContextMenu from '../../components/MessageContextMenu';
 
 const { width, height } = Dimensions.get('window');
 
@@ -72,6 +74,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const [showProfileSheet, setShowProfileSheet] = useState(false);
   const [isOtherUserBlocked, setIsOtherUserBlocked] = useState(false);
   const [blockRecordId, setBlockRecordId] = useState(null);
+  const [messageContextMenu, setMessageContextMenu] = useState(null);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -81,6 +84,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
+  const messageRefs = useRef({});
   const scrollY = useRef(0);
   const inputBarPanResponder = useRef(
     PanResponder.create({
@@ -530,6 +534,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
   const leaveConversationAfterBlock = () => {
     setShowProfileSheet(false);
+    setMessageContextMenu(null);
     setSelectedConversation(null);
     setMessages([]);
     setMessageText('');
@@ -574,6 +579,66 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       conversationId: selectedConversation.id,
       otherPartyName: selectedConversation.otherPartyName,
     });
+  };
+
+  const closeMessageContextMenu = () => {
+    setMessageContextMenu(null);
+  };
+
+  const handleCopyMessage = async (message) => {
+    try {
+      await Clipboard.setStringAsync(message?.text || '');
+    } catch (error) {
+      Alert.alert('Error', 'Failed to copy message. Please try again.');
+    }
+  };
+
+  const handleReportMessage = (message) => {
+    const reportedUserId =
+      selectedConversation?.otherPartyId || selectedConversation?.playerId;
+    if (!reportedUserId || !selectedConversation?.id || !message?.id) {
+      Alert.alert('Error', 'Unable to report this message. Please try again.');
+      return;
+    }
+    navigation.navigate('ReportReason', {
+      reportedUserId,
+      conversationId: selectedConversation.id,
+      otherPartyName: selectedConversation.otherPartyName,
+      messageId: message.id,
+    });
+  };
+
+  const handleMessageLongPress = (message) => {
+    const node = messageRefs.current[message.id];
+    if (!node || typeof node.measureInWindow !== 'function') {
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      if (!width || !height) {
+        return;
+      }
+      setMessageContextMenu({
+        message,
+        isOwn: message.isFromPlayer === false,
+        anchor: { x, y, width, height },
+      });
+    });
+  };
+
+  const handleContextMenuCopy = async () => {
+    const message = messageContextMenu?.message;
+    closeMessageContextMenu();
+    if (message) {
+      await handleCopyMessage(message);
+    }
+  };
+
+  const handleContextMenuReport = () => {
+    const message = messageContextMenu?.message;
+    closeMessageContextMenu();
+    if (message) {
+      handleReportMessage(message);
+    }
   };
 
   const handleBlockUser = () => {
@@ -795,27 +860,104 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   };
 
   const renderVideoMessage = (message) => {
+    const isHighlighted = messageContextMenu?.message?.id === message.id;
+    const isRightAligned = message.isFromPlayer === false;
     return (
-      <TouchableOpacity 
-        style={styles.videoMessageContainer}
-        onPress={() => handleVideoPress(message.videoUri)}
-        activeOpacity={0.8}
+      <View
+        ref={(ref) => {
+          if (ref) {
+            messageRefs.current[message.id] = ref;
+          } else {
+            delete messageRefs.current[message.id];
+          }
+        }}
+        collapsable={false}
+        style={[
+          styles.messageMeasureWrapVideo,
+          isRightAligned
+            ? styles.messageMeasureAlignEnd
+            : styles.messageMeasureAlignStart,
+          isHighlighted && styles.messageHiddenWhileMenuOpen,
+        ]}
       >
-        <View style={styles.videoThumbnail}>
-          <Video
-            source={{ uri: message.videoUri }}
-            style={styles.videoPreview}
-            resizeMode={ResizeMode.COVER}
-            shouldPlay={false}
-            isLooping={false}
-            isMuted={true}
-          />
-          <View style={styles.playButtonOverlay}>
-            <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
+        <TouchableOpacity 
+          style={styles.videoMessageContainer}
+          onPress={() => handleVideoPress(message.videoUri)}
+          onLongPress={() => handleMessageLongPress(message)}
+          delayLongPress={300}
+          activeOpacity={0.8}
+        >
+          <View style={styles.videoThumbnail}>
+            <Video
+              source={{ uri: message.videoUri }}
+              style={styles.videoPreview}
+              resizeMode={ResizeMode.COVER}
+              shouldPlay={false}
+              isLooping={false}
+              isMuted={true}
+            />
+            <View style={styles.playButtonOverlay}>
+              <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
+            </View>
           </View>
+          <Text style={styles.videoDuration}>{message.text}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderFloatingContextMessage = () => {
+    const message = messageContextMenu?.message;
+    if (!message) return null;
+
+    if (message.messageType === 'video') {
+      return (
+        <View style={styles.videoMessageContainer}>
+          <View style={[styles.videoShadowWrap, styles.messageSoftShadow]}>
+            <View style={styles.videoThumbnail}>
+              <Video
+                source={{ uri: message.videoUri }}
+                style={styles.videoPreview}
+                resizeMode={ResizeMode.COVER}
+                shouldPlay={false}
+                isLooping={false}
+                isMuted={true}
+              />
+              <View style={styles.playButtonOverlay}>
+                <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.9)" />
+              </View>
+            </View>
+          </View>
+          <Text style={styles.videoDuration}>{message.text}</Text>
         </View>
-        <Text style={styles.videoDuration}>{message.text}</Text>
-      </TouchableOpacity>
+      );
+    }
+
+    return (
+      <View
+        style={[
+          styles.messageBubble,
+          message.isFromPlayer ? styles.playerBubble : styles.coachBubble,
+          styles.messageSoftShadow,
+        ]}
+      >
+        <Text
+          style={[
+            styles.messageText,
+            message.isFromPlayer ? styles.playerText : styles.coachText,
+          ]}
+        >
+          {message.text}
+        </Text>
+        <Text
+          style={[
+            styles.messageTime,
+            message.isFromPlayer ? styles.playerTime : styles.coachTime,
+          ]}
+        >
+          {message.timestamp}
+        </Text>
+      </View>
     );
   };
 
@@ -931,6 +1073,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             onPress={() => {
               console.log('Back button pressed, returning to conversations list');
               setShowProfileSheet(false);
+              setMessageContextMenu(null);
               setSelectedConversation(null);
               setIsOtherUserBlocked(false);
               setBlockRecordId(null);
@@ -984,13 +1127,18 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           keyboardDismissMode="none"
           keyboardShouldPersistTaps="always"
           nestedScrollEnabled={true}
+          onScrollBeginDrag={closeMessageContextMenu}
           onScroll={(event) => {
             const currentScrollY = event.nativeEvent.contentOffset.y;
             scrollY.current = currentScrollY;
           }}
           scrollEventThrottle={16}
         >
-          {messages.map((message) => (
+          {messages.map((message) => {
+            const isHighlighted =
+              messageContextMenu?.message?.id === message.id;
+            const isRightAligned = message.isFromPlayer === false;
+            return (
             <View
               key={message.id}
               style={[
@@ -1005,7 +1153,8 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                     style={[
                       styles.messageTime,
                       message.isFromPlayer ? styles.playerTime : styles.coachTime,
-                      styles.videoMessageTime
+                      styles.videoMessageTime,
+                      isHighlighted && styles.messageHiddenWhileMenuOpen,
                     ]}
                   >
                     {message.timestamp}
@@ -1013,31 +1162,53 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 </View>
               ) : (
                 <View
+                  ref={(ref) => {
+                    if (ref) {
+                      messageRefs.current[message.id] = ref;
+                    } else {
+                      delete messageRefs.current[message.id];
+                    }
+                  }}
+                  collapsable={false}
                   style={[
-                    styles.messageBubble,
-                    message.isFromPlayer ? styles.playerBubble : styles.coachBubble
+                    styles.messageMeasureWrapBubble,
+                    isRightAligned
+                      ? styles.messageMeasureAlignEnd
+                      : styles.messageMeasureAlignStart,
+                    isHighlighted && styles.messageHiddenWhileMenuOpen,
                   ]}
                 >
-                  <Text
+                  <TouchableOpacity
                     style={[
-                      styles.messageText,
-                      message.isFromPlayer ? styles.playerText : styles.coachText
+                      styles.messageBubble,
+                      message.isFromPlayer ? styles.playerBubble : styles.coachBubble,
                     ]}
+                    onLongPress={() => handleMessageLongPress(message)}
+                    delayLongPress={300}
+                    activeOpacity={0.85}
                   >
-                    {message.text}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.messageTime,
-                      message.isFromPlayer ? styles.playerTime : styles.coachTime
-                    ]}
-                  >
-                    {message.timestamp}
-                  </Text>
+                    <Text
+                      style={[
+                        styles.messageText,
+                        message.isFromPlayer ? styles.playerText : styles.coachText
+                      ]}
+                    >
+                      {message.text}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.messageTime,
+                        message.isFromPlayer ? styles.playerTime : styles.coachTime
+                      ]}
+                    >
+                      {message.timestamp}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
-          ))}
+            );
+          })}
         </ScrollView>
 
         {/* Message Input */}
@@ -1194,6 +1365,17 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           onBlock={handleBlockUser}
           onUnblock={handleUnblockUser}
           isBlocked={isOtherUserBlocked}
+        />
+
+        <MessageContextMenu
+          visible={Boolean(messageContextMenu)}
+          anchor={messageContextMenu?.anchor}
+          showReport={!messageContextMenu?.isOwn}
+          align={messageContextMenu?.isOwn ? 'right' : 'left'}
+          onCopy={handleContextMenuCopy}
+          onReport={handleContextMenuReport}
+          onClose={closeMessageContextMenu}
+          floatingMessage={renderFloatingContextMessage()}
         />
       </KeyboardAvoidingView>
     );
@@ -1885,7 +2067,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   messageBubble: {
-    maxWidth: '74%',
     paddingHorizontal: 13,
     paddingVertical: 11,
     borderRadius: 20,
@@ -1902,6 +2083,32 @@ const styles = StyleSheet.create({
   coachBubble: {
     backgroundColor: '#0C295C',
     borderBottomRightRadius: 8,
+  },
+  messageMeasureWrapVideo: {
+    maxWidth: '80%',
+  },
+  messageMeasureWrapBubble: {
+    maxWidth: '74%',
+  },
+  messageMeasureAlignStart: {
+    alignSelf: 'flex-start',
+  },
+  messageMeasureAlignEnd: {
+    alignSelf: 'flex-end',
+  },
+  messageHiddenWhileMenuOpen: {
+    opacity: 0,
+  },
+  messageSoftShadow: {
+    shadowColor: '#0C295C',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  videoShadowWrap: {
+    borderRadius: 12,
+    backgroundColor: '#000',
   },
   messageText: {
     fontSize: width * 0.035,
@@ -2003,7 +2210,6 @@ const styles = StyleSheet.create({
   },
   // Video message styles
   videoMessageContainer: {
-    maxWidth: '80%',
     marginVertical: 4,
   },
   videoThumbnail: {

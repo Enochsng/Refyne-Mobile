@@ -2420,6 +2420,32 @@ async function addMessageToConversation(messageData) {
 }
 
 /**
+ * Get a single message by id. Returns null if not found.
+ */
+async function getMessageById(messageId) {
+  if (!messageId) {
+    return null;
+  }
+
+  if (!isSupabaseConfigured || !supabase) {
+    return messages.find((msg) => msg.id === messageId) || null;
+  }
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('id, conversation_id, sender_id, sender_type')
+    .eq('id', messageId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error getting message by id:', error);
+    throw error;
+  }
+
+  return data || null;
+}
+
+/**
  * Get messages for a conversation
  */
 async function getConversationMessages(conversationId, limit = 50, offset = 0) {
@@ -2886,6 +2912,7 @@ module.exports = {
   getConversations,
   getConversation,
   addMessageToConversation,
+  getMessageById,
   getConversationMessages,
   markConversationAsRead,
   markConversationDeletedByCoach,

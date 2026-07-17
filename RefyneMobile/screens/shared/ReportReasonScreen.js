@@ -25,7 +25,7 @@ const REPORT_REASONS = [
 ];
 
 export default function ReportReasonScreen({ navigation, route }) {
-  const { reportedUserId, conversationId, otherPartyName } = route.params || {};
+  const { reportedUserId, conversationId, messageId, otherPartyName } = route.params || {};
   const [selectedReason, setSelectedReason] = useState(null);
   const [details, setDetails] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -47,6 +47,7 @@ export default function ReportReasonScreen({ navigation, route }) {
         reportedUserId,
         reason: reasonKey,
         conversationId,
+        messageId,
         details: reasonKey === 'other' ? details.trim() : undefined,
       });
       Alert.alert(

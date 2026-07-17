@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   createReport,
+  getMessageById,
   getUserFromAccessToken,
   isSupabaseConfigured,
 } = require('../services/database');
@@ -93,6 +94,33 @@ router.post('/', async (req, res) => {
         error: 'Self report',
         message: 'Cannot report yourself.',
       });
+    }
+
+    if (messageId != null && messageId !== '') {
+      if (typeof messageId !== 'string') {
+        return res.status(400).json({
+          error: 'Validation error',
+          message: 'message_id must be a string.',
+        });
+      }
+      if (conversationId == null || conversationId === '') {
+        return res.status(400).json({
+          error: 'Validation error',
+          message: 'conversation_id is required when message_id is provided.',
+        });
+      }
+
+      const message = await getMessageById(messageId);
+      if (
+        !message ||
+        String(message.conversation_id) !== String(conversationId) ||
+        String(message.sender_id) !== String(reportedUserId)
+      ) {
+        return res.status(400).json({
+          error: 'Validation error',
+          message: 'message does not belong to this conversation/user',
+        });
+      }
     }
 
     const report = await createReport({
