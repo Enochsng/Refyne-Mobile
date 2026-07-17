@@ -24,6 +24,7 @@ import CoachNavigator from './navigation/CoachNavigator';
 import CoachOnboardingNavigator from './navigation/CoachOnboardingNavigator';
 import ReportReasonScreen from './screens/shared/ReportReasonScreen';
 import SplashScreen from './components/SplashScreen';
+import ErrorBoundary from './components/ErrorBoundary';
 import { STRIPE_CONFIG } from './stripeConfig';
 
 // Conditionally import StripeProvider
@@ -397,7 +398,9 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      {AppContent}
+      <ErrorBoundary>
+        {AppContent}
+      </ErrorBoundary>
     </GestureHandlerRootView>
   );
 }

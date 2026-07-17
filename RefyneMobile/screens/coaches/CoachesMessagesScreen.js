@@ -633,9 +633,19 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           onPress: async () => {
             try {
               await unblockUser(blockRecordId);
-              setIsOtherUserBlocked(false);
-              setBlockRecordId(null);
-              // Refresh so archivedAt matches server (cleared only when pair is fully unblocked).
+            } catch (error) {
+              Alert.alert(
+                'Error',
+                error?.message || 'Failed to unblock user. Please try again.'
+              );
+              return;
+            }
+
+            setIsOtherUserBlocked(false);
+            setBlockRecordId(null);
+
+            // Refresh so archivedAt matches server (cleared only when pair is fully unblocked).
+            try {
               const refreshed = await loadConversations();
               if (conversationId && Array.isArray(refreshed)) {
                 const match = refreshed.find((conv) => conv.id === conversationId);
@@ -643,13 +653,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                   setSelectedConversation(match);
                 }
               }
-              Alert.alert('User Unblocked', `${name} has been unblocked.`);
-            } catch (error) {
-              Alert.alert(
-                'Error',
-                error?.message || 'Failed to unblock user. Please try again.'
-              );
+            } catch (e) {
+              console.warn('Post-unblock loadConversations failed:', e?.message || e);
             }
+
+            Alert.alert('User Unblocked', `${name} has been unblocked.`);
           },
         },
       ]

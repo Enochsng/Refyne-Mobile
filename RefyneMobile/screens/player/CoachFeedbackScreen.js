@@ -439,11 +439,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   }, [route?.params?.conversationId, conversations.length, selectedConversation?.id, navigation]);
 
   // Filter conversations based on search query
-  const filteredConversations = conversations.filter(conversation =>
-    conversation.otherPartyName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    conversation.sport.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (conversation.lastMessage && conversation.lastMessage.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const filteredConversations = conversations.filter((conversation) => {
+    const q = searchQuery.toLowerCase();
+    return (
+      (conversation.otherPartyName || '').toLowerCase().includes(q) ||
+      (conversation.sport || '').toLowerCase().includes(q) ||
+      (conversation.lastMessage || '').toLowerCase().includes(q)
+    );
+  });
 
   // Start entrance animations
   useEffect(() => {
@@ -1052,25 +1055,41 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           onPress: async () => {
             try {
               await unblockUser(blockRecordId);
-              setIsOtherUserBlocked(false);
-              setBlockRecordId(null);
-              // Refresh so archivedAt matches server (cleared only when pair is fully unblocked).
-              await loadConversations({
-                preserveSelectedConversation: true,
-                showLoader: false,
-                force: true,
-              });
-              if (conversationId) {
-                loadRemainingClips(conversationId);
-                loadRemainingDailyMessages(conversationId);
-              }
-              Alert.alert('User Unblocked', `${name} has been unblocked.`);
             } catch (error) {
               Alert.alert(
                 'Error',
                 error?.message || 'Failed to unblock user. Please try again.'
               );
+              return;
             }
+
+            setIsOtherUserBlocked(false);
+            setBlockRecordId(null);
+
+            try {
+              await loadConversations({
+                preserveSelectedConversation: true,
+                showLoader: false,
+                force: true,
+              });
+            } catch (e) {
+              console.warn('Post-unblock loadConversations failed:', e?.message || e);
+            }
+
+            if (conversationId) {
+              try {
+                await loadRemainingClips(conversationId);
+              } catch (e) {
+                console.warn('Post-unblock loadRemainingClips failed:', e?.message || e);
+              }
+              try {
+                await loadRemainingDailyMessages(conversationId);
+              } catch (e) {
+                console.warn('Post-unblock loadRemainingDailyMessages failed:', e?.message || e);
+              }
+            }
+
+            Alert.alert('User Unblocked', `${name} has been unblocked.`);
           },
         },
       ]
