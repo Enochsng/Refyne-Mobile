@@ -13,9 +13,17 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../supabaseClient';
-import { getPlayerProfilePhoto } from '../../services/conversationService';
+import { getPlayerProfilePhoto, getRemainingClips } from '../../services/conversationService';
 
 const { width, height } = Dimensions.get('window');
+
+const INACTIVE_RECENT_ACTIVITY_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+const shouldShowInRecentActivity = (item) => {
+  if (item.status !== 'Inactive') return true;
+  if (!item.inactiveSinceMs) return true;
+  return Date.now() - item.inactiveSinceMs <= INACTIVE_RECENT_ACTIVITY_MAX_AGE_MS;
+};
 
 export default function CoachesHomeScreen({ navigation }) {
   const [coachName, setCoachName] = useState('Coach');
@@ -136,25 +144,28 @@ export default function CoachesHomeScreen({ navigation }) {
         const playerName = conv.player_name || 'Player';
         const studentInitial = playerName.charAt(0).toUpperCase();
 
-        // Fetch player profile photo
+        // Fetch player profile photo and chat expiry (via checkChatExpiry on backend)
         let profilePhotoUrl = null;
+        let chatExpiry = null;
         try {
-          profilePhotoUrl = await getPlayerProfilePhoto(conv.player_id);
+          const [photoUrl, clipInfo] = await Promise.all([
+            getPlayerProfilePhoto(conv.player_id),
+            getRemainingClips(conv.id),
+          ]);
+          profilePhotoUrl = photoUrl;
+          chatExpiry = clipInfo?.chatExpiry || null;
           console.log(`Profile photo for ${playerName} (${conv.player_id}):`, profilePhotoUrl || 'Not found');
         } catch (error) {
-          console.log('Error fetching profile photo for player:', error);
+          console.log('Error fetching profile photo or chat expiry for player:', error);
         }
 
-        // Determine status based on session
+        // Active/Inactive from created_at + package day limit (same as player Home)
         let status = 'Active';
-        if (session) {
-          if (session.status === 'active') {
-            status = 'Active';
-          } else if (session.status === 'completed') {
-            status = 'Completed';
-          } else if (session.status === 'expired') {
-            status = 'Expired';
-          }
+        if (
+          chatExpiry &&
+          (chatExpiry.isExpired || chatExpiry.daysRemaining === 0)
+        ) {
+          status = 'Inactive';
         }
 
         return {
@@ -167,10 +178,15 @@ export default function CoachesHomeScreen({ navigation }) {
           conversationId: conv.id,
           sessionId: conv.session_id,
           avatar: profilePhotoUrl,
+          inactiveSinceMs: chatExpiry?.expiresAt
+            ? new Date(chatExpiry.expiresAt).getTime()
+            : null,
         };
       });
 
-      const activities = await Promise.all(activitiesPromises);
+      const activities = (await Promise.all(activitiesPromises)).filter(
+        shouldShowInRecentActivity
+      );
       console.log('Loaded recent activities:', activities.length);
       setRecentActivity(activities);
     } catch (error) {
@@ -397,8 +413,7 @@ export default function CoachesHomeScreen({ navigation }) {
                       <View style={[
                         styles.activeBadge,
                         activity.status === 'Active' && styles.activeBadgeActive,
-                        activity.status === 'Completed' && styles.activeBadgeCompleted,
-                        activity.status === 'Expired' && styles.activeBadgeExpired
+                        activity.status === 'Inactive' && styles.activeBadgeInactive,
                       ]}>
                         <Text style={styles.activeBadgeText}>{activity.status}</Text>
                       </View>
@@ -716,6 +731,9 @@ const styles = StyleSheet.create({
   },
   activeBadgeActive: {
     backgroundColor: '#4CAF50',
+  },
+  activeBadgeInactive: {
+    backgroundColor: '#9E9E9E',
   },
   activeBadgeCompleted: {
     backgroundColor: '#2196F3',
