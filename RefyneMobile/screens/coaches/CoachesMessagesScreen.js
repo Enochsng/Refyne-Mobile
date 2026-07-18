@@ -75,17 +75,30 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const [isOtherUserBlocked, setIsOtherUserBlocked] = useState(false);
   const [blockRecordId, setBlockRecordId] = useState(null);
   const [messageContextMenu, setMessageContextMenu] = useState(null);
+  const [messagesReady, setMessagesReady] = useState(false);
   
   // Animation refs
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const swipeableRefs = useRef({});
   const isFirstFocus = useRef(true);
+  const loadConversationsRequestIdRef = useRef(0);
+  const lastSuccessfulConversationsLoadAtRef = useRef(0);
+  const hasCachedConversationsRef = useRef(false);
+  const conversationsRef = useRef([]);
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
   const messageRefs = useRef({});
   const scrollY = useRef(0);
+  const pendingInitialScrollRef = useRef(false);
+  const lastPendingContentHeightRef = useRef(null);
+  const pendingScrollSettleTimerRef = useRef(null);
+  const hasLoadedInitialMessagesRef = useRef(false);
+  const messagesReadyRef = useRef(false);
+  const revealInFlightRef = useRef(false);
+  const postRevealUntilRef = useRef(0);
+  const postRevealFollowUpDoneRef = useRef(false);
   const inputBarPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
@@ -99,11 +112,62 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     })
   ).current;
 
-  // Auto-scroll to bottom when messages change
+  const revealMessagesAtBottom = () => {
+    if (messagesReadyRef.current || revealInFlightRef.current) return;
+    revealInFlightRef.current = true;
+    pendingInitialScrollRef.current = false;
+    lastPendingContentHeightRef.current = null;
+    if (pendingScrollSettleTimerRef.current) {
+      clearTimeout(pendingScrollSettleTimerRef.current);
+      pendingScrollSettleTimerRef.current = null;
+    }
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollToEnd({ animated: false });
+    }
+    // Wait for native scroll offset to apply before making the list visible
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollToEnd({ animated: false });
+        }
+        messagesReadyRef.current = true;
+        setMessagesReady(true);
+        revealInFlightRef.current = false;
+        postRevealUntilRef.current = Date.now() + 300;
+        postRevealFollowUpDoneRef.current = false;
+        setTimeout(() => {
+          hasLoadedInitialMessagesRef.current = true;
+        }, 0);
+      });
+    });
+  };
+
+  const resetMessagesRevealState = () => {
+    messagesReadyRef.current = false;
+    setMessagesReady(false);
+    hasLoadedInitialMessagesRef.current = false;
+    pendingInitialScrollRef.current = true;
+    lastPendingContentHeightRef.current = null;
+    revealInFlightRef.current = false;
+    postRevealUntilRef.current = 0;
+    postRevealFollowUpDoneRef.current = false;
+    if (pendingScrollSettleTimerRef.current) {
+      clearTimeout(pendingScrollSettleTimerRef.current);
+      pendingScrollSettleTimerRef.current = null;
+    }
+  };
+
+  // Auto-scroll to bottom when new messages arrive after initial load
   useEffect(() => {
     if (messages.length > 0 && scrollViewRef.current) {
+      // Initial open is owned by hide-until-ready reveal (animated: false)
+      if (!hasLoadedInitialMessagesRef.current || pendingInitialScrollRef.current || !messagesReadyRef.current) {
+        return;
+      }
       setTimeout(() => {
-        scrollViewRef.current.scrollToEnd({ animated: true });
+        if (scrollViewRef.current) {
+          scrollViewRef.current.scrollToEnd({ animated: false });
+        }
       }, 100);
     }
   }, [messages.length]);
@@ -118,13 +182,16 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     const keyboardWillShowListener = Keyboard.addListener(
       showEvent,
       (event) => {
-        // Scroll to bottom when keyboard appears with extra padding
-        const delay = Platform.OS === 'ios' ? 200 : 300;
-        setTimeout(() => {
+        // Wait for KeyboardAvoidingView to finish resizing, then pin to bottom
+        const duration =
+          event?.duration ?? (Platform.OS === 'ios' ? 250 : 300);
+        const scrollToBottom = () => {
           if (scrollViewRef.current) {
-            scrollViewRef.current.scrollToEnd({ animated: true });
+            scrollViewRef.current.scrollToEnd({ animated: false });
           }
-        }, delay);
+        };
+        setTimeout(scrollToBottom, duration);
+        setTimeout(scrollToBottom, duration + 50);
       }
     );
 
@@ -178,17 +245,52 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
   }, [selectedConversation, messages.length]);
 
+  // Keep a ref of conversations for soft-refresh / stale-request checks
+  useEffect(() => {
+    conversationsRef.current = conversations;
+    if (conversations.length > 0) {
+      hasCachedConversationsRef.current = true;
+    }
+  }, [conversations]);
+
   // Load conversations on component mount and when tab regains focus
   const loadConversations = useCallback(async () => {
-    try {
-      setLoading(true);
+    const requestId = ++loadConversationsRequestIdRef.current;
+    const isLatest = () => requestId === loadConversationsRequestIdRef.current;
 
+    const SOFT_REFRESH_WINDOW_MS = 15000;
+    const LOAD_TIMEOUT_MS = 25000;
+
+    const hasCached =
+      hasCachedConversationsRef.current || conversationsRef.current.length > 0;
+    const recentlyLoaded =
+      lastSuccessfulConversationsLoadAtRef.current > 0 &&
+      Date.now() - lastSuccessfulConversationsLoadAtRef.current < SOFT_REFRESH_WINDOW_MS;
+    const showLoader = !hasCached || !recentlyLoaded;
+
+    if (showLoader) {
+      setLoading(true);
+    }
+
+    const timeoutId = setTimeout(() => {
+      if (isLatest() && showLoader) {
+        console.warn(
+          '⚠️ Conversations load timed out — clearing spinner and keeping cached list'
+        );
+        setLoading(false);
+      }
+    }, LOAD_TIMEOUT_MS);
+
+    try {
       const authPromise = supabase.auth.getUser();
-      const timeoutPromise = new Promise((_, reject) =>
+      const authTimeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Authentication timeout')), 15000)
       );
 
-      const { data: { user }, error: authError } = await Promise.race([authPromise, timeoutPromise]);
+      const { data: { user }, error: authError } = await Promise.race([
+        authPromise,
+        authTimeoutPromise,
+      ]);
 
       if (authError) {
         console.error('Authentication error:', authError);
@@ -197,15 +299,24 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
       if (!user) {
         console.error('No authenticated user found');
-        Alert.alert('Authentication Error', 'Please sign in to view your conversations.');
-        return;
+        if (isLatest() && showLoader) {
+          Alert.alert(
+            'Authentication Error',
+            'Please sign in to view your conversations.'
+          );
+        }
+        return [];
       }
+
+      if (!isLatest()) return [];
 
       const currentCoachId = user.id;
       setCoachId(currentCoachId);
       console.log('Loading conversations for authenticated coach:', currentCoachId);
 
       const conversationsData = await getConversations(currentCoachId, 'coach');
+      if (!isLatest()) return [];
+
       console.log('Coach conversations data:', conversationsData);
       console.log('[loadConversations] raw API sessionStatus:', conversationsData.map((conv) => ({
         id: conv.id,
@@ -260,12 +371,26 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         })
       );
 
+      if (!isLatest()) return [];
+
       console.log('Formatted conversations:', formattedConversations);
       setConversations(formattedConversations);
       setFilteredConversations(formattedConversations);
+      hasCachedConversationsRef.current = true;
+      lastSuccessfulConversationsLoadAtRef.current = Date.now();
       return formattedConversations;
     } catch (error) {
+      if (!isLatest()) {
+        return conversationsRef.current;
+      }
+
       console.error('Error loading conversations:', error);
+
+      // Soft refresh failures: keep cached list, avoid noisy alerts
+      if (!showLoader && hasCached) {
+        console.warn('⚠️ Soft conversation refresh failed — keeping cached list');
+        return conversationsRef.current;
+      }
 
       if (error.message === 'Authentication timeout') {
         Alert.alert(
@@ -286,6 +411,12 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             }}
           ]
         );
+      } else if (
+        error.rateLimited ||
+        error.message?.includes('rate limited') ||
+        error.message?.includes('Rate limit')
+      ) {
+        console.warn('⚠️ Conversations rate limited — keeping cached list');
       } else {
         Alert.alert(
           'Error',
@@ -296,9 +427,13 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           ]
         );
       }
-      return [];
+      return conversationsRef.current.length > 0 ? conversationsRef.current : [];
     } finally {
-      setLoading(false);
+      clearTimeout(timeoutId);
+      // Only the latest request may clear the spinner it owns
+      if (isLatest() && showLoader) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -405,7 +540,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       
       if (conversationToSelect) {
         console.log('Auto-selecting conversation from route params:', route.params.conversationId);
+        navigation.setParams({ hideTabBar: true });
         setSelectedConversation(conversationToSelect);
+        resetMessagesRevealState();
         loadMessages(conversationToSelect.id);
       }
     }
@@ -414,6 +551,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   // Load messages when a conversation is selected
   const loadMessages = async (conversationId) => {
     try {
+      resetMessagesRevealState();
       const { getConversationMessages } = await import('../../services/conversationService');
       const messagesData = await getConversationMessages(conversationId);
       
@@ -434,13 +572,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         .sort((a, b) => a.createdAt - b.createdAt); // Sort oldest to newest
       
       setMessages(formattedMessages);
-      
-      // Auto-scroll to bottom after messages are loaded (newest messages)
-      setTimeout(() => {
-        if (scrollViewRef.current) {
-          scrollViewRef.current.scrollToEnd({ animated: true });
-        }
-      }, 100);
+
+      // Empty thread: no content-size growth to settle — reveal immediately
+      if (formattedMessages.length === 0) {
+        revealMessagesAtBottom();
+      }
       
       // Mark conversation as read after messages are loaded and displayed
       // This ensures the user has actually seen the messages
@@ -455,6 +591,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     } catch (error) {
       console.error('Error loading messages:', error);
       setMessages([]);
+      revealMessagesAtBottom();
     }
   };
 
@@ -498,9 +635,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         setMessages(prev => [...prev, newMessage]);
         setMessageText('');
 
-        // Dismiss keyboard after sending message
-        Keyboard.dismiss();
-
         // Update conversation list with new last message and mark as read
         setConversations(prev => 
           prev.map(conv => 
@@ -537,6 +671,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     setMessageContextMenu(null);
     setSelectedConversation(null);
     setMessages([]);
+    resetMessagesRevealState();
     setMessageText('');
     setIsOtherUserBlocked(false);
     setBlockRecordId(null);
@@ -849,7 +984,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       // Auto-scroll to bottom
       setTimeout(() => {
         if (scrollViewRef.current) {
-          scrollViewRef.current.scrollToEnd({ animated: true });
+          scrollViewRef.current.scrollToEnd({ animated: false });
         }
       }, 100);
 
@@ -970,6 +1105,8 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       avatar: conversation.avatar
     });
     setSelectedConversation(conversation);
+    navigation.setParams({ hideTabBar: true });
+    resetMessagesRevealState();
     loadMessages(conversation.id);
     
     // Don't mark as read immediately - wait for user to actually view messages
@@ -1075,6 +1212,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               setShowProfileSheet(false);
               setMessageContextMenu(null);
               setSelectedConversation(null);
+              resetMessagesRevealState();
               setIsOtherUserBlocked(false);
               setBlockRecordId(null);
               // Clear route params to prevent auto-selection when navigating back
@@ -1119,48 +1257,95 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         </View>
 
         {/* Messages */}
-        <ScrollView 
-          ref={scrollViewRef}
-          style={styles.messagesContainer} 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.messagesContent}
-          keyboardDismissMode="none"
-          keyboardShouldPersistTaps="always"
-          nestedScrollEnabled={true}
-          onScrollBeginDrag={closeMessageContextMenu}
-          onScroll={(event) => {
-            const currentScrollY = event.nativeEvent.contentOffset.y;
-            scrollY.current = currentScrollY;
-          }}
-          scrollEventThrottle={16}
-        >
-          {messages.map((message) => {
-            const isHighlighted =
-              messageContextMenu?.message?.id === message.id;
-            const isRightAligned = message.isFromPlayer === false;
-            return (
-            <View
-              key={message.id}
-              style={[
-                styles.messageContainer,
-                message.isFromPlayer ? styles.playerMessage : styles.coachMessage
-              ]}
-            >
-              {message.messageType === 'video' ? (
-                <View>
-                  {renderVideoMessage(message)}
-                  <Text
-                    style={[
-                      styles.messageTime,
-                      message.isFromPlayer ? styles.playerTime : styles.coachTime,
-                      styles.videoMessageTime,
-                      isHighlighted && styles.messageHiddenWhileMenuOpen,
-                    ]}
-                  >
-                    {message.timestamp}
-                  </Text>
-                </View>
-              ) : (
+        <View style={styles.messagesArea}>
+          <ScrollView 
+            ref={scrollViewRef}
+            style={[styles.messagesContainer, { opacity: messagesReady ? 1 : 0 }]} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.messagesContent}
+            keyboardDismissMode="none"
+            keyboardShouldPersistTaps="always"
+            nestedScrollEnabled={true}
+            onScrollBeginDrag={closeMessageContextMenu}
+            onContentSizeChange={(_contentWidth, contentHeight) => {
+              if (contentHeight <= 0) return;
+
+              // One catch-up jump for late video/thumbnail layout after reveal
+              if (
+                messagesReadyRef.current &&
+                !postRevealFollowUpDoneRef.current &&
+                Date.now() < postRevealUntilRef.current
+              ) {
+                postRevealFollowUpDoneRef.current = true;
+                if (scrollViewRef.current) {
+                  scrollViewRef.current.scrollToEnd({ animated: false });
+                }
+                return;
+              }
+
+              if (
+                !pendingInitialScrollRef.current ||
+                messagesReadyRef.current ||
+                revealInFlightRef.current
+              ) {
+                return;
+              }
+
+              // Wait for height to stabilize, then jump once and reveal
+              if (lastPendingContentHeightRef.current === contentHeight) {
+                revealMessagesAtBottom();
+                return;
+              }
+
+              lastPendingContentHeightRef.current = contentHeight;
+              if (pendingScrollSettleTimerRef.current) {
+                clearTimeout(pendingScrollSettleTimerRef.current);
+              }
+              pendingScrollSettleTimerRef.current = setTimeout(() => {
+                if (
+                  pendingInitialScrollRef.current &&
+                  !messagesReadyRef.current &&
+                  !revealInFlightRef.current
+                ) {
+                  revealMessagesAtBottom();
+                } else {
+                  pendingScrollSettleTimerRef.current = null;
+                }
+              }, 120);
+            }}
+            onScroll={(event) => {
+              const currentScrollY = event.nativeEvent.contentOffset.y;
+              scrollY.current = currentScrollY;
+            }}
+            scrollEventThrottle={16}
+          >
+            {messages.map((message) => {
+              const isHighlighted =
+                messageContextMenu?.message?.id === message.id;
+              const isRightAligned = message.isFromPlayer === false;
+              return (
+              <View
+                key={message.id}
+                style={[
+                  styles.messageContainer,
+                  message.isFromPlayer ? styles.playerMessage : styles.coachMessage
+                ]}
+              >
+                {message.messageType === 'video' ? (
+                  <View>
+                    {renderVideoMessage(message)}
+                    <Text
+                      style={[
+                        styles.messageTime,
+                        message.isFromPlayer ? styles.playerTime : styles.coachTime,
+                        styles.videoMessageTime,
+                        isHighlighted && styles.messageHiddenWhileMenuOpen,
+                      ]}
+                    >
+                      {message.timestamp}
+                    </Text>
+                  </View>
+                ) : (
                 <View
                   ref={(ref) => {
                     if (ref) {
@@ -1210,6 +1395,12 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             );
           })}
         </ScrollView>
+          {!messagesReady && (
+            <View style={styles.messagesLoadingOverlay} pointerEvents="none">
+              <ActivityIndicator size="large" color="#0C295C" />
+            </View>
+          )}
+        </View>
 
         {/* Message Input */}
         <View style={styles.inputContainer} {...inputBarPanResponder.panHandlers}>
@@ -2046,6 +2237,17 @@ const styles = StyleSheet.create({
   },
   moreButton: {
     padding: 5,
+  },
+  messagesArea: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: '#F8FAFF',
+  },
+  messagesLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F8FAFF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   messagesContainer: {
     flex: 1,
