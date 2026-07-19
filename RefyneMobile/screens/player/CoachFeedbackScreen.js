@@ -58,12 +58,19 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const messageRefs = useRef({});
   const pendingInitialScrollRef = useRef(false);
   const lastPendingContentHeightRef = useRef(null);
+  const lastPendingContainerHeightRef = useRef(null);
   const pendingScrollSettleTimerRef = useRef(null);
+  const pendingLayoutSettleTimerRef = useRef(null);
+  const contentStableRef = useRef(false);
+  const containerLayoutStableRef = useRef(false);
   const hasLoadedInitialMessagesRef = useRef(false);
   const messagesReadyRef = useRef(false);
   const revealInFlightRef = useRef(false);
   const postRevealUntilRef = useRef(0);
-  const postRevealFollowUpDoneRef = useRef(false);
+  const postRevealLastContentHeightRef = useRef(null);
+  const postRevealSameHeightCountRef = useRef(0);
+  const POST_REVEAL_CORRECTION_MS = 1500;
+  const POST_REVEAL_STABLE_MATCHES = 2;
   const isLoadingConversationsRef = useRef(false);
   const selectedConversationIdRef = useRef(null);
   const selectedConversationRef = useRef(null);
@@ -84,12 +91,19 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   const revealMessagesAtBottom = () => {
     if (messagesReadyRef.current || revealInFlightRef.current) return;
+    // Require both content height and chat-container viewport to be stable
+    // (tab bar hide grows the viewport without firing onContentSizeChange).
+    if (!contentStableRef.current || !containerLayoutStableRef.current) return;
     revealInFlightRef.current = true;
     pendingInitialScrollRef.current = false;
     lastPendingContentHeightRef.current = null;
     if (pendingScrollSettleTimerRef.current) {
       clearTimeout(pendingScrollSettleTimerRef.current);
       pendingScrollSettleTimerRef.current = null;
+    }
+    if (pendingLayoutSettleTimerRef.current) {
+      clearTimeout(pendingLayoutSettleTimerRef.current);
+      pendingLayoutSettleTimerRef.current = null;
     }
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollToEnd({ animated: false });
@@ -103,13 +117,27 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         messagesReadyRef.current = true;
         setMessagesReady(true);
         revealInFlightRef.current = false;
-        postRevealUntilRef.current = Date.now() + 300;
-        postRevealFollowUpDoneRef.current = false;
+        // Keep re-pinning while late layout grows content/viewport (long chats).
+        postRevealUntilRef.current = Date.now() + POST_REVEAL_CORRECTION_MS;
+        postRevealLastContentHeightRef.current = null;
+        postRevealSameHeightCountRef.current = 0;
         setTimeout(() => {
           hasLoadedInitialMessagesRef.current = true;
         }, 0);
       });
     });
+  };
+
+  const tryRevealIfReady = () => {
+    if (
+      pendingInitialScrollRef.current &&
+      contentStableRef.current &&
+      containerLayoutStableRef.current &&
+      !messagesReadyRef.current &&
+      !revealInFlightRef.current
+    ) {
+      revealMessagesAtBottom();
+    }
   };
 
   const resetMessagesRevealState = () => {
@@ -118,13 +146,68 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     hasLoadedInitialMessagesRef.current = false;
     pendingInitialScrollRef.current = true;
     lastPendingContentHeightRef.current = null;
+    lastPendingContainerHeightRef.current = null;
+    contentStableRef.current = false;
+    containerLayoutStableRef.current = false;
     revealInFlightRef.current = false;
     postRevealUntilRef.current = 0;
-    postRevealFollowUpDoneRef.current = false;
+    postRevealLastContentHeightRef.current = null;
+    postRevealSameHeightCountRef.current = 0;
     if (pendingScrollSettleTimerRef.current) {
       clearTimeout(pendingScrollSettleTimerRef.current);
       pendingScrollSettleTimerRef.current = null;
     }
+    if (pendingLayoutSettleTimerRef.current) {
+      clearTimeout(pendingLayoutSettleTimerRef.current);
+      pendingLayoutSettleTimerRef.current = null;
+    }
+  };
+
+  const handleChatContainerLayout = (event) => {
+    const height = event?.nativeEvent?.layout?.height ?? 0;
+    if (height <= 0) return;
+
+    // After reveal: re-pin for viewport resizes during the post-reveal window only
+    if (messagesReadyRef.current) {
+      const heightChanged =
+        lastPendingContainerHeightRef.current != null &&
+        lastPendingContainerHeightRef.current !== height;
+      lastPendingContainerHeightRef.current = height;
+      if (heightChanged && Date.now() < postRevealUntilRef.current && scrollViewRef.current) {
+        scrollViewRef.current.scrollToEnd({ animated: false });
+      }
+      return;
+    }
+
+    if (
+      !pendingInitialScrollRef.current ||
+      revealInFlightRef.current
+    ) {
+      return;
+    }
+
+    if (lastPendingContainerHeightRef.current === height) {
+      containerLayoutStableRef.current = true;
+      tryRevealIfReady();
+      return;
+    }
+
+    containerLayoutStableRef.current = false;
+    lastPendingContainerHeightRef.current = height;
+    if (pendingLayoutSettleTimerRef.current) {
+      clearTimeout(pendingLayoutSettleTimerRef.current);
+    }
+    pendingLayoutSettleTimerRef.current = setTimeout(() => {
+      pendingLayoutSettleTimerRef.current = null;
+      if (
+        pendingInitialScrollRef.current &&
+        !messagesReadyRef.current &&
+        !revealInFlightRef.current
+      ) {
+        containerLayoutStableRef.current = true;
+        tryRevealIfReady();
+      }
+    }, 120);
   };
 
   // Auto-scroll to bottom when new messages arrive after initial load
@@ -521,10 +604,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
 
     console.log('Auto-selecting conversation from route params:', conversationId);
-    setSelectedConversation(conversationToSelect);
-    resetMessagesRevealState();
-    loadMessages(conversationToSelect.id);
+    // Hide tab bar before mounting chat so viewport can settle before reveal
     navigation.setParams({ conversationId: undefined, hideTabBar: true });
+    resetMessagesRevealState();
+    setSelectedConversation(conversationToSelect);
+    loadMessages(conversationToSelect.id);
   }, [route?.params?.conversationId, conversations.length, selectedConversation?.id, navigation]);
 
   // Filter conversations based on search query
@@ -601,9 +685,10 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       
       setMessages(formattedMessages);
 
-      // Empty thread: no content-size growth to settle — reveal immediately
+      // Empty thread: content is stable; still wait for container layout before reveal
       if (formattedMessages.length === 0) {
-        revealMessagesAtBottom();
+        contentStableRef.current = true;
+        tryRevealIfReady();
       }
       
       // Mark conversation as read after messages are loaded and displayed
@@ -625,7 +710,8 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         console.log('Error details:', error);
       }
       setMessages([]);
-      revealMessagesAtBottom();
+      contentStableRef.current = true;
+      tryRevealIfReady();
     }
   };
 
@@ -1346,6 +1432,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        onLayout={handleChatContainerLayout}
       >
         {/* Chat Header */}
         <View style={styles.chatHeader}>
@@ -1436,13 +1523,20 @@ export default function CoachFeedbackScreen({ navigation, route }) {
             onContentSizeChange={(_contentWidth, contentHeight) => {
               if (contentHeight <= 0) return;
 
-              // One catch-up jump for late video/thumbnail layout after reveal
-              if (
-                messagesReadyRef.current &&
-                !postRevealFollowUpDoneRef.current &&
-                Date.now() < postRevealUntilRef.current
-              ) {
-                postRevealFollowUpDoneRef.current = true;
+              // After reveal: keep pinning to bottom while late layout grows content
+              if (messagesReadyRef.current) {
+                if (Date.now() >= postRevealUntilRef.current) {
+                  return;
+                }
+                if (postRevealLastContentHeightRef.current === contentHeight) {
+                  postRevealSameHeightCountRef.current += 1;
+                  if (postRevealSameHeightCountRef.current >= POST_REVEAL_STABLE_MATCHES) {
+                    postRevealUntilRef.current = 0;
+                  }
+                  return;
+                }
+                postRevealLastContentHeightRef.current = contentHeight;
+                postRevealSameHeightCountRef.current = 0;
                 if (scrollViewRef.current) {
                   scrollViewRef.current.scrollToEnd({ animated: false });
                 }
@@ -1451,31 +1545,32 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
               if (
                 !pendingInitialScrollRef.current ||
-                messagesReadyRef.current ||
                 revealInFlightRef.current
               ) {
                 return;
               }
 
-              // Wait for height to stabilize, then jump once and reveal
+              // Wait for content height to stabilize; reveal only once container is stable too
               if (lastPendingContentHeightRef.current === contentHeight) {
-                revealMessagesAtBottom();
+                contentStableRef.current = true;
+                tryRevealIfReady();
                 return;
               }
 
+              contentStableRef.current = false;
               lastPendingContentHeightRef.current = contentHeight;
               if (pendingScrollSettleTimerRef.current) {
                 clearTimeout(pendingScrollSettleTimerRef.current);
               }
               pendingScrollSettleTimerRef.current = setTimeout(() => {
+                pendingScrollSettleTimerRef.current = null;
                 if (
                   pendingInitialScrollRef.current &&
                   !messagesReadyRef.current &&
                   !revealInFlightRef.current
                 ) {
-                  revealMessagesAtBottom();
-                } else {
-                  pendingScrollSettleTimerRef.current = null;
+                  contentStableRef.current = true;
+                  tryRevealIfReady();
                 }
               }, 120);
             }}
@@ -1832,9 +1927,10 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                       sport: conversation.sport,
                       avatar: conversation.avatar
                     });
-                    setSelectedConversation(conversation);
+                    // Hide tab bar before mounting chat so viewport can settle before reveal
                     navigation.setParams({ hideTabBar: true });
                     resetMessagesRevealState();
+                    setSelectedConversation(conversation);
                     loadMessages(conversation.id);
                   }}
                 >
