@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabaseClient';
 import { confirmDeleteAccount } from '../../services/accountService';
+import ChangePasswordModal from '../../components/ChangePasswordModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -41,6 +42,7 @@ export default function ProfileScreen({ navigation }) {
   
   const [profilePhotoUri, setProfilePhotoUri] = useState(null);
   const [showNameModal, setShowNameModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
@@ -172,10 +174,29 @@ export default function ProfileScreen({ navigation }) {
 
       console.log('Name update successful:', data);
 
+      const trimmedName = newName.trim();
+      const userId = data.user?.id;
+
+      // Keep conversation list names in sync for coaches who see this player
+      if (userId) {
+        try {
+          const { error: conversationsError } = await supabase
+            .from('conversations')
+            .update({ player_name: trimmedName })
+            .eq('player_id', userId);
+
+          if (conversationsError) {
+            console.log('Error updating player_name on conversations:', conversationsError);
+          }
+        } catch (conversationsUpdateError) {
+          console.log('Error syncing player name to conversations:', conversationsUpdateError);
+        }
+      }
+
       // Update local state
       setUser(prev => ({
         ...prev,
-        name: newName.trim()
+        name: trimmedName
       }));
       
       setNewName('');
@@ -261,7 +282,7 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handleChangePassword = () => {
-    Alert.alert('Change Password', 'Password change feature coming soon!');
+    setShowPasswordModal(true);
   };
 
   const handleLogout = () => {
@@ -436,6 +457,11 @@ export default function ProfileScreen({ navigation }) {
           </View>
         </View>
       </ScrollView>
+
+      <ChangePasswordModal
+        visible={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
 
       {/* Name Change Modal */}
       <Modal

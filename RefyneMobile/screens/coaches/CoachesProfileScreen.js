@@ -27,6 +27,7 @@ import { migrateCoachNames } from '../../utils/coachData';
 import { STRIPE_CONNECT_CONFIG } from '../../stripeConfig';
 import stripeConnectService from '../../services/stripeConnectService';
 import { confirmDeleteAccount } from '../../services/accountService';
+import ChangePasswordModal from '../../components/ChangePasswordModal';
 
 const { width, height } = Dimensions.get('window');
 
@@ -56,6 +57,7 @@ export default function CoachesProfileScreen({ navigation }) {
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [showBioModal, setShowBioModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [newLanguage, setNewLanguage] = useState('');
   const [newName, setNewName] = useState('');
@@ -813,15 +815,47 @@ export default function CoachesProfileScreen({ navigation }) {
 
       console.log('Name update successful:', data);
 
+      const trimmedName = newName.trim();
+      const userId = data.user?.id;
+
+      // Keep conversation list names and coach cards in sync for players
+      if (userId) {
+        try {
+          const { error: conversationsError } = await supabase
+            .from('conversations')
+            .update({ coach_name: trimmedName })
+            .eq('coach_id', userId);
+
+          if (conversationsError) {
+            console.log('Error updating coach_name on conversations:', conversationsError);
+          }
+        } catch (conversationsUpdateError) {
+          console.log('Error syncing coach name to conversations:', conversationsUpdateError);
+        }
+
+        try {
+          const { error: coachProfileError } = await supabase
+            .from('coach_profiles')
+            .update({ name: trimmedName })
+            .eq('id', userId);
+
+          if (coachProfileError) {
+            console.log('Error updating name on coach_profiles:', coachProfileError);
+          }
+        } catch (coachProfileUpdateError) {
+          console.log('Error syncing coach name to coach_profiles:', coachProfileUpdateError);
+        }
+      }
+
       // Update local state
       setCoachProfile(prev => ({
         ...prev,
-        name: newName.trim()
+        name: trimmedName
       }));
       
       // Also save the name to AsyncStorage for other users to access
       try {
-        await AsyncStorage.setItem(`coach_name_${data.user.id}`, newName.trim());
+        await AsyncStorage.setItem(`coach_name_${data.user.id}`, trimmedName);
         console.log('Saved coach name to AsyncStorage for other users to access');
       } catch (storageError) {
         console.log('Error saving coach name to AsyncStorage:', storageError);
@@ -1204,7 +1238,7 @@ export default function CoachesProfileScreen({ navigation }) {
               <ProfileItem
                 icon="key"
                 title="Change Password"
-                onPress={() => Alert.alert('Change Password', 'Password change functionality would be implemented here')}
+                onPress={() => setShowPasswordModal(true)}
               />
               <ProfileItem
                 icon="person"
@@ -1283,6 +1317,11 @@ export default function CoachesProfileScreen({ navigation }) {
           </View>
         </View>
       </ScrollView>
+
+      <ChangePasswordModal
+        visible={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+      />
 
       {/* Sport Selection Modal */}
       <Modal
