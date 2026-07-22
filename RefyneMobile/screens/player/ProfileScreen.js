@@ -12,6 +12,7 @@ import {
   Modal,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +22,12 @@ import { supabase } from '../../supabaseClient';
 import { confirmDeleteAccount } from '../../services/accountService';
 
 const { width, height } = Dimensions.get('window');
+
+const PRIVACY_POLICY_URL =
+  'https://app.termly.io/policy-viewer/policy.html?policyUUID=38f46298-6217-48cb-a4d1-d9ecbd576b5c';
+const TERMS_AND_CONDITIONS_URL =
+  'https://app.termly.io/policy-viewer/policy.html?policyUUID=8638b254-4ed2-4750-b629-76a01d2aaa56';
+const CONTACT_US_URL = 'mailto:refynecoaching@gmail.com';
 
 
 export default function ProfileScreen({ navigation }) {
@@ -402,6 +409,31 @@ export default function ProfileScreen({ navigation }) {
               <Text style={[styles.actionButtonText, styles.logoutText]}>Logout</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Legal Links */}
+          <View style={styles.legalLinksContainer}>
+            <TouchableOpacity
+              style={styles.legalLinkRow}
+              onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+            >
+              <Text style={styles.legalLinkText}>Privacy Policy</Text>
+              <Ionicons name="open-outline" size={16} color="#64748B" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.legalLinkRow}
+              onPress={() => Linking.openURL(TERMS_AND_CONDITIONS_URL)}
+            >
+              <Text style={styles.legalLinkText}>Terms and Conditions</Text>
+              <Ionicons name="open-outline" size={16} color="#64748B" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.legalLinkRow}
+              onPress={() => Linking.openURL(CONTACT_US_URL)}
+            >
+              <Text style={styles.legalLinkText}>Contact Us</Text>
+              <Ionicons name="mail-outline" size={16} color="#64748B" />
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
@@ -672,6 +704,25 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: '#FF5722',
+  },
+  legalLinksContainer: {
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  legalLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(12, 41, 92, 0.08)',
+  },
+  legalLinkText: {
+    fontSize: width * 0.038,
+    fontFamily: 'Manrope-Medium',
+    color: '#64748B',
+    textDecorationLine: 'underline',
   },
   // Modal styles
   modalOverlay: {
