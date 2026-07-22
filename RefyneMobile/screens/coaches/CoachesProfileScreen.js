@@ -23,7 +23,13 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabaseClient';
-import { migrateCoachNames } from '../../utils/coachData';
+import {
+  cacheCoachOnboardingData,
+  getCoachProfileById,
+  migrateCoachNames,
+  sportIdToDisplayName,
+  upsertCoachProfile,
+} from '../../utils/coachData';
 import { STRIPE_CONNECT_CONFIG } from '../../stripeConfig';
 import stripeConnectService from '../../services/stripeConnectService';
 import { confirmDeleteAccount } from '../../services/accountService';
@@ -36,6 +42,28 @@ const PRIVACY_POLICY_URL =
 const TERMS_AND_CONDITIONS_URL =
   'https://app.termly.io/policy-viewer/policy.html?policyUUID=8638b254-4ed2-4750-b629-76a01d2aaa56';
 const CONTACT_US_URL = 'mailto:refynecoaching@gmail.com';
+
+const applyOnboardingFieldsToProfile = (prev, onboardingData) => {
+  const updatedProfile = { ...prev };
+
+  if (Array.isArray(onboardingData.sports) && onboardingData.sports.length > 0) {
+    updatedProfile.sports = onboardingData.sports;
+  } else if (onboardingData.sport) {
+    updatedProfile.sports = [sportIdToDisplayName(onboardingData.sport)];
+  }
+
+  if (Array.isArray(onboardingData.languages) && onboardingData.languages.length > 0) {
+    updatedProfile.languages = onboardingData.languages;
+  } else if (onboardingData.language) {
+    updatedProfile.languages = [onboardingData.language];
+  }
+
+  if (typeof onboardingData.bio === 'string') {
+    updatedProfile.bio = onboardingData.bio;
+  }
+
+  return updatedProfile;
+};
 
 export default function CoachesProfileScreen({ navigation }) {
   const [coachProfile, setCoachProfile] = useState({
@@ -70,14 +98,17 @@ export default function CoachesProfileScreen({ navigation }) {
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
   useEffect(() => {
-    // Get coach profile from Supabase and onboarding data
+    // Get coach profile from Supabase (source of truth) with AsyncStorage as cache
     const getCoachProfile = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          return;
+        }
+
         if (user?.user_metadata) {
-          // Format the actual signup date
           const signupDate = user.created_at ? formatSignupDate(user.created_at) : 'Unknown';
-          
+
           setCoachProfile(prev => ({
             ...prev,
             name: user.user_metadata.full_name || prev.name,
@@ -112,94 +143,19 @@ export default function CoachesProfileScreen({ navigation }) {
           console.log('Error during profile photo migration:', photoMigrationError);
         }
 
-        // Fetch user-specific onboarding data from AsyncStorage
-        try {
-          let onboardingDataString = await AsyncStorage.getItem(`onboarding_data_${user.id}`);
-          
-          // Fallback: If no user-specific data, check for old format
-          if (!onboardingDataString) {
-            onboardingDataString = await AsyncStorage.getItem('onboarding_data');
-            if (onboardingDataString) {
-              console.log('Using fallback onboarding data format');
-            }
-          }
-          
-          if (onboardingDataString) {
-            const onboardingData = JSON.parse(onboardingDataString);
-            console.log('Fetched onboarding data for user:', user.id, onboardingData);
-            
-            // Update profile with sport and language from onboarding data
-            setCoachProfile(prev => {
-              const updatedProfile = { ...prev };
-              
-              // Handle sports - merge onboarding sport with any additional sports
-              if (onboardingData.sport) {
-                // Convert sport ID to display name
-                const sportNames = {
-                  'golf': 'Golf',
-                  'badminton': 'Badminton', 
-                  'weightlifting': 'Weight Lifting',
-                  'volleyball': 'Volleyball'
-                };
-                const sportName = sportNames[onboardingData.sport] || onboardingData.sport;
-                
-                // If we have additional sports from profile updates, merge them
-                if (onboardingData.sports && Array.isArray(onboardingData.sports)) {
-                  updatedProfile.sports = onboardingData.sports;
-                  console.log('Updated sports with profile data:', onboardingData.sports);
-                } else {
-                  // Use the original onboarding sport
-                  updatedProfile.sports = [sportName];
-                  console.log('Updated sports with onboarding data:', sportName);
-                }
-              } else {
-                console.log('No sport found in onboarding data');
-              }
-              
-              // Handle languages - merge onboarding language with any additional languages
-              if (onboardingData.language) {
-                // If we have additional languages from profile updates, use them
-                if (onboardingData.languages && Array.isArray(onboardingData.languages)) {
-                  updatedProfile.languages = onboardingData.languages;
-                  console.log('Updated languages with profile data:', onboardingData.languages);
-                } else {
-                  // Use the original onboarding language
-                  updatedProfile.languages = [onboardingData.language];
-                  console.log('Updated languages with onboarding data:', onboardingData.language);
-                }
-              } else {
-                console.log('No language found in onboarding data');
-              }
-              
-              // Handle bio from onboarding data
-              if (onboardingData.bio) {
-                updatedProfile.bio = onboardingData.bio;
-                console.log('Updated bio with onboarding data:', onboardingData.bio);
-              } else {
-                console.log('No bio found in onboarding data');
-              }
-              
-              return updatedProfile;
-            });
-          } else {
-            console.log('No onboarding data found in AsyncStorage for user:', user.id);
-          }
-        } catch (onboardingError) {
-          console.log('Error fetching onboarding data:', onboardingError);
-        }
+        await loadCoachProfileFields(user);
 
         // Load user-specific profile photo
         try {
           let savedPhotoUri = await AsyncStorage.getItem(`profile_photo_${user.id}`);
-          
-          // Fallback: If no user-specific photo, check for old format
+
           if (!savedPhotoUri) {
             savedPhotoUri = await AsyncStorage.getItem('profile_photo');
             if (savedPhotoUri) {
               console.log('Using fallback profile photo format');
             }
           }
-          
+
           if (savedPhotoUri) {
             setProfilePhotoUri(savedPhotoUri);
             console.log('Loaded profile photo for user:', user.id);
@@ -236,6 +192,83 @@ export default function CoachesProfileScreen({ navigation }) {
     ]).start();
   }, []);
 
+  const loadCoachProfileFields = async (user) => {
+    if (!user?.id) return;
+
+    let cachedOnboarding = null;
+    try {
+      const cachedRaw = await AsyncStorage.getItem(`onboarding_data_${user.id}`);
+      if (cachedRaw) {
+        cachedOnboarding = JSON.parse(cachedRaw);
+      }
+    } catch (cacheReadError) {
+      console.log('Error reading local coach cache:', cacheReadError);
+    }
+
+    // Prefer Supabase so sport/language/bio survive app restarts
+    try {
+      const remoteProfile = await getCoachProfileById(user.id);
+      if (remoteProfile) {
+        const remoteSportName = remoteProfile.sport
+          ? sportIdToDisplayName(remoteProfile.sport)
+          : null;
+        // Preserve multi-sport local edits when cache still has them
+        const cachedSports = Array.isArray(cachedOnboarding?.sports)
+          ? cachedOnboarding.sports
+          : [];
+        const sports = cachedSports.length > 0
+          && (!remoteSportName || cachedSports.includes(remoteSportName))
+          ? cachedSports
+          : (remoteSportName ? [remoteSportName] : []);
+
+        const languages = Array.isArray(remoteProfile.languages) && remoteProfile.languages.length > 0
+          ? remoteProfile.languages
+          : (remoteProfile.language ? [remoteProfile.language] : []);
+
+        setCoachProfile(prev => ({
+          ...prev,
+          name: remoteProfile.name || prev.name,
+          email: remoteProfile.email || prev.email,
+          sports,
+          languages,
+          bio: remoteProfile.bio || '',
+        }));
+
+        // Keep local cache aligned with Supabase
+        await cacheCoachOnboardingData(user.id, {
+          sport: remoteProfile.sport,
+          sports,
+          language: remoteProfile.language || languages[0] || null,
+          languages,
+          experience: remoteProfile.experience,
+          expertise: remoteProfile.expertise || [],
+          bio: remoteProfile.bio || '',
+          coach_name: remoteProfile.name,
+          completed_at: remoteProfile.completed_at,
+        });
+        return;
+      }
+    } catch (remoteError) {
+      console.log('Error fetching coach profile from Supabase:', remoteError?.message || remoteError);
+    }
+
+    // Fallback: local onboarding cache (legacy / offline)
+    if (cachedOnboarding) {
+      setCoachProfile(prev => applyOnboardingFieldsToProfile(prev, cachedOnboarding));
+      return;
+    }
+
+    try {
+      const legacyRaw = await AsyncStorage.getItem('onboarding_data');
+      if (legacyRaw) {
+        setCoachProfile(prev => applyOnboardingFieldsToProfile(prev, JSON.parse(legacyRaw)));
+      } else {
+        console.log('No onboarding data found in AsyncStorage for user:', user.id);
+      }
+    } catch (onboardingError) {
+      console.log('Error fetching onboarding data:', onboardingError);
+    }
+  };
   // Refresh data when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
@@ -243,10 +276,13 @@ export default function CoachesProfileScreen({ navigation }) {
       const getCoachProfile = async () => {
         try {
           const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+            return;
+          }
+
           if (user?.user_metadata) {
-            // Format the actual signup date
             const signupDate = user.created_at ? formatSignupDate(user.created_at) : 'Unknown';
-            
+
             setCoachProfile(prev => ({
               ...prev,
               name: user.user_metadata.full_name || prev.name,
@@ -255,106 +291,22 @@ export default function CoachesProfileScreen({ navigation }) {
             }));
           }
 
-          // Fetch user-specific onboarding data from AsyncStorage
-          try {
-            let onboardingDataString = await AsyncStorage.getItem(`onboarding_data_${user.id}`);
-            console.log('Raw onboarding data string for user:', user.id, onboardingDataString);
-            
-            // Fallback: If no user-specific data, check for old format
-            if (!onboardingDataString) {
-              onboardingDataString = await AsyncStorage.getItem('onboarding_data');
-              if (onboardingDataString) {
-                console.log('Using fallback onboarding data format in useFocusEffect');
-              }
-            }
-            
-            if (onboardingDataString) {
-              const onboardingData = JSON.parse(onboardingDataString);
-              console.log('Parsed onboarding data:', onboardingData);
-              
-              // Update profile with sport and language from onboarding data
-              setCoachProfile(prev => {
-                const updatedProfile = { ...prev };
-                
-                // Handle sports - merge onboarding sport with any additional sports
-                if (onboardingData.sport) {
-                  // Convert sport ID to display name
-                  const sportNames = {
-                    'golf': 'Golf',
-                    'badminton': 'Badminton', 
-                    'weightlifting': 'Weight Lifting'
-                  };
-                  const sportName = sportNames[onboardingData.sport] || onboardingData.sport;
-                  
-                  // If we have additional sports from profile updates, merge them
-                  if (onboardingData.sports && Array.isArray(onboardingData.sports)) {
-                    updatedProfile.sports = onboardingData.sports;
-                    console.log('Updated sports with profile data in useFocusEffect:', onboardingData.sports);
-                  } else {
-                    // Use the original onboarding sport
-                    updatedProfile.sports = [sportName];
-                    console.log('Updated sports with onboarding data in useFocusEffect:', sportName);
-                  }
-                } else {
-                  console.log('No sport found in onboarding data');
-                }
-                
-                // Handle languages - merge onboarding language with any additional languages
-                if (onboardingData.language) {
-                  // If we have additional languages from profile updates, use them
-                  if (onboardingData.languages && Array.isArray(onboardingData.languages)) {
-                    updatedProfile.languages = onboardingData.languages;
-                    console.log('Updated languages with profile data in useFocusEffect:', onboardingData.languages);
-                  } else {
-                    // Use the original onboarding language
-                    updatedProfile.languages = [onboardingData.language];
-                    console.log('Updated languages with onboarding data in useFocusEffect:', onboardingData.language);
-                  }
-                } else {
-                  console.log('No language found in onboarding data');
-                }
-                
-                // Handle bio from onboarding data
-                if (onboardingData.bio) {
-                  updatedProfile.bio = onboardingData.bio;
-                  console.log('Updated bio with onboarding data in useFocusEffect:', onboardingData.bio);
-                } else {
-                  console.log('No bio found in onboarding data');
-                }
-                
-                console.log('Final updated profile:', updatedProfile);
-                return updatedProfile;
-              });
-            } else {
-              console.log('No onboarding data found in AsyncStorage for user:', user.id);
-            }
-          } catch (onboardingError) {
-            console.log('Error fetching onboarding data:', onboardingError);
-          }
+          await loadCoachProfileFields(user);
 
-          // Load user-specific profile photo
           try {
             let savedPhotoUri = await AsyncStorage.getItem(`profile_photo_${user.id}`);
-            
-            // Fallback: If no user-specific photo, check for old format
+
             if (!savedPhotoUri) {
               savedPhotoUri = await AsyncStorage.getItem('profile_photo');
-              if (savedPhotoUri) {
-                console.log('Using fallback profile photo format in useFocusEffect');
-              }
             }
-            
+
             if (savedPhotoUri) {
               setProfilePhotoUri(savedPhotoUri);
-              console.log('Loaded profile photo for user in useFocusEffect:', user.id);
-            } else {
-              console.log('No profile photo found for user in useFocusEffect:', user.id);
             }
           } catch (photoError) {
             console.log('Error loading profile photo in useFocusEffect:', photoError);
           }
-          
-          // Migrate coach name if needed
+
           await migrateCoachNames();
         } catch (error) {
           console.log('Error getting coach profile:', error);
@@ -456,25 +408,48 @@ export default function CoachesProfileScreen({ navigation }) {
   const saveProfileUpdate = async (updatedProfile) => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Get existing onboarding data
-        let onboardingDataString = await AsyncStorage.getItem(`onboarding_data_${user.id}`);
-        let onboardingData = onboardingDataString ? JSON.parse(onboardingDataString) : {};
-        
-        // Update the onboarding data with new profile information
-        const updatedOnboardingData = {
-          ...onboardingData,
-          sports: updatedProfile.sports,
-          languages: updatedProfile.languages,
-          updated_at: new Date().toISOString()
-        };
-        
-        // Save back to AsyncStorage
-        await AsyncStorage.setItem(`onboarding_data_${user.id}`, JSON.stringify(updatedOnboardingData));
-        console.log('Profile update saved for user:', user.id);
+      if (!user) {
+        return;
       }
+
+      const sports = updatedProfile.sports || [];
+      const languages = updatedProfile.languages || [];
+      const primarySport = sports[0] || null;
+
+      // Read existing remote row so we don't wipe experience/expertise/bio
+      let existingRemote = null;
+      try {
+        existingRemote = await getCoachProfileById(user.id);
+      } catch (remoteReadError) {
+        console.log('Could not read existing coach profile before update:', remoteReadError?.message || remoteReadError);
+      }
+
+      await upsertCoachProfile({
+        id: user.id,
+        name: updatedProfile.name || user.user_metadata?.full_name || existingRemote?.name || 'Coach',
+        email: updatedProfile.email || user.email || existingRemote?.email || 'coach@example.com',
+        sport: primarySport,
+        language: languages[0] || null,
+        languages,
+        experience: existingRemote?.experience || null,
+        expertise: existingRemote?.expertise || [],
+        bio: updatedProfile.bio ?? existingRemote?.bio ?? '',
+        completed_at: existingRemote?.completed_at || new Date().toISOString(),
+      });
+
+      await cacheCoachOnboardingData(user.id, {
+        sport: primarySport,
+        sports,
+        language: languages[0] || null,
+        languages,
+        bio: updatedProfile.bio ?? existingRemote?.bio ?? '',
+        updated_at: new Date().toISOString(),
+      });
+
+      console.log('Profile update saved to Supabase for user:', user.id);
     } catch (error) {
-      console.log('Error saving profile update:', error);
+      console.log('Error saving profile update:', error?.message || error);
+      Alert.alert('Error', 'Failed to save profile changes. Please try again.');
     }
   };
 
@@ -873,41 +848,55 @@ export default function CoachesProfileScreen({ navigation }) {
   const handleSaveBio = async () => {
     try {
       console.log('Updating bio to:', newBio.trim());
-      
-      // Update local state
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'User not authenticated. Please sign in again.');
+        return;
+      }
+
+      let existingRemote = null;
+      try {
+        existingRemote = await getCoachProfileById(user.id);
+      } catch (remoteReadError) {
+        console.log('Could not read existing coach profile before bio update:', remoteReadError?.message || remoteReadError);
+      }
+
+      const sports = coachProfile.sports || [];
+      const languages = coachProfile.languages || [];
+
+      await upsertCoachProfile({
+        id: user.id,
+        name: coachProfile.name || user.user_metadata?.full_name || existingRemote?.name || 'Coach',
+        email: coachProfile.email || user.email || existingRemote?.email || 'coach@example.com',
+        sport: sports[0] || existingRemote?.sport || null,
+        language: languages[0] || existingRemote?.language || null,
+        languages: languages.length > 0 ? languages : (existingRemote?.languages || []),
+        experience: existingRemote?.experience || null,
+        expertise: existingRemote?.expertise || [],
+        bio: newBio.trim(),
+        completed_at: existingRemote?.completed_at || new Date().toISOString(),
+      });
+
+      await cacheCoachOnboardingData(user.id, {
+        bio: newBio.trim(),
+        sports,
+        languages,
+        language: languages[0] || null,
+        sport: sports[0] || null,
+        updated_at: new Date().toISOString(),
+      });
+
       setCoachProfile(prev => ({
         ...prev,
         bio: newBio.trim()
       }));
-      
-      // Save bio to AsyncStorage
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          // Get existing onboarding data
-          let onboardingDataString = await AsyncStorage.getItem(`onboarding_data_${user.id}`);
-          let onboardingData = onboardingDataString ? JSON.parse(onboardingDataString) : {};
-          
-          // Update the onboarding data with new bio
-          const updatedOnboardingData = {
-            ...onboardingData,
-            bio: newBio.trim(),
-            updated_at: new Date().toISOString()
-          };
-          
-          // Save back to AsyncStorage
-          await AsyncStorage.setItem(`onboarding_data_${user.id}`, JSON.stringify(updatedOnboardingData));
-          console.log('Bio update saved for user:', user.id);
-        }
-      } catch (storageError) {
-        console.log('Error saving bio to AsyncStorage:', storageError);
-      }
-      
+
       setNewBio('');
       setShowBioModal(false);
       Alert.alert('Success', 'Bio updated successfully!');
     } catch (error) {
-      console.log('Error updating bio:', error);
+      console.log('Error updating bio:', error?.message || error);
       Alert.alert('Error', 'Failed to update bio. Please try again.');
     }
   };

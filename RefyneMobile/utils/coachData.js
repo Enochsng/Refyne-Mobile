@@ -12,6 +12,31 @@ const resolveAvatarUrl = (profileRow) => {
   return meta.avatar_url || meta.profile_photo || meta.profilePicture || meta.picture || null;
 };
 
+const SPORT_ID_TO_NAME = {
+  golf: 'Golf',
+  badminton: 'Badminton',
+  weightlifting: 'Weight Lifting',
+  volleyball: 'Volleyball',
+};
+
+const SPORT_NAME_TO_ID = Object.fromEntries(
+  Object.entries(SPORT_ID_TO_NAME).flatMap(([id, name]) => [
+    [name.toLowerCase(), id],
+    [id, id],
+  ]).concat([['weight lifting', 'weightlifting']])
+);
+
+export const sportIdToDisplayName = (sport) => {
+  if (!sport || typeof sport !== 'string') return sport;
+  return SPORT_ID_TO_NAME[sport] || SPORT_ID_TO_NAME[sport.toLowerCase()] || sport;
+};
+
+export const sportDisplayNameToId = (sport) => {
+  if (!sport || typeof sport !== 'string') return sport;
+  const key = sport.trim().toLowerCase();
+  return SPORT_NAME_TO_ID[key] || key;
+};
+
 const mapCoachProfileRow = (row, profileAvatarUrl = null) => ({
   id: row.id || row.user_id,
   name: row.name || row.coach_name || 'Coach',
@@ -29,6 +54,98 @@ const mapCoachProfileRow = (row, profileAvatarUrl = null) => ({
   rating: DEFAULT_COACH_RATING,
   price: DEFAULT_COACH_PRICE,
 });
+
+/**
+ * Upsert the full coach_profiles row. Throws on failure — callers should not
+ * silently fall back to a partial payload.
+ */
+export const upsertCoachProfile = async (payload) => {
+  if (!payload?.id) {
+    throw new Error('Coach profile id is required');
+  }
+
+  const languages = Array.isArray(payload.languages)
+    ? payload.languages.filter(Boolean)
+    : (payload.language ? [payload.language] : []);
+  const language = payload.language || languages[0] || null;
+  const sport = payload.sport
+    ? sportDisplayNameToId(payload.sport)
+    : null;
+  const expertise = Array.isArray(payload.expertise) ? payload.expertise : [];
+
+  const row = {
+    id: payload.id,
+    name: payload.name || 'Coach',
+    email: payload.email || 'coach@example.com',
+    sport,
+    primary_sport: payload.primary_sport
+      ? sportDisplayNameToId(payload.primary_sport)
+      : sport,
+    language,
+    languages,
+    experience: payload.experience || null,
+    expertise,
+    bio: payload.bio || '',
+    updated_at: new Date().toISOString(),
+  };
+
+  if (payload.completed_at) {
+    row.completed_at = payload.completed_at;
+  }
+
+  const { data, error } = await supabase
+    .from('coach_profiles')
+    .upsert(row, { onConflict: 'id' })
+    .select('*')
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return mapCoachProfileRow(data);
+};
+
+/**
+ * Fetch a single coach profile from Supabase by user id.
+ * Returns null when no row exists.
+ */
+export const getCoachProfileById = async (userId) => {
+  if (!userId) return null;
+
+  const { data, error } = await supabase
+    .from('coach_profiles')
+    .select('*')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data || data.deleted === true) {
+    return null;
+  }
+
+  return mapCoachProfileRow(data);
+};
+
+/**
+ * Persist onboarding/profile fields to AsyncStorage so local UI stays warm,
+ * while Supabase remains the source of truth across restarts.
+ */
+export const cacheCoachOnboardingData = async (userId, data) => {
+  if (!userId) return;
+  const existingRaw = await AsyncStorage.getItem(`onboarding_data_${userId}`);
+  const existing = existingRaw ? JSON.parse(existingRaw) : {};
+  const merged = {
+    ...existing,
+    ...data,
+    user_id: userId,
+  };
+  await AsyncStorage.setItem(`onboarding_data_${userId}`, JSON.stringify(merged));
+  return merged;
+};
 
 const getCoachProfilesFromSupabase = async () => {
   const { data, error } = await supabase

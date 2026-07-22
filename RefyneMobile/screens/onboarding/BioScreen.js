@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabaseClient';
+import { cacheCoachOnboardingData, upsertCoachProfile } from '../../utils/coachData';
 
 const { width, height } = Dimensions.get('window');
 
@@ -67,82 +68,48 @@ export default function BioScreen({ navigation, route }) {
       }
 
       // Prepare complete onboarding data with actual user ID
+      const completedAt = new Date().toISOString();
+      const profileName = user.user_metadata?.full_name || 'Coach';
+      const languages = Array.isArray(onboardingData.languages) && onboardingData.languages.length > 0
+        ? onboardingData.languages
+        : (onboardingData.language ? [onboardingData.language] : []);
       const completeOnboardingData = {
         ...onboardingData,
         bio: bio.trim(),
-        completed_at: new Date().toISOString(),
-        user_id: user.id, // Use actual user ID
-        coach_name: user.user_metadata?.full_name || 'Coach', // Store the coach's actual name
+        language: onboardingData.language || languages[0] || null,
+        languages,
+        completed_at: completedAt,
+        user_id: user.id,
+        coach_name: profileName,
       };
 
-      // Store onboarding completion in AsyncStorage with user-specific key
+      // Persist the full profile to Supabase first so a restart can reload it.
+      // Do not fall back to a partial payload — incomplete rows are worse than a retry.
+      await upsertCoachProfile({
+        id: user.id,
+        name: profileName,
+        email: user.email || 'coach@example.com',
+        sport: completeOnboardingData.sport || null,
+        language: completeOnboardingData.language || null,
+        languages: completeOnboardingData.languages,
+        experience: completeOnboardingData.experience || null,
+        expertise: completeOnboardingData.expertise || [],
+        bio: completeOnboardingData.bio || '',
+        completed_at: completedAt,
+      });
+
+      // Local cache for fast UI; Supabase is the source of truth across restarts
       await AsyncStorage.setItem('onboarding_completed', 'true');
-      await AsyncStorage.setItem(`onboarding_data_${user.id}`, JSON.stringify(completeOnboardingData));
+      await cacheCoachOnboardingData(user.id, completeOnboardingData);
       await AsyncStorage.setItem('user_role', 'coach');
-      
-      // Save coach name to AsyncStorage for other users to access
-      if (user.user_metadata?.full_name) {
-        await AsyncStorage.setItem(`coach_name_${user.id}`, user.user_metadata.full_name);
-        console.log('Saved coach name to AsyncStorage during onboarding:', user.user_metadata.full_name);
+
+      if (profileName && profileName !== 'Coach') {
+        await AsyncStorage.setItem(`coach_name_${user.id}`, profileName);
       }
-      
-      // Clear the new coach signup flag since they've completed onboarding
+
       await AsyncStorage.removeItem('is_new_coach_signup');
-      console.log('Successfully stored onboarding data in AsyncStorage for user:', user.id);
+      console.log('Successfully saved full coach profile to Supabase for user:', user.id);
 
-      // Persist coach profile to shared Supabase table so players can see this coach card.
-      // Retry with progressively smaller payloads to tolerate schema differences.
-      const profileName = user.user_metadata?.full_name || completeOnboardingData.coach_name || 'Coach';
-      const payloads = [
-        {
-          id: user.id,
-          name: profileName,
-          email: user.email || 'coach@example.com',
-          sport: completeOnboardingData.sport || null,
-          language: completeOnboardingData.language || null,
-          languages: completeOnboardingData.languages || (completeOnboardingData.language ? [completeOnboardingData.language] : []),
-          experience: completeOnboardingData.experience || null,
-          expertise: completeOnboardingData.expertise || [],
-          bio: completeOnboardingData.bio || '',
-          completed_at: completeOnboardingData.completed_at,
-        },
-        {
-          id: user.id,
-          name: profileName,
-          email: user.email || 'coach@example.com',
-          sport: completeOnboardingData.sport || null,
-          bio: completeOnboardingData.bio || '',
-        },
-        {
-          id: user.id,
-          name: profileName,
-          email: user.email || 'coach@example.com',
-        },
-      ];
-
-      let lastProfileError = null;
-      try {
-        for (const payload of payloads) {
-          const { error: coachProfileError } = await supabase
-            .from('coach_profiles')
-            .upsert(payload, { onConflict: 'id' });
-          if (!coachProfileError) {
-            lastProfileError = null;
-            break;
-          }
-          lastProfileError = coachProfileError;
-        }
-      } catch (profileSyncError) {
-        lastProfileError = profileSyncError;
-      }
-
-      // Do not block onboarding completion if profile sync fails.
-      // Coach data is still stored in AsyncStorage and can sync later.
-      if (lastProfileError) {
-        console.warn('Coach profile sync failed (continuing onboarding):', lastProfileError);
-      }
-
-      // Show success message with smooth transition
       setTimeout(() => {
         Alert.alert(
           'Welcome to Refyne!',
@@ -151,7 +118,6 @@ export default function BioScreen({ navigation, route }) {
             {
               text: 'Get Started',
               onPress: () => {
-                // Emit event to notify App.js that onboarding is completed
                 DeviceEventEmitter.emit('onboardingCompleted');
                 console.log('Emitted onboarding completion event');
               }
@@ -159,14 +125,6 @@ export default function BioScreen({ navigation, route }) {
           ]
         );
       }, 500);
-
-      // You could also save to a separate coaches table here if needed
-      // const { error: coachError } = await supabase
-      //   .from('coaches')
-      //   .upsert({
-      //     user_id: user.id,
-      //     ...completeOnboardingData
-      //   });
 
     } catch (error) {
       console.error(
