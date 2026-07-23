@@ -55,8 +55,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "5975772d-f0ae-4316-9129-c93f9478bc8f"
       }
-    }
+    },
+    "owner": "enochsong"
   }
 }
