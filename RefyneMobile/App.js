@@ -344,7 +344,7 @@ export default function App() {
 
   // Wrap content with StripeProvider only if Stripe is available and configured
   const AppContent = (
-    <StripeProvider publishableKey={STRIPE_CONFIG.publishableKey}>
+    <StripeProvider publishableKey={STRIPE_CONFIG.publishableKey} urlScheme="refynemobile">
       <NavigationContainer key={`nav-${initialRoute}-${refreshKey}`}>
         <Stack.Navigator 
           initialRouteName={initialRoute}
