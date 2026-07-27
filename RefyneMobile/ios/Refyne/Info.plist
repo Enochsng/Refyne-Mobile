@@ -27,6 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>refynemobile</string>
           <string>com.enoch.RefyneMobile</string>
         </array>
       </dict>

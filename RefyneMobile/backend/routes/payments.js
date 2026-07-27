@@ -33,22 +33,6 @@ const confirmPaymentSchema = Joi.object({
   }).required()
 });
 
-const createCheckoutSessionSchema = Joi.object({
-  coachId: Joi.string().required(),
-  coachName: Joi.string().required(),
-  sport: Joi.string().valid('badminton', 'golf', 'volleyball').required(),
-  packageType: Joi.string().valid('package', 'subscription').required(),
-  packageId: Joi.when('packageType', {
-    is: 'package',
-    then: Joi.number().valid(1, 2, 3).required(),
-    otherwise: Joi.optional()
-  }),
-  customerEmail: Joi.string().email().optional(),
-  customerName: Joi.string().optional(),
-  playerId: Joi.string().optional(),
-  playerName: Joi.string().optional()
-});
-
 /**
  * POST /api/payments/create-intent
  * Create a payment intent for a coaching package
@@ -137,29 +121,10 @@ router.post('/create-intent', async (req, res) => {
         description: `${packageType === 'subscription' ? 'Monthly subscription' : `${packageInfo.clips} clips package`} with ${coachName} for ${sport}`,
       });
     } else {
-      // Use mock payment intent for development
-      console.log('Using mock payment intent for development');
-      paymentIntent = {
-        id: `pi_mock_${Date.now()}`,
-        client_secret: `pi_mock_${Date.now()}_secret_mock`,
-        amount: packageInfo.price,
-        currency: DEFAULT_CURRENCY,
-        status: 'requires_payment_method',
-        metadata: {
-          coachId,
-          coachName,
-          sport,
-          packageType,
-          packageId: packageId?.toString() || 'subscription',
-          packagePrice: packageInfo.price.toString(),
-          clips: packageInfo.clips.toString(),
-          days: packageInfo.days.toString(),
-          platformFee: calculatePlatformFee(packageInfo.price).toString(),
-          transferAmount: calculateTransferAmount(packageInfo.price).toString(),
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
-        }
-      };
+      return res.status(500).json({
+        error: 'Stripe is not configured',
+        message: 'Stripe is not configured'
+      });
     }
 
     console.log(`Payment intent created: ${paymentIntent.id} for ${coachName}`);
@@ -582,30 +547,10 @@ router.post('/create-destination-charge', async (req, res) => {
         description: `${packageType === 'subscription' ? 'Monthly subscription' : `${packageInfo.clips} clips package`} with ${coachName} for ${sport}`,
       });
     } else {
-      // Mock payment intent for development
-      console.log('Using mock destination charge for development');
-      paymentIntent = {
-        id: `pi_mock_dest_${Date.now()}`,
-        client_secret: `pi_mock_dest_${Date.now()}_secret_mock`,
-        amount: packageInfo.price,
-        currency: DEFAULT_CURRENCY,
-        status: 'requires_payment_method',
-        metadata: {
-          coachId,
-          coachName,
-          sport,
-          packageType,
-          packageId: packageId?.toString() || 'subscription',
-          packagePrice: packageInfo.price.toString(),
-          clips: packageInfo.clips.toString(),
-          days: packageInfo.days.toString(),
-          platformFee: platformFee.toString(),
-          coachAmount: coachAmount.toString(),
-          paymentType: 'destination_charge',
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
-        }
-      };
+      return res.status(500).json({
+        error: 'Stripe is not configured',
+        message: 'Stripe is not configured'
+      });
     }
 
     console.log(`Destination charge created: ${paymentIntent.id} for ${coachName} (${coachAmount} to coach, ${platformFee} platform fee)`);
@@ -636,140 +581,6 @@ router.post('/create-destination-charge', async (req, res) => {
     res.status(500).json({
       error: 'Failed to create destination charge',
       message: err.message
-    });
-  }
-});
-
-/**
- * POST /api/payments/create-checkout-session
- * Create a Stripe Checkout session for redirecting to Stripe's checkout page
- */
-router.post('/create-checkout-session', async (req, res) => {
-  try {
-    // Validate request body
-    const { error, value } = createCheckoutSessionSchema.validate(req.body);
-    if (error) {
-      return res.status(400).json({
-        error: 'Validation error',
-        details: error.details[0].message
-      });
-    }
-
-    const {
-      coachId,
-      coachName,
-      sport,
-      packageType,
-      packageId,
-      customerEmail,
-      customerName,
-      playerId,
-      playerName,
-    } = value;
-
-    console.log('Creating checkout session with data:', value);
-
-    // Get package information
-    const packageInfo = getPackageInfo(sport, packageType, packageId);
-    if (!packageInfo) {
-      return res.status(400).json({
-        error: 'Invalid package configuration'
-      });
-    }
-
-    // Check if we have valid Stripe keys (force test mode for development)
-    if (process.env.STRIPE_SECRET_KEY && 
-        process.env.STRIPE_SECRET_KEY.includes('sk_test_') && 
-        !process.env.STRIPE_SECRET_KEY.includes('your_stripe_secret_key_here')) {
-      
-      // Create Stripe Checkout session
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price_data: {
-              currency: DEFAULT_CURRENCY,
-              product_data: {
-                name: `${packageInfo.clips} clips package with ${coachName}`,
-                description: `${packageType === 'subscription' ? 'Monthly subscription' : `${packageInfo.clips} clips package`} with ${coachName} for ${sport}`,
-                images: [], // You can add product images here
-              },
-              unit_amount: packageInfo.price,
-            },
-            quantity: 1,
-          },
-        ],
-        mode: packageType === 'subscription' ? 'subscription' : 'payment',
-        success_url: `http://192.168.1.79:3001/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `http://192.168.1.79:3001/payment-cancel`,
-        customer_email: customerEmail,
-        metadata: {
-          coachId,
-          coachName,
-          sport,
-          packageType,
-          packageId: packageId?.toString() || 'subscription',
-          packagePrice: packageInfo.price.toString(),
-          clips: packageInfo.clips.toString(),
-          days: packageInfo.days.toString(),
-          platformFee: calculatePlatformFee(packageInfo.price).toString(),
-          transferAmount: calculateTransferAmount(packageInfo.price).toString(),
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
-        },
-        // For subscriptions, you would add subscription_data here
-        ...(packageType === 'subscription' && {
-          subscription_data: {
-            metadata: {
-              coachId,
-              coachName,
-              sport,
-              packageType: 'subscription'
-            }
-          }
-        })
-      });
-
-      console.log('Checkout session created:', session.id);
-      res.json({ 
-        sessionId: session.id,
-        url: session.url 
-      });
-
-    } else {
-      // Mock checkout session for development
-      console.log('Using mock checkout session for development');
-      const mockSession = {
-        id: `cs_mock_${Date.now()}`,
-        url: `https://checkout.stripe.com/mock/${Date.now()}`,
-        metadata: {
-          coachId,
-          coachName,
-          sport,
-          packageType,
-          packageId: packageId?.toString() || 'subscription',
-          packagePrice: packageInfo.price.toString(),
-          clips: packageInfo.clips.toString(),
-          days: packageInfo.days.toString(),
-          platformFee: calculatePlatformFee(packageInfo.price).toString(),
-          transferAmount: calculateTransferAmount(packageInfo.price).toString(),
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
-        }
-      };
-
-      res.json({ 
-        sessionId: mockSession.id,
-        url: mockSession.url,
-        isMock: true
-      });
-    }
-
-  } catch (error) {
-    console.error('Error creating checkout session:', error);
-    res.status(500).json({
-      error: 'Failed to create checkout session',
-      message: error.message
     });
   }
 });

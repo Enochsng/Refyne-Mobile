@@ -161,13 +161,6 @@ export default function PaywallScreen({ route, navigation }) {
 
       console.log('Payment intent created, initializing payment sheet...');
 
-      // Check if this is a mock payment intent (for development)
-      if (paymentIntent.id.startsWith('pi_mock_')) {
-        console.log('Mock payment intent detected - skipping Stripe Payment Sheet initialization');
-        setPaymentSheetEnabled(true);
-        return;
-      }
-
       const { error } = await initPaymentSheet({
         merchantDisplayName: 'Refyne Mobile',
         paymentIntentClientSecret: paymentIntent.client_secret,
@@ -383,16 +376,6 @@ export default function PaywallScreen({ route, navigation }) {
 
     try {
       setIsPurchasing(true);
-      
-      // Check if this is a mock payment intent (for development)
-      if (paymentIntentId && paymentIntentId.startsWith('pi_mock_')) {
-        console.log('Mock payment - simulating successful payment');
-        // Simulate a successful payment for development
-        setTimeout(() => {
-          handlePaymentSuccess();
-        }, 1000);
-        return;
-      }
 
       const { error } = await presentPaymentSheet();
 
