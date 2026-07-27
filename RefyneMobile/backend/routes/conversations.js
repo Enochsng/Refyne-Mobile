@@ -16,6 +16,8 @@ const {
   getRemainingDailyMessagesForConversation,
   canPlayerSendMessageToday,
   isPairBlocked,
+  getUserFromAccessToken,
+  isSupabaseConfigured,
 } = require('../services/database');
 
 const router = express.Router();
@@ -40,6 +42,123 @@ function canonicalSenderIdFromConversation(conversation, senderType) {
     return conversation.coach_id || conversation.coachId || null;
   }
   return null;
+}
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization;
+  if (!header || typeof header !== 'string') {
+    return null;
+  }
+  const [scheme, token] = header.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return null;
+  }
+  return token;
+}
+
+function conversationPlayerId(conversation) {
+  return conversation?.player_id || conversation?.playerId || null;
+}
+
+function conversationCoachId(conversation) {
+  return conversation?.coach_id || conversation?.coachId || null;
+}
+
+function isConversationParticipant(conversation, userId) {
+  if (!conversation || !userId) return false;
+  const playerId = conversationPlayerId(conversation);
+  const coachId = conversationCoachId(conversation);
+  return String(userId) === String(playerId) || String(userId) === String(coachId);
+}
+
+/**
+ * Require a valid Supabase Bearer token. Returns the auth user, or null after
+ * sending the appropriate error response (same pattern as blocks/account/reports).
+ */
+async function requireAuthenticatedUser(req, res) {
+  if (!isSupabaseConfigured) {
+    res.status(503).json({
+      error: 'Service unavailable',
+      message: 'Authentication requires Supabase to be configured.',
+    });
+    return null;
+  }
+
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authorization Bearer token is required.',
+    });
+    return null;
+  }
+
+  try {
+    return await getUserFromAccessToken(accessToken);
+  } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: err.message,
+      });
+      return null;
+    }
+    if (err.code === 'INVALID_TOKEN') {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: err.message,
+      });
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Require auth + that the user is the player or coach on this conversation.
+ * Returns { user, conversation } or null after sending an error response.
+ */
+async function requireConversationParticipant(req, res, conversationId) {
+  const user = await requireAuthenticatedUser(req, res);
+  if (!user) return null;
+
+  const conversation = await getConversation(conversationId);
+  if (!conversation) {
+    res.status(404).json({
+      error: 'Conversation not found',
+    });
+    return null;
+  }
+
+  if (!isConversationParticipant(conversation, user.id)) {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'You are not a participant in this conversation.',
+    });
+    return null;
+  }
+
+  return { user, conversation };
+}
+
+function handleAuthRouteError(res, err, fallbackError, fallbackMessage) {
+  if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+    return res.status(503).json({
+      error: 'Service unavailable',
+      message: err.message,
+    });
+  }
+  if (err.code === 'INVALID_TOKEN') {
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: err.message,
+    });
+  }
+  console.error(fallbackMessage, err);
+  return res.status(500).json({
+    error: fallbackError,
+    message: err.message,
+  });
 }
 
 // Test endpoint for connection testing
@@ -111,6 +230,9 @@ const createConversationSchema = Joi.object({
  */
 router.get('/:conversationId/messages', async (req, res) => {
   try {
+    const access = await requireConversationParticipant(req, res, req.params.conversationId);
+    if (!access) return;
+
     const { error, value } = getMessagesSchema.validate({
       conversationId: req.params.conversationId,
       limit: req.query.limit ? parseInt(req.query.limit) : undefined,
@@ -133,11 +255,7 @@ router.get('/:conversationId/messages', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error getting messages:', err);
-    res.status(500).json({
-      error: 'Failed to get messages',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to get messages', 'Error getting messages:');
   }
 });
 
@@ -155,6 +273,9 @@ router.get('/:conversationId/daily-messages', async (req, res) => {
       });
     }
 
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
+
     const messageInfo = await getRemainingDailyMessagesForConversation(conversationId);
     
     res.json({
@@ -163,11 +284,7 @@ router.get('/:conversationId/daily-messages', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error getting daily messages:', err);
-    res.status(500).json({
-      error: 'Failed to get daily messages',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to get daily messages', 'Error getting daily messages:');
   }
 });
 
@@ -190,6 +307,9 @@ router.get('/:conversationId/clips', async (req, res) => {
         error: 'Conversation ID is required'
       });
     }
+
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
 
     const clipInfo = await getRemainingClipsForConversation(conversationId);
     
@@ -218,6 +338,9 @@ router.get('/:conversationId/clips', async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED' || err.code === 'INVALID_TOKEN') {
+      return handleAuthRouteError(res, err, 'Failed to get clips', 'Error getting clips:');
+    }
     console.error('\n❌ [CLIPS ENDPOINT] ==========================================');
     console.error('❌ [CLIPS ENDPOINT] Error getting clips:', err);
     console.error('❌ [CLIPS ENDPOINT] Error message:', err.message);
@@ -236,6 +359,9 @@ router.get('/:conversationId/clips', async (req, res) => {
  */
 router.get('/:userId/:userType', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { error, value } = getConversationsSchema.validate({
       userId: req.params.userId,
       userType: req.params.userType
@@ -249,6 +375,15 @@ router.get('/:userId/:userType', async (req, res) => {
     }
 
     const { userId, userType } = value;
+
+    // Only the authenticated user may list their own conversations
+    if (String(user.id) !== String(userId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You can only access your own conversations.',
+      });
+    }
+
     const conversations = await getConversations(userId, userType);
 
     // For players, add chat expiry info to each conversation
@@ -342,11 +477,7 @@ router.get('/:userId/:userType', async (req, res) => {
     }
 
   } catch (err) {
-    console.error('Error getting conversations:', err);
-    res.status(500).json({
-      error: 'Failed to get conversations',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to get conversations', 'Error getting conversations:');
   }
 });
 
@@ -364,13 +495,10 @@ router.get('/:conversationId', async (req, res) => {
       });
     }
 
-    const conversation = await getConversation(conversationId);
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
 
-    if (!conversation) {
-      return res.status(404).json({
-        error: 'Conversation not found'
-      });
-    }
+    const { conversation } = access;
 
     // Get chat expiry info
     let chatExpiry = null;
@@ -390,11 +518,7 @@ router.get('/:conversationId', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error getting conversation:', err);
-    res.status(500).json({
-      error: 'Failed to get conversation',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to get conversation', 'Error getting conversation:');
   }
 });
 
@@ -418,15 +542,13 @@ router.post('/:conversationId/messages', async (req, res) => {
 
     let { conversationId, senderId, senderType, content, messageType = 'text', videoUri } = value;
 
+    // Auth + participant check before any message processing
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
+
     // Load conversation and always persist sender_id from the conversation row for player/coach
     // so messages.sender_id matches conversations.player_id / coach_id (full UUID).
-    const conversation = await getConversation(conversationId);
-    if (!conversation) {
-      return res.status(404).json({
-        error: 'Conversation not found',
-        message: 'No conversation exists for this id'
-      });
-    }
+    const conversation = access.conversation;
 
     if (senderType === 'player' || senderType === 'coach') {
       const canonicalId = canonicalSenderIdFromConversation(conversation, senderType);
@@ -440,6 +562,13 @@ router.post('/:conversationId/messages', async (req, res) => {
         return res.status(400).json({
           error: 'Conversation participants must use UUID',
           message: `This conversation has a non-UUID ${senderType} id. Update the conversation row to use Supabase auth UUIDs before sending messages.`
+        });
+      }
+      // Authenticated user must be the claimed sender (prevents participant impersonation)
+      if (String(access.user.id) !== String(canonicalId)) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: `You must be signed in as the conversation ${senderType} to send as ${senderType}.`,
         });
       }
       // Reject if client sends wrong id (security + consistency)
@@ -618,11 +747,7 @@ router.post('/:conversationId/messages', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error adding message:', err);
-    res.status(500).json({
-      error: 'Failed to add message',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to add message', 'Error adding message:');
   }
 });
 
@@ -645,6 +770,9 @@ router.post('/:conversationId/read', async (req, res) => {
     }
 
     const { conversationId, userType } = value;
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
+
     const conversation = await markConversationAsRead(conversationId, userType);
 
     res.json({
@@ -653,11 +781,7 @@ router.post('/:conversationId/read', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error marking conversation as read:', err);
-    res.status(500).json({
-      error: 'Failed to mark conversation as read',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to mark conversation as read', 'Error marking conversation as read:');
   }
 });
 
@@ -679,15 +803,12 @@ router.post('/:conversationId/coach-delete', async (req, res) => {
     const { conversationId } = req.params;
     const { coachId } = value;
 
-    const conversation = await getConversation(conversationId);
-    if (!conversation) {
-      return res.status(404).json({
-        error: 'Conversation not found'
-      });
-    }
+    const access = await requireConversationParticipant(req, res, conversationId);
+    if (!access) return;
 
-    const conversationCoachId = conversation.coach_id || conversation.coachId;
-    if (conversationCoachId !== coachId) {
+    const conversation = access.conversation;
+    const coachOnConversation = conversationCoachId(conversation);
+    if (coachOnConversation !== coachId || String(access.user.id) !== String(coachId)) {
       return res.status(403).json({
         error: 'Not authorized to delete this conversation'
       });
@@ -698,11 +819,7 @@ router.post('/:conversationId/coach-delete', async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.error('Error hiding conversation for coach:', err);
-    res.status(500).json({
-      error: 'Failed to hide conversation',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to hide conversation', 'Error hiding conversation for coach:');
   }
 });
 
@@ -714,6 +831,9 @@ router.post('/:conversationId/coach-delete', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { error, value } = createConversationSchema.validate(req.body);
     if (error) {
       return res.status(400).json({
@@ -723,6 +843,14 @@ router.post('/', async (req, res) => {
     }
 
     const { playerId, playerName, coachId, coachName, sport, sessionId, existingConversationId } = value;
+
+    // Caller must be either the player or the coach on the conversation being created
+    if (String(user.id) !== String(playerId) && String(user.id) !== String(coachId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You must be the player or coach to create this conversation.',
+      });
+    }
 
     try {
       if (await isPairBlocked(playerId, coachId)) {
@@ -781,11 +909,7 @@ router.post('/', async (req, res) => {
         blocked: true,
       });
     }
-    console.error('Error creating/updating conversation:', err);
-    res.status(500).json({
-      error: 'Failed to create/update conversation',
-      message: err.message
-    });
+    handleAuthRouteError(res, err, 'Failed to create/update conversation', 'Error creating/updating conversation:');
   }
 });
 

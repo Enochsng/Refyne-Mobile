@@ -3,6 +3,7 @@
 
 import { Platform } from 'react-native';
 import apiService from './apiService';
+import { supabase } from '../supabaseClient';
 
 // Override to force production URL even in development mode
 // Set to true to always use production URL (useful for testing against deployed backend)
@@ -32,6 +33,28 @@ let workingApiUrl = API_BASE_URL;
 let connectionTested = false;
 let lastConnectionAttempt = 0;
 const CONNECTION_RETRY_INTERVAL = 30000; // 30 seconds
+
+/**
+ * Resolve the current Supabase access token for authenticated conversation API calls.
+ * Same pattern as safetyService / accountService.
+ */
+async function getAccessToken() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const error = new Error('You are not signed in. Please sign in again.');
+    error.code = 'NOT_SIGNED_IN';
+    throw error;
+  }
+  return session.access_token;
+}
+
+async function getAuthHeaders(extra = {}) {
+  const accessToken = await getAccessToken();
+  return {
+    ...extra,
+    Authorization: `Bearer ${accessToken}`,
+  };
+}
 
 /**
  * Test backend connection and find working URL
@@ -220,7 +243,9 @@ export const getConversations = async (userId, userType, options = {}) => {
     try {
       console.log(`🔍 Starting getConversations for ${userType}: ${userId}`);
 
-      const data = await apiService.get(`/api/conversations/${userId}/${userType}`);
+      const data = await apiService.get(`/api/conversations/${userId}/${userType}`, {
+        headers: await getAuthHeaders(),
+      });
       console.log(`✅ Retrieved ${data.conversations?.length || 0} conversations`);
       return data.conversations || [];
     } catch (error) {
@@ -280,9 +305,9 @@ export const getConversation = async (conversationId) => {
     
     const response = await fetch(fullUrl, {
       method: 'GET',
-      headers: {
+      headers: await getAuthHeaders({
         'Accept': 'application/json',
-      },
+      }),
     });
 
     console.log(`Response status: ${response.status}`);
@@ -346,10 +371,10 @@ export const createConversation = async (conversationData) => {
     
     const fetchPromise = fetch(fullUrl, {
       method: 'POST',
-      headers: {
+      headers: await getAuthHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
+      }),
       body: JSON.stringify(conversationData),
     });
     
@@ -417,9 +442,9 @@ export const getConversationMessages = async (conversationId, limit = 50, offset
     
     const response = await fetch(fullUrl, {
       method: 'GET',
-      headers: {
+      headers: await getAuthHeaders({
         'Accept': 'application/json',
-      },
+      }),
     });
 
     console.log(`Response status: ${response.status}`);
@@ -594,10 +619,10 @@ export const sendMessage = async (conversationId, senderId, senderType, content,
     
     const fetchPromise = fetch(fullUrl, {
       method: 'POST',
-      headers: {
+      headers: await getAuthHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
+      }),
       body: JSON.stringify({
         senderId,
         senderType,
@@ -689,7 +714,9 @@ export const markConversationAsRead = async (conversationId, userType) => {
     console.log(`Marking conversation as read: ${conversationId} for ${userType}`);
     
     // Use apiService for rate-limited requests
-    const data = await apiService.post(`/api/conversations/${conversationId}/read`, { userType });
+    const data = await apiService.post(`/api/conversations/${conversationId}/read`, { userType }, {
+      headers: await getAuthHeaders(),
+    });
     console.log('Conversation marked as read');
     return data.conversation;
   } catch (error) {
@@ -717,7 +744,9 @@ export const markConversationAsRead = async (conversationId, userType) => {
 export const hideConversationForCoach = async (conversationId, coachId) => {
   try {
     console.log(`Hiding conversation for coach: ${conversationId}`);
-    const data = await apiService.post(`/api/conversations/${conversationId}/coach-delete`, { coachId });
+    const data = await apiService.post(`/api/conversations/${conversationId}/coach-delete`, { coachId }, {
+      headers: await getAuthHeaders(),
+    });
     console.log('Conversation hidden for coach');
     return data;
   } catch (error) {
@@ -734,7 +763,9 @@ export const getRemainingDailyMessages = async (conversationId) => {
     console.log(`Getting remaining daily messages for conversation: ${conversationId}`);
     
     // Use apiService for rate-limited requests
-    const data = await apiService.get(`/api/conversations/${conversationId}/daily-messages`);
+    const data = await apiService.get(`/api/conversations/${conversationId}/daily-messages`, {
+      headers: await getAuthHeaders(),
+    });
     console.log(`📊 [getRemainingDailyMessages] Retrieved daily message info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
     const messageInfo = {
@@ -773,7 +804,9 @@ export const getRemainingClips = async (conversationId) => {
     console.log(`Getting remaining clips for conversation: ${conversationId}`);
     
     // Use apiService for rate-limited requests
-    const data = await apiService.get(`/api/conversations/${conversationId}/clips`);
+    const data = await apiService.get(`/api/conversations/${conversationId}/clips`, {
+      headers: await getAuthHeaders(),
+    });
     console.log(`📊 [getRemainingClips] Retrieved clip info: remaining=${data.remaining}, total=${data.total}, used=${data.used}`);
     
     // The backend returns { success: true, remaining, total, used, chatExpiry }
