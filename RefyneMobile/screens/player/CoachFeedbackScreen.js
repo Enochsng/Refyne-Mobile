@@ -542,6 +542,14 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     navigation.setParams({ hideTabBar: Boolean(selectedConversation) });
   }, [navigation, selectedConversation]);
 
+  // Keep tab badge in sync with local unread counts (clears when a conversation is opened/read)
+  useEffect(() => {
+    const total = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
+    navigation.setOptions({
+      tabBarBadge: total > 0 ? (total > 99 ? '99+' : total) : undefined,
+    });
+  }, [conversations, navigation]);
+
   // Helper function to check if chat is expired
   // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
   // until they purchase a new coaching package with that coach.

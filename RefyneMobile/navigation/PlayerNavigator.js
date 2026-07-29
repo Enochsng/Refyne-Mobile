@@ -1,4 +1,4 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,8 @@ import ExploreSportsScreen from '../screens/player/ExploreSportsScreen';
 import CoachesScreen from '../screens/player/CoachesScreen';
 import CoachFeedbackScreen from '../screens/player/CoachFeedbackScreen';
 import ProfileScreen from '../screens/player/ProfileScreen';
+import { getConversations } from '../services/conversationService';
+import { supabase } from '../supabaseClient';
 
 // Lazy load Stripe-dependent screens using React.lazy to prevent initialization errors
 const PaywallScreen = React.lazy(() => {
@@ -77,6 +79,10 @@ const StripePaymentScreenWrapped = (props) => (
   <LazyScreenWrapper ScreenComponent={StripePaymentScreen} {...props} />
 );
 
+function formatUnreadBadge(total) {
+  return total > 0 ? (total > 99 ? '99+' : total) : undefined;
+}
+
 // Stack Navigator for Explore Sports
 function ExploreSportsStack() {
   return (
@@ -96,6 +102,36 @@ function ExploreSportsStack() {
 }
 
 export default function PlayerNavigator() {
+  const [messagesBadge, setMessagesBadge] = useState(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user || cancelled) return;
+
+        const conversations = await getConversations(user.id, 'player');
+        if (cancelled) return;
+
+        const total = conversations.reduce(
+          (sum, conv) => sum + (conv.player_unread_count || 0),
+          0
+        );
+        setMessagesBadge(formatUnreadBadge(total));
+      } catch (error) {
+        console.warn('Failed to fetch unread message count for tab badge:', error.message);
+      }
+    };
+
+    fetchUnreadCount();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -147,6 +183,13 @@ export default function PlayerNavigator() {
         component={CoachFeedbackScreen}
         options={{
           tabBarLabel: 'Messages',
+          tabBarBadge: messagesBadge,
+          tabBarBadgeStyle: {
+            backgroundColor: '#FF6B35',
+            color: '#FFFFFF',
+            fontSize: width * 0.028,
+            fontFamily: 'Rubik-SemiBold',
+          },
         }}
       />
       <Tab.Screen 
