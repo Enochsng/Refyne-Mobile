@@ -511,10 +511,10 @@ export const uploadChatMedia = async (localUri, mimeType = 'video/mp4', fileName
   );
   const fetchPromise = fetch(`${workingUrl}/api/upload/chat-media`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       Accept: 'application/json',
       // Do not set Content-Type; let fetch set multipart/form-data with boundary
-    },
+    }),
     body: formData,
   });
 
@@ -556,16 +556,15 @@ export const uploadProfileAvatar = async (localUri, userId, mimeType = 'image/jp
     type: mimeType,
     name: fileName,
   });
-  formData.append('userId', userId);
 
   const timeoutPromise = new Promise((_, reject) =>
     setTimeout(() => reject(new Error('Upload timeout')), 60000)
   );
   const fetchPromise = fetch(`${workingUrl}/api/upload/avatar`, {
     method: 'POST',
-    headers: {
+    headers: await getAuthHeaders({
       Accept: 'application/json',
-    },
+    }),
     body: formData,
   });
 

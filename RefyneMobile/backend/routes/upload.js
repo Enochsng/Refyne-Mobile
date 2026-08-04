@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const { supabase, isSupabaseConfigured } = require('../services/database');
+const { supabase, isSupabaseConfigured, getUserFromAccessToken } = require('../services/database');
 
 const router = express.Router();
 
@@ -39,6 +39,18 @@ const uploadAvatar = multer({
   },
 });
 
+function extractBearerToken(req) {
+  const header = req.headers.authorization;
+  if (!header || typeof header !== 'string') {
+    return null;
+  }
+  const [scheme, token] = header.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return null;
+  }
+  return token;
+}
+
 /**
  * POST /api/upload/chat-media
  * Upload a video or image for chat messages. Returns a permanent public URL to store in the message.
@@ -46,6 +58,15 @@ const uploadAvatar = multer({
  */
 router.post('/chat-media', upload.single('file'), async (req, res) => {
   try {
+    const accessToken = extractBearerToken(req);
+    if (!accessToken) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authorization Bearer token is required.',
+      });
+    }
+    await getUserFromAccessToken(accessToken);
+
     if (!isSupabaseConfigured || !supabase) {
       return res.status(503).json({
         error: 'Storage not configured',
@@ -103,6 +124,18 @@ router.post('/chat-media', upload.single('file'), async (req, res) => {
 
     return res.json({ url: publicUrl });
   } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+      return res.status(503).json({
+        error: 'Service unavailable',
+        message: err.message,
+      });
+    }
+    if (err.code === 'INVALID_TOKEN') {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: err.message,
+      });
+    }
     console.error('Upload route error:', err);
     return res.status(500).json({
       error: 'Upload failed',
@@ -117,12 +150,20 @@ router.post('/chat-media', upload.single('file'), async (req, res) => {
  * Client should then call supabase.auth.updateUser({ data: { avatar_url: url } })
  * so public.profiles.avatar_url syncs via trigger.
  *
- * Body: multipart/form-data
- *   - file: image (required)
- *   - userId: UUID string (required) — used as storage path so re-uploads replace same object
+ * Body: multipart/form-data with field "file" (image).
+ * Storage path uses the authenticated user's id from the Bearer token.
  */
 router.post('/avatar', uploadAvatar.single('file'), async (req, res) => {
   try {
+    const accessToken = extractBearerToken(req);
+    if (!accessToken) {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Authorization Bearer token is required.',
+      });
+    }
+    const user = await getUserFromAccessToken(accessToken);
+
     if (!isSupabaseConfigured || !supabase) {
       return res.status(503).json({
         error: 'Storage not configured',
@@ -137,20 +178,12 @@ router.post('/avatar', uploadAvatar.single('file'), async (req, res) => {
       });
     }
 
-    const userId = (req.body && req.body.userId) || req.query.userId;
-    if (!userId || typeof userId !== 'string' || userId.length < 10) {
-      return res.status(400).json({
-        error: 'userId required',
-        message: 'Pass userId in form field or query so the avatar is stored under a stable path.',
-      });
-    }
-
     // Single object per user so upsert replaces previous avatar
     const ext = path.extname(req.file.originalname) || '.jpg';
     const safeExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext.toLowerCase())
       ? ext.toLowerCase()
       : '.jpg';
-    const filePath = `avatars/${userId}/avatar${safeExt}`;
+    const filePath = `avatars/${user.id}/avatar${safeExt}`;
 
     const { data, error } = await supabase.storage
       .from(AVATARS_BUCKET)
@@ -192,6 +225,18 @@ router.post('/avatar', uploadAvatar.single('file'), async (req, res) => {
     const { data: urlData } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(data.path);
     return res.json({ url: urlData.publicUrl });
   } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+      return res.status(503).json({
+        error: 'Service unavailable',
+        message: err.message,
+      });
+    }
+    if (err.code === 'INVALID_TOKEN') {
+      return res.status(401).json({
+        error: 'Unauthorized',
+        message: err.message,
+      });
+    }
     console.error('Avatar upload route error:', err);
     if (err.message && err.message.includes('Invalid file type')) {
       return res.status(400).json({ error: 'Invalid file', message: err.message });
