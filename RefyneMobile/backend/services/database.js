@@ -1482,7 +1482,6 @@ async function getCoachConnectAccountId(coachId) {
     const coachStripeAccountMapping = {
       'e9f47d75-cd92-4a0f-810c-7258ea03d47f': 'acct_1SGRN1PYPuQf9f7C', // Enokski's Stripe account
       'test_coach': 'acct_1SGPzsAxPT8ZZc4c', // Test Coach's Stripe account
-      'daniel': 'acct_1SGRN1PYPuQf9f7C', // Daniel temporarily using Enokski's account (until Daniel's account is fixed)
       'acct_1SALeHPjC3F0IBJE': 'acct_1SALeHPjC3F0IBJE', // Golf Coach account from Stripe dashboard
       // Add more coaches here as needed
     };
@@ -1507,7 +1506,6 @@ async function getCoachConnectAccountId(coachId) {
     const coachStripeAccountMapping = {
       'e9f47d75-cd92-4a0f-810c-7258ea03d47f': 'acct_1SGRN1PYPuQf9f7C', // Enokski's Stripe account
       'test_coach': 'acct_1SGPzsAxPT8ZZc4c', // Test Coach's Stripe account
-      'daniel': 'acct_1SGRN1PYPuQf9f7C', // Daniel temporarily using Enokski's account (until Daniel's account is fixed)
     };
     
     const stripeAccountId = coachStripeAccountMapping[coachId];
