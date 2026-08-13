@@ -20,7 +20,6 @@ const uploadRoutes = require('./routes/upload');
 const accountRoutes = require('./routes/account');
 const blocksRoutes = require('./routes/blocks');
 const reportsRoutes = require('./routes/reports');
-const { clearAllConversations } = require('./services/database');
 
 // Security middleware
 app.use(helmet());
@@ -764,23 +763,6 @@ app.get('/test', (req, res) => {
     timestamp: new Date().toISOString(),
     stripeConfigured: !!process.env.STRIPE_SECRET_KEY
   });
-});
-
-// Clear all conversations endpoint (for development/testing)
-app.post('/api/clear-conversations', (req, res) => {
-  try {
-    clearAllConversations();
-    res.json({ 
-      success: true,
-      message: 'All conversations cleared successfully'
-    });
-  } catch (error) {
-    console.error('Error clearing conversations:', error);
-    res.status(500).json({
-      error: 'Failed to clear conversations',
-      message: error.message
-    });
-  }
 });
 
 // API routes
