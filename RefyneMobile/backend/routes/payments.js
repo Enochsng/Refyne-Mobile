@@ -1,9 +1,72 @@
 const express = require('express');
 const Joi = require('joi');
 const { stripe, getPackageInfo, calculatePlatformFee, calculateTransferAmount, DEFAULT_CURRENCY } = require('../config/stripe');
-const { getCoachConnectAccountId, saveCoachingSession, saveTransfer, findOrUpdateConversation, isPlaceholderPlayerId } = require('../services/database');
+const {
+  getCoachConnectAccountId,
+  saveCoachingSession,
+  saveTransfer,
+  findOrUpdateConversation,
+  isPlaceholderPlayerId,
+  getUserFromAccessToken,
+  isSupabaseConfigured,
+} = require('../services/database');
 
 const router = express.Router();
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization;
+  if (!header || typeof header !== 'string') {
+    return null;
+  }
+  const [scheme, token] = header.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return null;
+  }
+  return token;
+}
+
+/**
+ * Require a valid Supabase Bearer token. Returns the auth user, or null after
+ * sending the appropriate error response (same pattern as conversations.js).
+ */
+async function requireAuthenticatedUser(req, res) {
+  if (!isSupabaseConfigured) {
+    res.status(503).json({
+      error: 'Service unavailable',
+      message: 'Authentication requires Supabase to be configured.',
+    });
+    return null;
+  }
+
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authorization Bearer token is required.',
+    });
+    return null;
+  }
+
+  try {
+    return await getUserFromAccessToken(accessToken);
+  } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: err.message,
+      });
+      return null;
+    }
+    if (err.code === 'INVALID_TOKEN') {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: err.message,
+      });
+      return null;
+    }
+    throw err;
+  }
+}
 
 // Validation schemas
 const createPaymentIntentSchema = Joi.object({
@@ -399,6 +462,17 @@ router.get('/intent/:id', async (req, res) => {
  */
 router.post('/refund', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    if (!adminUserId || String(user.id) !== String(adminUserId)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Admin access required.',
+      });
+    }
+
     const { paymentIntentId, reason, amount } = req.body;
 
     if (!paymentIntentId) {
