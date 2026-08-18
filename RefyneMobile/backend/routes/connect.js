@@ -1,10 +1,65 @@
 const express = require('express');
 const Joi = require('joi');
 const { stripe, calculateTransferAmount } = require('../config/stripe');
-const { saveCoachConnectAccount, getCoachConnectAccount, updateCoachAccountStatus, getCoachTransfers, getCoachConnectAccountId, isPlaceholderPlayerId } = require('../services/database');
+const { saveCoachConnectAccount, getCoachConnectAccount, updateCoachAccountStatus, getCoachTransfers, getCoachConnectAccountId, isPlaceholderPlayerId, getUserFromAccessToken, isSupabaseConfigured } = require('../services/database');
 const { supabase } = require('../services/database');
 
 const router = express.Router();
+
+function extractBearerToken(req) {
+  const header = req.headers.authorization;
+  if (!header || typeof header !== 'string') {
+    return null;
+  }
+  const [scheme, token] = header.split(' ');
+  if (scheme !== 'Bearer' || !token) {
+    return null;
+  }
+  return token;
+}
+
+/**
+ * Require a valid Supabase Bearer token. Returns the auth user, or null after
+ * sending the appropriate error response (same pattern as payments.js).
+ */
+async function requireAuthenticatedUser(req, res) {
+  if (!isSupabaseConfigured) {
+    res.status(503).json({
+      error: 'Service unavailable',
+      message: 'Authentication requires Supabase to be configured.',
+    });
+    return null;
+  }
+
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authorization Bearer token is required.',
+    });
+    return null;
+  }
+
+  try {
+    return await getUserFromAccessToken(accessToken);
+  } catch (err) {
+    if (err.code === 'SUPABASE_NOT_CONFIGURED') {
+      res.status(503).json({
+        error: 'Service unavailable',
+        message: err.message,
+      });
+      return null;
+    }
+    if (err.code === 'INVALID_TOKEN') {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: err.message,
+      });
+      return null;
+    }
+    throw err;
+  }
+}
 
 function getPayingCustomerId(transfer) {
   const playerId = transfer.metadata?.player_id || transfer.metadata?.playerId;
@@ -671,12 +726,41 @@ router.post('/start-onboarding', async (req, res) => {
  */
 router.post('/transfer', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { paymentIntentId, coachAccountId, amount, description } = req.body;
 
     if (!paymentIntentId || !coachAccountId || !amount) {
       return res.status(400).json({
         error: 'Missing required fields: paymentIntentId, coachAccountId, amount'
       });
+    }
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    if (!isAdmin) {
+      const { data: account, error: accountError } = await supabase
+        .from('coach_connect_accounts')
+        .select('coach_id')
+        .eq('stripe_account_id', coachAccountId)
+        .single();
+
+      if (accountError && accountError.code !== 'PGRST116') {
+        console.error('Error looking up coach connect account:', accountError.message);
+        return res.status(500).json({
+          error: 'Failed to verify account ownership',
+          message: accountError.message,
+        });
+      }
+
+      if (!account || String(account.coach_id) !== String(user.id)) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You are not authorized to transfer to this account.',
+        });
+      }
     }
 
     // Calculate transfer amount (after platform fee)
