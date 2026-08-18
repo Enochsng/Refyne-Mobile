@@ -738,6 +738,11 @@ router.post('/transfer', async (req, res) => {
     }
 
     const adminUserId = process.env.ADMIN_USER_ID;
+    console.log('[transfer] admin debug:', {
+      userId: user.id,
+      adminUserId: process.env.ADMIN_USER_ID,
+      strictlyEqual: user.id === process.env.ADMIN_USER_ID,
+    });
     const isAdmin = adminUserId && String(user.id) === String(adminUserId);
 
     if (!isAdmin) {
