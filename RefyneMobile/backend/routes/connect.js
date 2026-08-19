@@ -474,10 +474,39 @@ router.put('/account/:id', async (req, res) => {
  */
 router.post('/account/:id/login-link', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { id } = req.params;
-    
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    if (!isAdmin) {
+      const { data: account, error: accountError } = await supabase
+        .from('coach_connect_accounts')
+        .select('coach_id')
+        .eq('stripe_account_id', id)
+        .single();
+
+      if (accountError && accountError.code !== 'PGRST116') {
+        console.error('Error looking up coach connect account:', accountError.message);
+        return res.status(500).json({
+          error: 'Failed to verify account ownership',
+          message: accountError.message,
+        });
+      }
+
+      if (!account || String(account.coach_id) !== String(user.id)) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You are not authorized to access this account.',
+        });
+      }
+    }
+
     const loginLink = await stripe.accounts.createLoginLink(id);
-    
+
     res.json({
       success: true,
       loginLink: {
