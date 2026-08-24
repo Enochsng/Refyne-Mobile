@@ -68,6 +68,27 @@ async function requireAuthenticatedUser(req, res) {
   }
 }
 
+function isAdminUser(userId) {
+  const adminUserId = process.env.ADMIN_USER_ID;
+  return Boolean(adminUserId && String(userId) === String(adminUserId));
+}
+
+function getPlayerNameFromUser(user) {
+  const meta = user?.user_metadata || {};
+  return meta.full_name || user?.email?.split('@')[0] || null;
+}
+
+function userCanAccessPaymentIntent(user, paymentIntent) {
+  if (isAdminUser(user.id)) {
+    return true;
+  }
+  const metadataPlayerId = paymentIntent.metadata?.playerId;
+  if (!metadataPlayerId) {
+    return false;
+  }
+  return String(metadataPlayerId) === String(user.id);
+}
+
 // Validation schemas
 const createPaymentIntentSchema = Joi.object({
   coachId: Joi.string().required(),
@@ -81,8 +102,6 @@ const createPaymentIntentSchema = Joi.object({
   }),
   customerEmail: Joi.string().email().optional(),
   customerName: Joi.string().optional(),
-  playerId: Joi.string().optional(),
-  playerName: Joi.string().optional()
 });
 
 const confirmPaymentSchema = Joi.object({
@@ -102,6 +121,9 @@ const confirmPaymentSchema = Joi.object({
  */
 router.post('/create-intent', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     // Validate request body
     const { error, value } = createPaymentIntentSchema.validate(req.body);
     if (error) {
@@ -111,7 +133,9 @@ router.post('/create-intent', async (req, res) => {
       });
     }
 
-    const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName, playerId, playerName } = value;
+    const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName } = value;
+    const playerId = user.id;
+    const playerName = getPlayerNameFromUser(user);
 
     console.log(`\n📦 [create-intent] Package selection received:`);
     console.log(`   - packageId: ${packageId}`);
@@ -175,8 +199,8 @@ router.post('/create-intent', async (req, res) => {
           days: packageInfo.days.toString(),
           platformFee: calculatePlatformFee(packageInfo.price).toString(),
           transferAmount: calculateTransferAmount(packageInfo.price).toString(),
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
+          playerId,
+          playerName,
         },
         automatic_payment_methods: {
           enabled: true,
@@ -190,7 +214,7 @@ router.post('/create-intent', async (req, res) => {
       });
     }
 
-    console.log(`Payment intent created: ${paymentIntent.id} for ${coachName}`);
+    console.log(`Payment intent created: ${paymentIntent.id} for ${coachName} (player: ${playerId})`);
 
     res.json({
       success: true,
@@ -223,6 +247,9 @@ router.post('/create-intent', async (req, res) => {
  */
 router.post('/confirm', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     // Validate request body
     const { error, value } = confirmPaymentSchema.validate(req.body);
     if (error) {
@@ -241,6 +268,13 @@ router.post('/confirm', async (req, res) => {
       return res.status(400).json({
         error: 'Payment not successful',
         status: paymentIntent.status
+      });
+    }
+
+    if (!userCanAccessPaymentIntent(user, paymentIntent)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You do not have access to this payment intent.',
       });
     }
 
@@ -432,9 +466,19 @@ router.post('/confirm', async (req, res) => {
  */
 router.get('/intent/:id', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { id } = req.params;
     
     const paymentIntent = await stripe.paymentIntents.retrieve(id);
+
+    if (!userCanAccessPaymentIntent(user, paymentIntent)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You do not have access to this payment intent.',
+      });
+    }
     
     res.json({
       success: true,
@@ -519,6 +563,9 @@ router.post('/refund', async (req, res) => {
  */
 router.post('/create-destination-charge', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     // Validate request body
     const { error, value } = createPaymentIntentSchema.validate(req.body);
     if (error) {
@@ -528,7 +575,9 @@ router.post('/create-destination-charge', async (req, res) => {
       });
     }
 
-    const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName, playerId, playerName } = value;
+    const { coachId, coachName, sport, packageType, packageId, customerEmail, customerName } = value;
+    const playerId = user.id;
+    const playerName = getPlayerNameFromUser(user);
 
     console.log(`\n📦 [create-destination-charge] Package selection received:`);
     console.log(`   - packageId: ${packageId} (type: ${typeof packageId})`);
@@ -612,8 +661,8 @@ router.post('/create-destination-charge', async (req, res) => {
           platformFee: platformFee.toString(),
           coachAmount: coachAmount.toString(),
           paymentType: 'destination_charge',
-          playerId: playerId === 'temp_user' ? null : playerId,
-          playerName: playerName === 'Player' ? null : playerName
+          playerId,
+          playerName,
         },
         automatic_payment_methods: {
           enabled: true,
@@ -627,7 +676,7 @@ router.post('/create-destination-charge', async (req, res) => {
       });
     }
 
-    console.log(`Destination charge created: ${paymentIntent.id} for ${coachName} (${coachAmount} to coach, ${platformFee} platform fee)`);
+    console.log(`Destination charge created: ${paymentIntent.id} for ${coachName} (player: ${playerId}, ${coachAmount} to coach, ${platformFee} platform fee)`);
 
     res.json({
       success: true,

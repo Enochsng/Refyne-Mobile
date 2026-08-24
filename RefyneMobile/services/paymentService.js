@@ -2,6 +2,7 @@
 // Replace the backend URL with your actual backend URL
 
 import { STRIPE_CONFIG, getPriceInCents } from '../stripeConfig';
+import { supabase } from '../supabaseClient';
 
 // Override to force production URL even in development mode
 // Set to true to always use production URL (useful for testing against deployed backend)
@@ -31,6 +32,28 @@ const FALLBACK_URLS = (__DEV__ && !FORCE_PRODUCTION_URL) ? [
 let workingApiUrl = API_BASE_URL;
 let connectionTested = false;
 let connectionSuccessful = false;
+
+/**
+ * Resolve the current Supabase access token for authenticated payment API calls.
+ * Same pattern as conversationService / safetyService / accountService.
+ */
+async function getAccessToken() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const error = new Error('You are not signed in. Please sign in again.');
+    error.code = 'NOT_SIGNED_IN';
+    throw error;
+  }
+  return session.access_token;
+}
+
+async function getAuthHeaders(extra = {}) {
+  const accessToken = await getAccessToken();
+  return {
+    ...extra,
+    Authorization: `Bearer ${accessToken}`,
+  };
+}
 
 /**
  * Test backend connectivity
@@ -176,10 +199,10 @@ export const createPaymentIntent = async (paymentData) => {
 
     const fetchPromise = fetch(`${workingApiUrl}/api/payments/create-intent`, {
       method: 'POST',
-      headers: {
+      headers: await getAuthHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
+      }),
       body: JSON.stringify(requestBody),
     });
 
@@ -235,10 +258,10 @@ export const confirmPaymentIntent = async (paymentIntentId, sessionData) => {
 
     const response = await fetch(`${workingApiUrl}/api/payments/confirm`, {
       method: 'POST',
-      headers: {
+      headers: await getAuthHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
+      }),
       body: JSON.stringify(requestBody),
     });
 
@@ -364,10 +387,10 @@ export const createDestinationCharge = async (paymentData) => {
 
     const fetchPromise = fetch(`${API_BASE_URL}/api/payments/create-destination-charge`, {
       method: 'POST',
-      headers: {
+      headers: await getAuthHeaders({
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-      },
+      }),
       body: JSON.stringify(requestBody),
     });
 
@@ -553,9 +576,9 @@ export const getPaymentIntentStatus = async (paymentIntentId) => {
   try {
     const response = await fetch(`${API_BASE_URL}/api/payments/intent/${paymentIntentId}`, {
       method: 'GET',
-      headers: {
+      headers: await getAuthHeaders({
         'Accept': 'application/json',
-      },
+      }),
     });
 
     if (!response.ok) {

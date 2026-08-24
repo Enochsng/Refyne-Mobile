@@ -26,6 +26,99 @@ try {
 }
 import { createCoachingSession } from '../../utils/sessionManager';
 import { supabase } from '../../supabaseClient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CommonActions } from '@react-navigation/native';
+
+const PAYWALL_RETURN_STORAGE_KEY = 'pending_paywall_return';
+
+function getRootNavigation(navigation) {
+  let root = navigation;
+  while (root.getParent()) {
+    root = root.getParent();
+  }
+  return root;
+}
+
+function buildPaywallReturnParams(routeParams, selectedPackage) {
+  return {
+    coach: routeParams.coach,
+    sport: routeParams.sport,
+    existingConversationId: routeParams.existingConversationId,
+    selectedPackage,
+  };
+}
+
+async function savePendingPaywallReturn(params) {
+  await AsyncStorage.setItem(PAYWALL_RETURN_STORAGE_KEY, JSON.stringify(params));
+}
+
+async function loadPendingPaywallReturn() {
+  try {
+    const raw = await AsyncStorage.getItem(PAYWALL_RETURN_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn('Failed to load pending paywall return params:', error);
+    return null;
+  }
+}
+
+async function clearPendingPaywallReturn() {
+  await AsyncStorage.removeItem(PAYWALL_RETURN_STORAGE_KEY);
+}
+
+function navigateToPaywallAfterAuth(rootNavigation, pending) {
+  rootNavigation.dispatch(
+    CommonActions.navigate({
+      name: 'PlayerApp',
+      params: {
+        screen: 'ExploreSports',
+        params: {
+          screen: 'Paywall',
+          params: {
+            coach: pending.coach,
+            sport: pending.sport,
+            existingConversationId: pending.existingConversationId,
+            selectedPackage: pending.selectedPackage,
+          },
+        },
+      },
+    })
+  );
+}
+
+let paywallAuthReturnListenerRegistered = false;
+
+function registerPaywallAuthReturnListener() {
+  if (paywallAuthReturnListenerRegistered) return;
+  paywallAuthReturnListenerRegistered = true;
+
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event !== 'SIGNED_IN' || !session) return;
+
+    const pending = await loadPendingPaywallReturn();
+    if (!pending) return;
+
+    await clearPendingPaywallReturn();
+
+    setTimeout(() => {
+      const rootNavigation = globalThis.__refyneRootNavigation;
+      if (!rootNavigation?.dispatch) {
+        savePendingPaywallReturn(pending).catch(() => {});
+        return;
+      }
+
+      try {
+        navigateToPaywallAfterAuth(rootNavigation, pending);
+      } catch (error) {
+        console.warn('Failed to auto-navigate to Paywall after sign-in:', error);
+        savePendingPaywallReturn(pending).catch(() => {});
+      }
+    }, 800);
+  });
+}
+
+registerPaywallAuthReturnListener();
 
 const { width } = Dimensions.get('window');
 
@@ -88,10 +181,15 @@ const getCoachingPackages = (sport) => {
 
 export default function PaywallScreen({ route, navigation }) {
   const { coach, sport, existingConversationId } = route.params;
-  const [selectedPackage, setSelectedPackage] = useState(2);
+  const [selectedPackage, setSelectedPackage] = useState(
+    route.params?.selectedPackage ?? 2
+  );
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [paymentSheetEnabled, setPaymentSheetEnabled] = useState(false);
   const [paymentIntentId, setPaymentIntentId] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const redirectingToAuthRef = useRef(false);
   
   // Stripe hook
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
@@ -103,14 +201,105 @@ export default function PaywallScreen({ route, navigation }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
-  
-  // Initialize payment sheet when component mounts OR when package selection changes
+
   useEffect(() => {
-    // Only initialize if a package is selected
-    if (selectedPackage) {
-      initializePaymentSheet();
+    globalThis.__refyneRootNavigation = getRootNavigation(navigation);
+    return () => {
+      if (globalThis.__refyneRootNavigation === getRootNavigation(navigation)) {
+        delete globalThis.__refyneRootNavigation;
+      }
+    };
+  }, [navigation]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const preparePaywall = async () => {
+      let effectiveSelectedPackage = route.params?.selectedPackage ?? 2;
+
+      try {
+        const pending = await loadPendingPaywallReturn();
+        if (pending?.selectedPackage) {
+          effectiveSelectedPackage = pending.selectedPackage;
+          if (!cancelled) {
+            setSelectedPackage(effectiveSelectedPackage);
+          }
+          await clearPendingPaywallReturn();
+        } else if (route.params?.selectedPackage && !cancelled) {
+          setSelectedPackage(route.params.selectedPackage);
+        }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
+
+        if (!session?.access_token) {
+          if (redirectingToAuthRef.current) return;
+          redirectingToAuthRef.current = true;
+          setIsAuthenticated(false);
+          setAuthReady(true);
+          setPaymentSheetEnabled(false);
+
+          await savePendingPaywallReturn(
+            buildPaywallReturnParams(route.params, effectiveSelectedPackage)
+          );
+
+          getRootNavigation(navigation).dispatch(
+            CommonActions.reset({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            })
+          );
+          return;
+        }
+
+        setIsAuthenticated(true);
+        setAuthReady(true);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Error preparing paywall auth state:', error);
+          setAuthReady(true);
+          setIsAuthenticated(false);
+          Alert.alert(
+            'Sign In Required',
+            'Please sign in to continue with your purchase.',
+            [
+              {
+                text: 'Sign In',
+                onPress: () => {
+                  savePendingPaywallReturn(
+                    buildPaywallReturnParams(route.params, effectiveSelectedPackage)
+                  ).finally(() => {
+                    getRootNavigation(navigation).dispatch(
+                      CommonActions.reset({
+                        index: 0,
+                        routes: [{ name: 'Auth' }],
+                      })
+                    );
+                  });
+                },
+              },
+              { text: 'Cancel', style: 'cancel', onPress: () => navigation.goBack() },
+            ]
+          );
+        }
+      }
+    };
+
+    preparePaywall();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigation]);
+  
+  // Initialize payment sheet when authenticated and package selection changes
+  useEffect(() => {
+    if (!authReady || !isAuthenticated || !selectedPackage) {
+      return;
     }
-  }, [selectedPackage]);
+
+    initializePaymentSheet();
+  }, [authReady, isAuthenticated, selectedPackage]);
 
   // Calculate pricing
   const getPackagePrice = () => {
@@ -128,6 +317,22 @@ export default function PaywallScreen({ route, navigation }) {
     try {
       setPaymentSheetEnabled(false);
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsAuthenticated(false);
+        return;
+      }
+
+      const playerId = user.id;
+      const playerName = user.user_metadata?.full_name || user.email?.split('@')[0] || 'Player';
+      const playerEmail = user.email || 'player@example.com';
+
       // Create payment intent using the payment service
       const paymentData = {
         coach,
@@ -135,10 +340,10 @@ export default function PaywallScreen({ route, navigation }) {
         selectedPackage,
         selectedSubscription: false,
         player: {
-          id: route?.params?.playerId || 'temp_user_session',
-          name: route?.params?.playerName || 'Player',
-          email: route?.params?.playerEmail || 'player@example.com'
-        }
+          id: playerId,
+          name: playerName,
+          email: playerEmail,
+        },
       };
 
       console.log('Initializing payment sheet with data:', paymentData);
