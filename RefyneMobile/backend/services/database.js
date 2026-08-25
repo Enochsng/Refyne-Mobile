@@ -1471,29 +1471,6 @@ async function getCoachConnectAccountId(coachId) {
       return account.stripe_account_id;
     }
 
-    if (account && !account.stripe_account_id) {
-      console.log(`[stripe-connect-lookup] DB row exists but stripe_account_id is empty — falling through to hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
-    } else {
-      console.log(`[stripe-connect-lookup] No DB row — falling through to hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
-    }
-    
-    // If database lookup fails, use the mapping of existing coaches to their Stripe accounts
-    // This ensures payments go to the correct coach's account
-    const coachStripeAccountMapping = {
-      'e9f47d75-cd92-4a0f-810c-7258ea03d47f': 'acct_1SGRN1PYPuQf9f7C', // Enokski's Stripe account
-      'test_coach': 'acct_1SGPzsAxPT8ZZc4c', // Test Coach's Stripe account
-      'acct_1SALeHPjC3F0IBJE': 'acct_1SALeHPjC3F0IBJE', // Golf Coach account from Stripe dashboard
-      // Add more coaches here as needed
-    };
-    
-    const stripeAccountId = coachStripeAccountMapping[coachId];
-    if (stripeAccountId) {
-      console.log(`[stripe-connect-lookup] Using hardcoded mapping: coachId=${JSON.stringify(coachId)} -> stripeAccountId=${stripeAccountId}`);
-      return stripeAccountId;
-    }
-
-    console.log(`[stripe-connect-lookup] No hardcoded mapping for coachId=${JSON.stringify(coachId)}`);
-    
     // No account found - coach needs to set up Stripe Connect
     console.error(`[stripe-connect-lookup] No Stripe Connect account found for coach: ${coachId}`);
     console.error(`[stripe-connect-lookup] Coach ${coachId} needs to complete Stripe Connect setup before receiving payments`);
@@ -1501,20 +1478,6 @@ async function getCoachConnectAccountId(coachId) {
     
   } catch (err) {
     console.error('[stripe-connect-lookup] Error getting coach connect account ID:', err);
-    
-    // Fallback to mapping if database fails
-    const coachStripeAccountMapping = {
-      'e9f47d75-cd92-4a0f-810c-7258ea03d47f': 'acct_1SGRN1PYPuQf9f7C', // Enokski's Stripe account
-      'test_coach': 'acct_1SGPzsAxPT8ZZc4c', // Test Coach's Stripe account
-    };
-    
-    const stripeAccountId = coachStripeAccountMapping[coachId];
-    if (stripeAccountId) {
-      console.log(`[stripe-connect-lookup] Fallback (after DB error): Using hardcoded mapping coachId=${JSON.stringify(coachId)} -> stripeAccountId=${stripeAccountId}`);
-      return stripeAccountId;
-    }
-    
-    console.error(`[stripe-connect-lookup] No Stripe Connect account available for coach: ${coachId}`);
     return null;
   }
 }
