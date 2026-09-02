@@ -286,6 +286,9 @@ const updateAccountSchema = Joi.object({
  */
 router.post('/create-account', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     // Validate request body
     const { error, value } = createAccountSchema.validate(req.body);
     if (error) {
@@ -294,6 +297,9 @@ router.post('/create-account', async (req, res) => {
         details: error.details[0].message
       });
     }
+
+    // Always bind the Connect account to the authenticated user
+    value.coachId = user.id;
 
     const { coachId, coachName, email, sport, country, businessType } = value;
 
@@ -839,8 +845,42 @@ router.post('/transfer', async (req, res) => {
  */
 router.get('/account/:id/balance', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { id } = req.params;
-    
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    const { data: account, error: accountError } = await supabase
+      .from('coach_connect_accounts')
+      .select('coach_id')
+      .eq('stripe_account_id', id)
+      .single();
+
+    if (accountError && accountError.code !== 'PGRST116') {
+      console.error('Error looking up coach connect account:', accountError.message);
+      return res.status(500).json({
+        error: 'Failed to verify account ownership',
+        message: accountError.message,
+      });
+    }
+
+    if (!account) {
+      return res.status(404).json({
+        error: 'Connect account not found',
+        message: 'No Stripe Connect account found for this account ID.',
+      });
+    }
+
+    if (!isAdmin && String(account.coach_id) !== String(user.id)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You are not authorized to access this account.',
+      });
+    }
+
     const balance = await stripe.balance.retrieve({
       stripeAccount: id
     });
@@ -869,9 +909,43 @@ router.get('/account/:id/balance', async (req, res) => {
  */
 router.get('/account/:id/payouts', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { id } = req.params;
     const { limit = 10, starting_after } = req.query;
-    
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    const { data: account, error: accountError } = await supabase
+      .from('coach_connect_accounts')
+      .select('coach_id')
+      .eq('stripe_account_id', id)
+      .single();
+
+    if (accountError && accountError.code !== 'PGRST116') {
+      console.error('Error looking up coach connect account:', accountError.message);
+      return res.status(500).json({
+        error: 'Failed to verify account ownership',
+        message: accountError.message,
+      });
+    }
+
+    if (!account) {
+      return res.status(404).json({
+        error: 'Connect account not found',
+        message: 'No Stripe Connect account found for this account ID.',
+      });
+    }
+
+    if (!isAdmin && String(account.coach_id) !== String(user.id)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You are not authorized to access this account.',
+      });
+    }
+
     const payouts = await stripe.payouts.list({
       limit: parseInt(limit),
       starting_after: starting_after
@@ -908,6 +982,9 @@ router.get('/account/:id/payouts', async (req, res) => {
  */
 router.get('/coach/:coachId/onboarding-link', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { coachId } = req.params;
     const { refresh_url, return_url } = req.query;
     
@@ -921,6 +998,16 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
       return res.status(404).json({
         error: 'Connect account not found',
         message: 'No Stripe Connect account found for this coach. Please create an account first.'
+      });
+    }
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    if (!isAdmin && String(dbAccount.coach_id) !== String(user.id)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You are not authorized to access this account.',
       });
     }
     
@@ -993,10 +1080,37 @@ router.get('/coach/:coachId/onboarding-link', async (req, res) => {
  */
 router.get('/coach/:coachId/transfers', async (req, res) => {
   try {
+    const user = await requireAuthenticatedUser(req, res);
+    if (!user) return;
+
     const { coachId } = req.params;
     const { limit = 50 } = req.query;
     
     console.log(`📊 Fetching transfers for coach: ${coachId}`);
+
+    const adminUserId = process.env.ADMIN_USER_ID;
+    const isAdmin = adminUserId && String(user.id) === String(adminUserId);
+
+    const { data: account, error: accountError } = await supabase
+      .from('coach_connect_accounts')
+      .select('coach_id')
+      .eq('coach_id', coachId)
+      .single();
+
+    if (accountError && accountError.code !== 'PGRST116') {
+      console.error('Error looking up coach connect account:', accountError.message);
+      return res.status(500).json({
+        error: 'Failed to verify account ownership',
+        message: accountError.message,
+      });
+    }
+
+    if (account && !isAdmin && String(account.coach_id) !== String(user.id)) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'You are not authorized to access this account.',
+      });
+    }
     
     // Get coach's Stripe account ID
     const stripeAccountId = await getCoachConnectAccountId(coachId);
