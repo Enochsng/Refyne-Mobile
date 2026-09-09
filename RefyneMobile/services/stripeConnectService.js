@@ -4,6 +4,38 @@
 import apiService from './apiService';
 import { supabase } from '../supabaseClient';
 
+/**
+ * Resolve the current Supabase access token for authenticated Connect API calls.
+ * Same pattern as paymentService / conversationService / safetyService.
+ */
+async function getAccessToken() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    const error = new Error('You are not signed in. Please sign in again.');
+    error.code = 'NOT_SIGNED_IN';
+    throw error;
+  }
+  return session.access_token;
+}
+
+async function getAuthHeaders(extra = {}) {
+  const accessToken = await getAccessToken();
+  return {
+    ...extra,
+    Authorization: `Bearer ${accessToken}`,
+  };
+}
+
+function toSignInError(error) {
+  if (error?.code === 'NOT_SIGNED_IN') {
+    return error;
+  }
+  const signInError = new Error('You are not signed in. Please sign in again.');
+  signInError.code = 'NOT_SIGNED_IN';
+  signInError.cause = error;
+  return signInError;
+}
+
 class StripeConnectService {
   constructor() {
     this.statusCache = new Map(); // Cache status responses
@@ -192,8 +224,10 @@ class StripeConnectService {
   async getCoachTransfers(coachId) {
     try {
       console.log(`🔍 Getting transfers for coach: ${coachId}`);
-      
-      const result = await apiService.get(`/api/connect/coach/${coachId}/transfers`);
+
+      const result = await apiService.get(`/api/connect/coach/${coachId}/transfers`, {
+        headers: await getAuthHeaders(),
+      });
       
       console.log(`✅ Transfers retrieved successfully for coach ${coachId}:`, {
         totalTransfers: result.transfers?.length || 0,
@@ -203,6 +237,10 @@ class StripeConnectService {
       return result;
     } catch (error) {
       console.error(`❌ Error getting transfers for coach ${coachId}:`, error);
+
+      if (error.code === 'NOT_SIGNED_IN' || error.status === 401) {
+        throw toSignInError(error);
+      }
       
       // Return empty data instead of throwing error to prevent app crashes
       return {
@@ -270,13 +308,84 @@ class StripeConnectService {
   async getOnboardingLink(coachId) {
     try {
       console.log(`🔗 Getting onboarding link for coach: ${coachId}`);
-      
-      const result = await apiService.get(`/api/connect/coach/${coachId}/onboarding-link`);
+
+      const result = await apiService.get(`/api/connect/coach/${coachId}/onboarding-link`, {
+        headers: await getAuthHeaders(),
+      });
       
       console.log(`✅ Onboarding link retrieved successfully for coach ${coachId}`);
       return result;
     } catch (error) {
       console.error(`❌ Error getting onboarding link for coach ${coachId}:`, error);
+      if (error.code === 'NOT_SIGNED_IN' || error.status === 401) {
+        throw toSignInError(error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Create a Stripe Connect account for a coach
+   * @param {Object} accountData - Account creation payload
+   * @returns {Promise<Object>} - The create-account response
+   */
+  async createAccount(accountData) {
+    try {
+      console.log('🏦 Creating Stripe Connect account...');
+      const result = await apiService.post('/api/connect/create-account', accountData, {
+        headers: await getAuthHeaders(),
+      });
+      console.log('✅ Stripe Connect account created');
+      return result;
+    } catch (error) {
+      console.error('❌ Error creating Stripe Connect account:', error);
+      if (error.code === 'NOT_SIGNED_IN' || error.status === 401) {
+        throw toSignInError(error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get Stripe Connect account balance
+   * @param {string} accountId - Stripe connected account ID
+   * @returns {Promise<Object>} - The balance response
+   */
+  async getAccountBalance(accountId) {
+    try {
+      console.log(`💰 Getting balance for account: ${accountId}`);
+      const result = await apiService.get(`/api/connect/account/${accountId}/balance`, {
+        headers: await getAuthHeaders(),
+      });
+      console.log(`✅ Balance retrieved for account ${accountId}`);
+      return result;
+    } catch (error) {
+      console.error(`❌ Error getting balance for account ${accountId}:`, error);
+      if (error.code === 'NOT_SIGNED_IN' || error.status === 401) {
+        throw toSignInError(error);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get Stripe Connect account payouts
+   * @param {string} accountId - Stripe connected account ID
+   * @returns {Promise<Object>} - The payouts response
+   */
+  async getAccountPayouts(accountId) {
+    try {
+      console.log(`📤 Getting payouts for account: ${accountId}`);
+      const result = await apiService.get(`/api/connect/account/${accountId}/payouts`, {
+        headers: await getAuthHeaders(),
+      });
+      console.log(`✅ Payouts retrieved for account ${accountId}`);
+      return result;
+    } catch (error) {
+      console.error(`❌ Error getting payouts for account ${accountId}:`, error);
+      if (error.code === 'NOT_SIGNED_IN' || error.status === 401) {
+        throw toSignInError(error);
+      }
       throw error;
     }
   }

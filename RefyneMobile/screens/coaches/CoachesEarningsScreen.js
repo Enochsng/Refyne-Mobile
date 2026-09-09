@@ -236,6 +236,9 @@ export default function CoachesEarningsScreen({ navigation }) {
         });
       } else {
         console.log('⚠️ No earnings data found or error in response:', result.error);
+        if (result.error && /sign in again|Bearer token|Unauthorized/i.test(result.error)) {
+          Alert.alert('Sign In Required', 'You are not signed in. Please sign in again.');
+        }
         // Set default values if no data
         setEarningsData({
           totalEarnings: 0,
@@ -246,6 +249,9 @@ export default function CoachesEarningsScreen({ navigation }) {
       }
     } catch (error) {
       console.error('❌ Error fetching earnings data:', error);
+      if (error.code === 'NOT_SIGNED_IN' || /sign in again/i.test(error.message || '')) {
+        Alert.alert('Sign In Required', error.message || 'You are not signed in. Please sign in again.');
+      }
       // Set default values on error
       setEarningsData({
         totalEarnings: 0,
