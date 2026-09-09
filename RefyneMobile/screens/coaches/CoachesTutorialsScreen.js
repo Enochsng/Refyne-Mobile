@@ -17,7 +17,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Video } from 'expo-av';
+import { Video, getVideoDurationAsync } from '../../components/Video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabaseClient';
 
@@ -128,14 +128,7 @@ export default function CoachesTutorialsScreen({ navigation }) {
 
   const getVideoDuration = async (uri) => {
     try {
-      // Create a temporary video element to get duration
-      const video = new Video({ uri });
-      await video.loadAsync();
-      const status = await video.getStatusAsync();
-      if (status.isLoaded) {
-        return status.durationMillis / 1000; // Convert to seconds
-      }
-      return null;
+      return await getVideoDurationAsync(uri);
     } catch (error) {
       console.log('Error getting video duration:', error);
       return null;

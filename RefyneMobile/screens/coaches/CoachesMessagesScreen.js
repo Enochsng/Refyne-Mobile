@@ -25,7 +25,7 @@ import * as Clipboard from 'expo-clipboard';
 import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
 import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
 import { supabase } from '../../supabaseClient';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode } from '../../components/Video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
 import MessageContextMenu from '../../components/MessageContextMenu';

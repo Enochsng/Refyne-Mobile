@@ -23,7 +23,7 @@ import { getConversations, formatConversationForDisplay, manualConnectionTest, g
 import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
 import { supabase } from '../../supabaseClient';
 import * as ImagePicker from 'expo-image-picker';
-import { Video, ResizeMode } from 'expo-av';
+import { Video, ResizeMode } from '../../components/Video';
 import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
 import MessageContextMenu from '../../components/MessageContextMenu';
 
