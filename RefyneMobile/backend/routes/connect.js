@@ -157,6 +157,40 @@ async function resolvePaymentIntentConversationLinks(paymentIntentIds, conversat
   return { playerIdByPiId, sessionNameByPiId };
 }
 
+/**
+ * Confirm a payment intent is tied to a coaching_sessions row whose id is
+ * linked from a conversations.session_id owned by this coach.
+ * Same join as resolvePaymentIntentConversationLinks / GET transfers.
+ */
+async function paymentIntentBelongsToCoach(paymentIntentId, coachId) {
+  const { data: session, error: sessionError } = await supabase
+    .from('coaching_sessions')
+    .select('id, payment_intent_id')
+    .eq('payment_intent_id', paymentIntentId)
+    .single();
+
+  if (sessionError && sessionError.code !== 'PGRST116') {
+    return { owned: false, error: sessionError };
+  }
+
+  if (!session?.id) {
+    return { owned: false };
+  }
+
+  const { data: conversations, error: convError } = await supabase
+    .from('conversations')
+    .select('id, coach_id, session_id')
+    .eq('session_id', session.id)
+    .eq('coach_id', coachId)
+    .limit(1);
+
+  if (convError) {
+    return { owned: false, error: convError };
+  }
+
+  return { owned: Boolean(conversations && conversations.length > 0) };
+}
+
 function resolveEffectivePlayerId(transfer, playerIdByPiId) {
   const metadata = transfer.metadata || {};
   const fromMetadata = metadata.player_id || metadata.playerId;
@@ -794,6 +828,26 @@ router.post('/transfer', async (req, res) => {
         return res.status(403).json({
           error: 'Forbidden',
           message: 'You are not authorized to transfer to this account.',
+        });
+      }
+
+      const { owned, error: ownershipError } = await paymentIntentBelongsToCoach(
+        paymentIntentId,
+        user.id
+      );
+
+      if (ownershipError) {
+        console.error('Error verifying payment intent ownership:', ownershipError.message);
+        return res.status(500).json({
+          error: 'Failed to verify payment intent ownership',
+          message: ownershipError.message,
+        });
+      }
+
+      if (!owned) {
+        return res.status(403).json({
+          error: 'Forbidden',
+          message: 'You are not authorized to transfer this payment.',
         });
       }
     }
