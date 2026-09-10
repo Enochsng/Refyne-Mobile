@@ -185,8 +185,6 @@ export const createPaymentIntent = async (paymentData) => {
       packageId: selectedPackage,
       customerEmail: player?.email || coach.email, // Use player email if available
       customerName: player?.name || coach.name,
-      playerId: player?.id || 'temp_user',
-      playerName: player?.name || 'Player',
     };
 
     console.log('Creating payment intent with data:', requestBody);
@@ -215,7 +213,7 @@ export const createPaymentIntent = async (paymentData) => {
       let errorMessage = 'Failed to create payment intent';
       try {
         const errorData = await response.json();
-        errorMessage = errorData.message || errorData.error || errorMessage;
+        errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
       } catch (parseError) {
         console.error('Error parsing error response:', parseError);
         errorMessage = `Server error: ${response.status} ${response.statusText}`;
@@ -374,8 +372,6 @@ export const createDestinationCharge = async (paymentData) => {
       packageId: selectedPackage,
       customerEmail: player?.email || coach.email, // Use player email if available
       customerName: player?.name || coach.name,
-      playerId: player?.id || 'temp_user',
-      playerName: player?.name || 'Player',
     };
 
     console.log('Creating destination charge with data:', requestBody);
@@ -400,7 +396,7 @@ export const createDestinationCharge = async (paymentData) => {
       let errorMessage = 'Failed to create destination charge';
       try {
         const errorData = await response.json();
-        errorMessage = errorData.message || errorData.error || errorMessage;
+        errorMessage = errorData.details || errorData.message || errorData.error || errorMessage;
       } catch (parseError) {
         console.error('Error parsing error response:', parseError);
         errorMessage = `Server error: ${response.status} ${response.statusText}`;
