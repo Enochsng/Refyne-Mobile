@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.enoch.RefyneMobile",
-      "buildNumber": "1",
+      "buildNumber": "5",
       "splash": {
         "image": "./assets/RefyneLogo.png",
         "resizeMode": "contain",
@@ -61,7 +61,14 @@
     },
     "owner": "enochsong",
     "plugins": [
-      "expo-video"
+      "expo-video",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.enoch.RefyneMobile",
+          "enableGooglePay": false
+        }
+      ]
     ]
   }
 }
