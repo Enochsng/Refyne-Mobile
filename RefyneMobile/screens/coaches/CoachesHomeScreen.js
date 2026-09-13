@@ -12,6 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAppForeground } from '../../utils/appForeground';
 import { supabase } from '../../supabaseClient';
 import { getPlayerProfilePhoto, getRemainingClips } from '../../services/conversationService';
 
@@ -226,6 +227,11 @@ export default function CoachesHomeScreen({ navigation }) {
       return () => clearTimeout(timer);
     }, [])
   );
+
+  useAppForeground(() => {
+    getCoachName();
+    loadRecentActivity();
+  });
 
   const handleReviewClips = () => {
     navigation.navigate('Messages');

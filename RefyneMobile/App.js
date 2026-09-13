@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, ActivityIndicator, StyleSheet, AppState, DeviceEventEmitter } from 'react-native';
@@ -55,6 +55,10 @@ export default function App() {
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showSplash, setShowSplash] = useState(true);
+  const onboardingCompletedRef = useRef(onboardingCompleted);
+  const userRoleRef = useRef(userRole);
+  onboardingCompletedRef.current = onboardingCompleted;
+  userRoleRef.current = userRole;
   
   const [fontsLoaded] = useFonts({
     'Rubik-Regular': Rubik_400Regular,
@@ -74,13 +78,24 @@ export default function App() {
       const storedRole = await AsyncStorage.getItem('user_role');
       
       if (storedCompletion === 'true') {
+        const alreadyCompleted = onboardingCompletedRef.current === true;
+        const roleUnchanged = !storedRole || storedRole === userRoleRef.current;
+
         setOnboardingCompleted(true);
         if (storedRole) {
           setUserRole(storedRole);
         }
         console.log('Onboarding status updated from AsyncStorage');
-        // Force a re-render by updating the refresh key
-        setRefreshKey(prev => prev + 1);
+        // Only remount navigation when onboarding status or role actually changed
+        if (!alreadyCompleted || !roleUnchanged) {
+          console.log('[DEBUG App] refreshKey increment', {
+            oldOnboardingCompleted: onboardingCompletedRef.current,
+            newOnboardingCompleted: true,
+            oldRole: userRoleRef.current,
+            newRole: storedRole || userRoleRef.current,
+          });
+          setRefreshKey(prev => prev + 1);
+        }
       } else {
         // If no completion found in AsyncStorage, set to false
         setOnboardingCompleted(false);
@@ -251,6 +266,13 @@ export default function App() {
       // Force immediate state update
       setOnboardingCompleted(true);
       setUserRole('coach');
+      console.log('[DEBUG App] refreshKey increment', {
+        reason: 'onboardingCompleted event',
+        oldOnboardingCompleted: onboardingCompletedRef.current,
+        newOnboardingCompleted: true,
+        oldRole: userRoleRef.current,
+        newRole: 'coach',
+      });
       setRefreshKey(prev => prev + 1);
       
       // Set up multiple checks to ensure navigation happens

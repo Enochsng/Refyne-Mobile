@@ -777,21 +777,8 @@ export const getRemainingDailyMessages = async (conversationId) => {
     console.log(`📊 [getRemainingDailyMessages] Returning message info:`, messageInfo);
     return messageInfo;
   } catch (error) {
-    // Handle 429 rate limit errors gracefully
-    if (error.status === 429 || (error.message && error.message.includes('429'))) {
-      console.log(`⏳ Rate limited getting daily messages - returning defaults`);
-      return { remaining: 5, total: 5, used: 0, error: 'Rate limited' };
-    }
-    
-    // Handle rate limit exceeded message
-    if (error.message && error.message.includes('Rate limit exceeded')) {
-      console.log(`⏳ Rate limit exceeded - returning defaults`);
-      return { remaining: 5, total: 5, used: 0, error: 'Rate limited' };
-    }
-    
-    // Don't log stack traces - just return defaults
-    // Return default values on error
-    return { remaining: 5, total: 5, used: 0, error: error.message || 'Failed to get daily messages' };
+    console.log('⚠️ Error getting remaining daily messages:', error.message || 'Unknown error');
+    throw error;
   }
 };
 
@@ -820,21 +807,8 @@ export const getRemainingClips = async (conversationId) => {
     console.log(`📊 [getRemainingClips] Returning clip info:`, clipInfo);
     return clipInfo;
   } catch (error) {
-    // Handle 429 rate limit errors gracefully
-    if (error.status === 429 || (error.message && error.message.includes('429'))) {
-      console.log(`⏳ Rate limited getting clips - returning defaults`);
-      return { remaining: 0, total: 0, used: 0, error: 'Rate limited', chatExpiry: null };
-    }
-    
-    // Handle rate limit exceeded message
-    if (error.message && error.message.includes('Rate limit exceeded')) {
-      console.log(`⏳ Rate limit exceeded - returning defaults`);
-      return { remaining: 0, total: 0, used: 0, error: 'Rate limited', chatExpiry: null };
-    }
-    
-    // Don't log stack traces - just return defaults
-    // Return default values on error
-    return { remaining: 0, total: 0, used: 0, error: error.message || 'Failed to get clips', chatExpiry: null };
+    console.log('⚠️ Error getting remaining clips:', error.message || 'Unknown error');
+    throw error;
   }
 };
 

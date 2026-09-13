@@ -11,6 +11,7 @@ import CoachFeedbackScreen from '../screens/player/CoachFeedbackScreen';
 import ProfileScreen from '../screens/player/ProfileScreen';
 import { getConversations } from '../services/conversationService';
 import { supabase } from '../supabaseClient';
+import { subscribeToAppForeground } from '../utils/appForeground';
 
 // Lazy load Stripe-dependent screens using React.lazy to prevent initialization errors
 const PaywallScreen = React.lazy(() => {
@@ -126,9 +127,11 @@ export default function PlayerNavigator() {
     };
 
     fetchUnreadCount();
+    const unsubscribeForeground = subscribeToAppForeground(fetchUnreadCount);
 
     return () => {
       cancelled = true;
+      unsubscribeForeground();
     };
   }, []);
 

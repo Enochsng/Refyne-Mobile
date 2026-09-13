@@ -10,6 +10,7 @@ import CoachesEarningsScreen from '../screens/coaches/CoachesEarningsScreen';
 import CoachesProfileScreen from '../screens/coaches/CoachesProfileScreen';
 import { getConversations } from '../services/conversationService';
 import { supabase } from '../supabaseClient';
+import { subscribeToAppForeground } from '../utils/appForeground';
 
 const Tab = createBottomTabNavigator();
 const { width } = Dimensions.get('window');
@@ -60,9 +61,11 @@ export default function CoachNavigator() {
     };
 
     fetchUnreadCount();
+    const unsubscribeForeground = subscribeToAppForeground(fetchUnreadCount);
 
     return () => {
       cancelled = true;
+      unsubscribeForeground();
     };
   }, []);
 

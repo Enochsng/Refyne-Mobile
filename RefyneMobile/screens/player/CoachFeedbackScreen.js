@@ -16,6 +16,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAppForeground } from '../../utils/appForeground';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -76,11 +77,35 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const selectedConversationRef = useRef(null);
   const clipsRequestIdRef = useRef(0);
   const dailyMessagesRequestIdRef = useRef(0);
+  const clipsInFlightRef = useRef(new Map());
+  const dailyMessagesInFlightRef = useRef(new Map());
+  const countersCacheRef = useRef(new Map());
   const lastConversationsLoadAtRef = useRef(0);
   const conversationsRef = useRef([]);
   const routeRef = useRef(route);
+  const debugMountIdRef = useRef(`cfs-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const debugPrevSelectedIdRef = useRef(undefined);
 
   routeRef.current = route;
+
+  useEffect(() => {
+    const mountId = debugMountIdRef.current;
+    console.log('[DEBUG CoachFeedbackScreen] mount', { mountId });
+    return () => {
+      console.log('[DEBUG CoachFeedbackScreen] unmount', { mountId });
+    };
+  }, []);
+
+  useEffect(() => {
+    const oldId = debugPrevSelectedIdRef.current ?? null;
+    const newId = selectedConversation?.id ?? null;
+    console.log('[DEBUG CoachFeedbackScreen] selectedConversation changed', {
+      mountId: debugMountIdRef.current,
+      oldId,
+      newId,
+    });
+    debugPrevSelectedIdRef.current = newId;
+  }, [selectedConversation]);
 
   useEffect(() => {
     conversationsRef.current = conversations;
@@ -453,11 +478,44 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }, [navigation])
   );
 
+  useAppForeground(() => {
+    const activeConversation = selectedConversationRef.current;
+    console.log('[DEBUG CoachFeedbackScreen] useAppForeground', {
+      mountId: debugMountIdRef.current,
+      threadOpen: !!activeConversation,
+      conversationId: activeConversation?.id ?? null,
+    });
+    if (!activeConversation) {
+      loadConversations({
+        force: true,
+        showLoader: false,
+        preserveSelectedConversation: true,
+      });
+      return;
+    }
+
+    loadMessages(activeConversation.id, { resetReveal: false });
+    loadRemainingClips(activeConversation.id);
+    loadRemainingDailyMessages(activeConversation.id);
+  });
+
   // Refresh clip counter and daily messages when selected conversation changes
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
     selectedConversationIdRef.current = selectedConversation?.id || null;
     if (selectedConversation?.id) {
+      const cached = countersCacheRef.current.get(selectedConversation.id);
+      if (cached) {
+        if (cached.clips) {
+          setRemainingClips(cached.clips);
+        }
+        if (cached.dailyMessages) {
+          setRemainingDailyMessages(cached.dailyMessages);
+        }
+        if (Object.prototype.hasOwnProperty.call(cached, 'chatExpiry')) {
+          setChatExpiry(cached.chatExpiry);
+        }
+      }
       loadRemainingClips(selectedConversation.id);
       loadRemainingDailyMessages(selectedConversation.id);
     }
@@ -581,17 +639,20 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     });
   };
 
-  // Clear chat state when selectedConversation becomes null
+  // Clear chat UI when selectedConversation becomes null.
+  // Do not reset clip/daily counters here — a transient null while switching
+  // conversations would flash 5/0 before the real fetch lands. Intentional
+  // leave/back paths reset counters themselves.
   useEffect(() => {
     if (!selectedConversation) {
+      console.log('[DEBUG CoachFeedbackScreen] selectedConversation null (counters preserved)', {
+        mountId: debugMountIdRef.current,
+      });
       resetMessagesRevealState();
       setMessages([]);
       setMessageText('');
       setSelectedVideo(null);
       setShowVideoModal(false);
-      setRemainingClips({ remaining: 0, total: 0, used: 0 });
-      setChatExpiry(null);
-      setRemainingDailyMessages({ remaining: 5, total: 5, used: 0 });
     }
   }, [selectedConversation]);  // Auto-select conversation when conversationId is passed via route params (e.g. Home Continue chat)
   useEffect(() => {
@@ -669,9 +730,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       }
   };
 
-  const loadMessages = async (conversationId) => {
+  const loadMessages = async (conversationId, { resetReveal = true } = {}) => {
     try {
-      resetMessagesRevealState();
+      if (resetReveal) {
+        resetMessagesRevealState();
+      }
       const { getConversationMessages } = await import('../../services/conversationService');
       const messagesData = await getConversationMessages(conversationId);
       
@@ -724,66 +787,183 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   };
 
   const loadRemainingClips = async (conversationId) => {
-    const requestId = ++clipsRequestIdRef.current;
-    try {
-      console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining clips for conversation: ${conversationId}`);
-      const clipInfo = await getRemainingClips(conversationId);
+    if (!conversationId) return;
 
-      // Ignore stale responses from previous conversations/requests.
-      if (requestId !== clipsRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
-        return;
-      }
-
-      console.log(`✅ [CoachFeedbackScreen] Clip info received:`, JSON.stringify(clipInfo, null, 2));
-      console.log(`✅ [CoachFeedbackScreen] Setting remaining clips to: ${clipInfo.remaining}`);
-      setRemainingClips(clipInfo);
-      
-      // Also get chat expiry info if available
-      if (clipInfo.chatExpiry) {
-        console.log(`✅ [CoachFeedbackScreen] Chat expiry info:`, JSON.stringify(clipInfo.chatExpiry, null, 2));
-        setChatExpiry(clipInfo.chatExpiry);
-      } else {
-        setChatExpiry(null);
-      }
-      
-      console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${clipInfo.remaining}, total: ${clipInfo.total}, used: ${clipInfo.used}`);
-    } catch (error) {
-      if (requestId !== clipsRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
-        return;
-      }
-      console.error('❌ [CoachFeedbackScreen] Error loading remaining clips:', error.message);
-      console.error('❌ [CoachFeedbackScreen] Error details:', error);
-      console.error('❌ [CoachFeedbackScreen] Error stack:', error.stack);
-      // Set default values on error
-      setRemainingClips({ remaining: 0, total: 0, used: 0 });
-      setChatExpiry(null);
+    const inFlight = clipsInFlightRef.current.get(conversationId);
+    if (inFlight) {
+      console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips reuse in-flight', {
+        mountId: debugMountIdRef.current,
+        conversationId,
+      });
+      return inFlight;
     }
+
+    const requestId = ++clipsRequestIdRef.current;
+    const request = (async () => {
+      console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips start', {
+        mountId: debugMountIdRef.current,
+        conversationId,
+        requestId,
+      });
+      try {
+        console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining clips for conversation: ${conversationId}`);
+        const clipInfo = await getRemainingClips(conversationId);
+
+        const prevClipsCache = countersCacheRef.current.get(conversationId) || {};
+        countersCacheRef.current.set(conversationId, {
+          ...prevClipsCache,
+          clips: clipInfo,
+          chatExpiry: clipInfo.chatExpiry || null,
+        });
+
+        // Ignore stale responses from a different conversation, not a transient null.
+        const currentId = selectedConversationIdRef.current;
+        if (currentId && currentId !== conversationId) {
+          console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips end', {
+            mountId: debugMountIdRef.current,
+            conversationId,
+            requestId,
+            result: 'stale',
+          });
+          return;
+        }
+
+        console.log(`✅ [CoachFeedbackScreen] Clip info received:`, JSON.stringify(clipInfo, null, 2));
+        console.log(`✅ [CoachFeedbackScreen] Setting remaining clips to: ${clipInfo.remaining}`);
+        console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips end', {
+          mountId: debugMountIdRef.current,
+          conversationId,
+          requestId,
+          result: 'success',
+          remaining: clipInfo.remaining,
+          total: clipInfo.total,
+          used: clipInfo.used,
+          error: clipInfo.error || null,
+        });
+        setRemainingClips(clipInfo);
+
+        // Also get chat expiry info if available
+        if (clipInfo.chatExpiry) {
+          console.log(`✅ [CoachFeedbackScreen] Chat expiry info:`, JSON.stringify(clipInfo.chatExpiry, null, 2));
+          setChatExpiry(clipInfo.chatExpiry);
+        } else {
+          setChatExpiry(null);
+        }
+
+        console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${clipInfo.remaining}, total: ${clipInfo.total}, used: ${clipInfo.used}`);
+      } catch (error) {
+        const currentId = selectedConversationIdRef.current;
+        if (currentId && currentId !== conversationId) {
+          console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips end', {
+            mountId: debugMountIdRef.current,
+            conversationId,
+            requestId,
+            result: 'stale-throw',
+            error: error.message,
+          });
+          return;
+        }
+        console.log('[DEBUG CoachFeedbackScreen] loadRemainingClips end', {
+          mountId: debugMountIdRef.current,
+          conversationId,
+          requestId,
+          result: 'threw',
+          error: error.message,
+          willSet: null,
+        });
+        console.warn('⚠️ Error loading remaining clips — keeping last known value:', error.message);
+      } finally {
+        clipsInFlightRef.current.delete(conversationId);
+      }
+    })();
+
+    clipsInFlightRef.current.set(conversationId, request);
+    return request;
   };
 
   const loadRemainingDailyMessages = async (conversationId) => {
-    const requestId = ++dailyMessagesRequestIdRef.current;
-    try {
-      console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining daily messages for conversation: ${conversationId}`);
-      const messageInfo = await getRemainingDailyMessages(conversationId);
+    if (!conversationId) return;
 
-      // Ignore stale responses from previous conversations/requests.
-      if (requestId !== dailyMessagesRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
-        return;
-      }
-
-      console.log(`✅ [CoachFeedbackScreen] Daily message info received:`, JSON.stringify(messageInfo, null, 2));
-      console.log(`✅ [CoachFeedbackScreen] Setting remaining daily messages to: ${messageInfo.remaining}`);
-      setRemainingDailyMessages(messageInfo);
-      console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${messageInfo.remaining}, total: ${messageInfo.total}, used: ${messageInfo.used}`);
-    } catch (error) {
-      if (requestId !== dailyMessagesRequestIdRef.current || selectedConversationIdRef.current !== conversationId) {
-        return;
-      }
-      console.error('❌ [CoachFeedbackScreen] Error loading remaining daily messages:', error.message);
-      console.error('❌ [CoachFeedbackScreen] Error details:', error);
-      // Set default values on error
-      setRemainingDailyMessages({ remaining: 5, total: 5, used: 0 });
+    const inFlight = dailyMessagesInFlightRef.current.get(conversationId);
+    if (inFlight) {
+      console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages reuse in-flight', {
+        mountId: debugMountIdRef.current,
+        conversationId,
+      });
+      return inFlight;
     }
+
+    const requestId = ++dailyMessagesRequestIdRef.current;
+    const request = (async () => {
+      console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages start', {
+        mountId: debugMountIdRef.current,
+        conversationId,
+        requestId,
+      });
+      try {
+        console.log(`\n🔄 [CoachFeedbackScreen] Loading remaining daily messages for conversation: ${conversationId}`);
+        const messageInfo = await getRemainingDailyMessages(conversationId);
+
+        const prevDailyCache = countersCacheRef.current.get(conversationId) || {};
+        countersCacheRef.current.set(conversationId, {
+          ...prevDailyCache,
+          dailyMessages: messageInfo,
+        });
+
+        // Ignore stale responses from a different conversation, not a transient null.
+        const currentId = selectedConversationIdRef.current;
+        if (currentId && currentId !== conversationId) {
+          console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages end', {
+            mountId: debugMountIdRef.current,
+            conversationId,
+            requestId,
+            result: 'stale',
+          });
+          return;
+        }
+
+        console.log(`✅ [CoachFeedbackScreen] Daily message info received:`, JSON.stringify(messageInfo, null, 2));
+        console.log(`✅ [CoachFeedbackScreen] Setting remaining daily messages to: ${messageInfo.remaining}`);
+        console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages end', {
+          mountId: debugMountIdRef.current,
+          conversationId,
+          requestId,
+          result: 'success',
+          remaining: messageInfo.remaining,
+          total: messageInfo.total,
+          used: messageInfo.used,
+          error: messageInfo.error || null,
+        });
+        setRemainingDailyMessages(messageInfo);
+        console.log(`✅ [CoachFeedbackScreen] State updated - remaining: ${messageInfo.remaining}, total: ${messageInfo.total}, used: ${messageInfo.used}`);
+      } catch (error) {
+        const currentId = selectedConversationIdRef.current;
+        if (currentId && currentId !== conversationId) {
+          console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages end', {
+            mountId: debugMountIdRef.current,
+            conversationId,
+            requestId,
+            result: 'stale-throw',
+            error: error.message,
+          });
+          return;
+        }
+        console.log('[DEBUG CoachFeedbackScreen] loadRemainingDailyMessages end', {
+          mountId: debugMountIdRef.current,
+          conversationId,
+          requestId,
+          result: 'threw',
+          error: error.message,
+          willSet: null,
+        });
+        console.warn('⚠️ Error loading remaining daily messages — keeping last known value:', error.message);
+      } finally {
+        dailyMessagesInFlightRef.current.delete(conversationId);
+      }
+    })();
+
+    dailyMessagesInFlightRef.current.set(conversationId, request);
+    return request;
   };
 
   const sendMessage = async () => {
@@ -1125,8 +1305,6 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     setMessageText('');
     setSelectedVideo(null);
     setShowVideoModal(false);
-    setRemainingClips({ remaining: 0, total: 0, used: 0 });
-    setChatExpiry(null);
     setIsOtherUserBlocked(false);
     setBlockRecordId(null);
     navigation.setParams({ conversationId: undefined, isNewSession: undefined, hideTabBar: false });
@@ -1456,8 +1634,6 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               setMessageText('');
               setSelectedVideo(null);
               setShowVideoModal(false);
-              setRemainingClips({ remaining: 0, total: 0, used: 0 });
-              setChatExpiry(null);
               setIsOtherUserBlocked(false);
               setBlockRecordId(null);
               // Clear route params to prevent auto-selection when navigating back
@@ -1737,17 +1913,19 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                       setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
                       // Reload to get the latest count (in case it reset at midnight)
                       if (selectedConversation) {
-                        const { getRemainingDailyMessages } = await import('../../services/conversationService');
-                        const messageInfo = await getRemainingDailyMessages(selectedConversation.id);
-                        // Update state with latest info
-                        setRemainingDailyMessages(messageInfo);
-                        // If still at 0, show alert
-                        if (messageInfo.remaining <= 0) {
-                          Alert.alert(
-                            'Daily Message Limit Reached',
-                            'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
-                            [{ text: 'OK' }]
-                          );
+                        try {
+                          const { getRemainingDailyMessages } = await import('../../services/conversationService');
+                          const messageInfo = await getRemainingDailyMessages(selectedConversation.id);
+                          setRemainingDailyMessages(messageInfo);
+                          if (messageInfo.remaining <= 0) {
+                            Alert.alert(
+                              'Daily Message Limit Reached',
+                              'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+                              [{ text: 'OK' }]
+                            );
+                          }
+                        } catch (error) {
+                          console.warn('⚠️ Error refreshing daily messages — keeping last known value:', error.message);
                         }
                       } else {
                         Alert.alert(

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAppForeground } from '../../utils/appForeground';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../supabaseClient';
@@ -116,8 +117,8 @@ const buildFeedbackItem = async (conv) => {
 
   const [session, clipInfo, dailyInfo] = await Promise.all([
     sessionPromise,
-    getRemainingClips(formattedConversation.id),
-    chatNotExpired ? getRemainingDailyMessages(formattedConversation.id) : Promise.resolve(null),
+    getRemainingClips(formattedConversation.id).catch(() => null),
+    chatNotExpired ? getRemainingDailyMessages(formattedConversation.id).catch(() => null) : Promise.resolve(null),
   ]);
 
   const clipsSent = clipInfo?.used ?? 0;
@@ -451,6 +452,12 @@ export default function HomeScreen({ navigation }) {
       loadRecentFeedbackRef.current?.({ forceRefresh: false });
     }, [])
   );
+
+  useAppForeground(() => {
+    getUserName();
+    loadCoachCounts();
+    loadRecentFeedbackRef.current?.({ forceRefresh: true, skipDebounce: true });
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

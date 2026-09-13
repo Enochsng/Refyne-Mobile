@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
+import { useAppForeground } from '../../utils/appForeground';
 import * as Clipboard from 'expo-clipboard';
 import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
 import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
@@ -86,6 +87,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const lastSuccessfulConversationsLoadAtRef = useRef(0);
   const hasCachedConversationsRef = useRef(false);
   const conversationsRef = useRef([]);
+  const selectedConversationRef = useRef(null);
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
@@ -537,6 +539,19 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   );
 
   useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
+
+  useAppForeground(() => {
+    const activeConversation = selectedConversationRef.current;
+    if (!activeConversation) {
+      loadConversations();
+      return;
+    }
+    loadMessages(activeConversation.id, { resetReveal: false });
+  });
+
+  useEffect(() => {
     // Start entrance animations
     Animated.parallel([
       Animated.timing(fadeAnim, {
@@ -633,9 +648,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   }, [route?.params?.conversationId, conversations, selectedConversation]);
 
   // Load messages when a conversation is selected
-  const loadMessages = async (conversationId) => {
+  const loadMessages = async (conversationId, { resetReveal = true } = {}) => {
     try {
-      resetMessagesRevealState();
+      if (resetReveal) {
+        resetMessagesRevealState();
+      }
       const { getConversationMessages } = await import('../../services/conversationService');
       const messagesData = await getConversationMessages(conversationId);
       
