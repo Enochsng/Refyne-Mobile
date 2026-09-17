@@ -27,6 +27,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video, ResizeMode } from '../../components/Video';
 import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
 import MessageContextMenu from '../../components/MessageContextMenu';
+import SentMessageAppear from '../../components/SentMessageAppear';
 
 const { width, height } = Dimensions.get('window');
 
@@ -56,6 +57,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
+  const appearingMessageIdsRef = useRef(new Set());
   const messageRefs = useRef({});
   const pendingInitialScrollRef = useRef(false);
   const lastPendingContentHeightRef = useRef(null);
@@ -169,6 +171,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     messagesReadyRef.current = false;
     setMessagesReady(false);
     hasLoadedInitialMessagesRef.current = false;
+    appearingMessageIdsRef.current.clear();
     pendingInitialScrollRef.current = true;
     lastPendingContentHeightRef.current = null;
     lastPendingContainerHeightRef.current = null;
@@ -1038,91 +1041,104 @@ export default function CoachFeedbackScreen({ navigation, route }) {
 
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
+      // CRITICAL: Block ALL text messages if chat is expired
+      // Players must purchase a new coaching package to reactivate the chat
+      if (isChatExpired()) {
+        Alert.alert(
+          'Chat Expired',
+          'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Check daily message limit BEFORE attempting to send
+      if (remainingDailyMessages.remaining <= 0) {
+        // Ensure counter shows 0
+        setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
+        Alert.alert(
+          'Daily Message Limit Reached',
+          'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      const text = messageText.trim();
+      const newMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        text,
+        isFromPlayer: true,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        createdAt: Date.now(),
+      };
+
+      appearingMessageIdsRef.current.add(newMessage.id);
+      setMessages((prev) => [...prev, newMessage]);
+      setMessageText('');
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false });
+        requestAnimationFrame(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: false });
+        });
+      });
+
       try {
-        // CRITICAL: Block ALL text messages if chat is expired
-        // Players must purchase a new coaching package to reactivate the chat
-        if (isChatExpired()) {
-          Alert.alert(
-            'Chat Expired',
-            'This chat has expired and is now read-only. Please purchase a new package to continue messaging.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
-        // Check daily message limit BEFORE attempting to send
-        if (remainingDailyMessages.remaining <= 0) {
-          // Ensure counter shows 0
-          setRemainingDailyMessages(prev => ({ ...prev, remaining: 0 }));
-          Alert.alert(
-            'Daily Message Limit Reached',
-            'You have reached your daily limit of 5 text messages. You can send more messages tomorrow.',
-            [{ text: 'OK' }]
-          );
-          return;
-        }
-
         // Get the authenticated user
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
+          appearingMessageIdsRef.current.delete(newMessage.id);
+          setMessages((prev) => prev.filter((item) => item.id !== newMessage.id));
+          setMessageText(text);
           Alert.alert('Authentication Error', 'Please sign in to send messages.');
           return;
         }
-        
+
         const playerId = user.id;
         console.log('Sending message as authenticated player:', playerId);
 
         // Import the sendMessage function from conversation service
         const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
-        
+
         const response = await sendMessageToConversation(
           selectedConversation.id,
           playerId,
           'player',
-          messageText.trim()
+          text
         );
-        
+
         // Handle response (for text messages, response.message contains the message)
         const message = response?.message || response;
 
-        // Add the message to local state for immediate display
-        const newMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          text: messageText.trim(),
-          isFromPlayer: true,
-          timestamp: new Date().toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          }),
-          createdAt: Date.now() // Add timestamp for proper ordering
-        };
-
-        setMessages(prev => [...prev, newMessage]);
-        setMessageText('');
-
         // Update conversation list with new last message
-        setConversations(prev => 
-          prev.map(conv => 
-            conv.id === selectedConversation.id 
-              ? { ...conv, lastMessage: messageText.trim(), lastMessageAt: new Date().toISOString() }
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === selectedConversation.id
+              ? { ...conv, lastMessage: text, lastMessageAt: new Date().toISOString() }
               : conv
           )
         );
 
         // Update daily message count from response first (for immediate UI update)
         if (response?.dailyMessagesRemaining !== undefined) {
-          setRemainingDailyMessages(prev => ({ 
-            ...prev, 
+          setRemainingDailyMessages((prev) => ({
+            ...prev,
             remaining: response.dailyMessagesRemaining,
-            used: prev.total - response.dailyMessagesRemaining
+            used: prev.total - response.dailyMessagesRemaining,
           }));
         }
-        
+
         // Then reload daily messages to ensure we have the latest accurate data
         // This will update the counter to show the correct remaining count (including 0 if limit reached)
         await loadRemainingDailyMessages(selectedConversation.id);
-
       } catch (error) {
+        appearingMessageIdsRef.current.delete(newMessage.id);
+        setMessages((prev) => prev.filter((item) => item.id !== newMessage.id));
+        setMessageText(text);
+
         // Check if error is due to daily message limit
         if (error.message && (error.message.includes('Daily message limit') || error.message.includes('daily limit'))) {
           // Immediately set remaining to 0 to update the UI
@@ -1139,7 +1155,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           );
           return;
         }
-        
+
         // Check if error is due to chat expiry
         if (error.message && (error.message.includes('expired') || error.message.includes('read-only'))) {
           Alert.alert(
@@ -1834,8 +1850,11 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 messageContextMenu?.message?.id === message.id;
               const isRightAligned = message.isFromPlayer === true;
               return (
-              <View
+              <SentMessageAppear
                 key={message.id}
+                animate={appearingMessageIdsRef.current.has(message.id)}
+              >
+              <View
                 style={[
                   styles.messageContainer,
                   message.isFromPlayer ? styles.playerMessage : styles.coachMessage
@@ -1902,6 +1921,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
                 </View>
               )}
             </View>
+              </SentMessageAppear>
             );
           })}
         </ScrollView>

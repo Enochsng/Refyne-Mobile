@@ -30,6 +30,7 @@ import { Video, ResizeMode } from '../../components/Video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ChatProfileBottomSheet from '../../components/ChatProfileBottomSheet';
 import MessageContextMenu from '../../components/MessageContextMenu';
+import SentMessageAppear from '../../components/SentMessageAppear';
 
 const { width, height } = Dimensions.get('window');
 
@@ -91,6 +92,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
+  const appearingMessageIdsRef = useRef(new Set());
   const messageRefs = useRef({});
   const scrollY = useRef(0);
   const pendingInitialScrollRef = useRef(false);
@@ -176,6 +178,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     messagesReadyRef.current = false;
     setMessagesReady(false);
     hasLoadedInitialMessagesRef.current = false;
+    appearingMessageIdsRef.current.clear();
     pendingInitialScrollRef.current = true;
     lastPendingContentHeightRef.current = null;
     lastPendingContainerHeightRef.current = null;
@@ -770,10 +773,35 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
   const sendMessage = async () => {
     if (messageText.trim() && selectedConversation) {
+      const text = messageText.trim();
+      const newMessage = {
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        text,
+        isFromPlayer: false,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        createdAt: Date.now(),
+      };
+
+      appearingMessageIdsRef.current.add(newMessage.id);
+      setMessages((prev) => [...prev, newMessage]);
+      setMessageText('');
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: false });
+        requestAnimationFrame(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: false });
+        });
+      });
+
       try {
         // Always use authenticated user id so messages.sender_id matches conversations.coach_id (UUID)
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
+          appearingMessageIdsRef.current.delete(newMessage.id);
+          setMessages((prev) => prev.filter((item) => item.id !== newMessage.id));
+          setMessageText(text);
           Alert.alert('Authentication Error', 'Please sign in to send messages.');
           return;
         }
@@ -782,47 +810,34 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
         // Import the sendMessage function from conversation service
         const { sendMessage: sendMessageToConversation } = await import('../../services/conversationService');
-        
+
         const response = await sendMessageToConversation(
           selectedConversation.id,
           coachId,
           'coach',
-          messageText.trim()
+          text
         );
-        
+
         // Handle response (coaches don't consume clips, so clipsRemaining will be undefined)
         const message = response?.message || response;
 
-        // Add the message to local state for immediate display
-        const newMessage = {
-          id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          text: messageText.trim(),
-          isFromPlayer: false,
-          timestamp: new Date().toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          }),
-          createdAt: Date.now() // Add timestamp for proper ordering
-        };
-
-        setMessages(prev => [...prev, newMessage]);
-        setMessageText('');
-
         // Update conversation list with new last message and mark as read
-        setConversations(prev => 
-          prev.map(conv => 
-            conv.id === selectedConversation.id 
-              ? { 
-                  ...conv, 
-                  lastMessage: messageText.trim(), 
+        setConversations((prev) =>
+          prev.map((conv) =>
+            conv.id === selectedConversation.id
+              ? {
+                  ...conv,
+                  lastMessage: text,
                   lastMessageAt: new Date().toISOString(),
-                  unreadCount: 0 // Mark as read when coach sends message
+                  unreadCount: 0, // Mark as read when coach sends message
                 }
               : conv
           )
         );
-
       } catch (error) {
+        appearingMessageIdsRef.current.delete(newMessage.id);
+        setMessages((prev) => prev.filter((item) => item.id !== newMessage.id));
+        setMessageText(text);
         console.error('Error sending message:', error);
         Alert.alert('Error', 'Failed to send message. Please try again.');
       }
@@ -1507,8 +1522,11 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 messageContextMenu?.message?.id === message.id;
               const isRightAligned = message.isFromPlayer === false;
               return (
-              <View
+              <SentMessageAppear
                 key={message.id}
+                animate={appearingMessageIdsRef.current.has(message.id)}
+              >
+              <View
                 style={[
                   styles.messageContainer,
                   message.isFromPlayer ? styles.playerMessage : styles.coachMessage
@@ -1575,6 +1593,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
                 </View>
               )}
             </View>
+              </SentMessageAppear>
             );
           })}
         </ScrollView>
