@@ -521,6 +521,76 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
   }, [selectedConversation?.id]);
 
+  // Live INSERT events for the open thread. Own sends are already in local state.
+  useEffect(() => {
+    const conversationId = selectedConversation?.id;
+    if (!conversationId) return undefined;
+
+    let channel = null;
+    let cancelled = false;
+
+    const subscribeToMessages = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled || !user) return;
+
+      const currentUserId = user.id;
+      channel = supabase
+        .channel(`player-messages:${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'messages',
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          (payload) => {
+            const msg = payload?.new;
+            if (!msg) return;
+            if (selectedConversationIdRef.current !== conversationId) return;
+            if (String(msg.conversation_id) !== String(conversationId)) return;
+            if (String(msg.sender_id) === String(currentUserId)) return;
+
+            const formattedMessage = {
+              id: msg.id,
+              text: msg.content,
+              isFromPlayer: msg.sender_type === 'player',
+              timestamp: new Date(msg.created_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
+              messageType: msg.message_type || 'text',
+              videoUri: msg.video_uri || null,
+              createdAt: new Date(msg.created_at).getTime(),
+            };
+
+            setMessages((prev) => {
+              if (prev.some((existing) => existing.id === formattedMessage.id)) {
+                return prev;
+              }
+              return [...prev, formattedMessage];
+            });
+          }
+        )
+        .subscribe();
+
+      if (cancelled && channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+
+    subscribeToMessages();
+
+    return () => {
+      cancelled = true;
+      if (channel) {
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+  }, [selectedConversation?.id]);
+
   // Set up interval to refresh daily message count at midnight EST
   useEffect(() => {
     if (!selectedConversation?.id) return;
