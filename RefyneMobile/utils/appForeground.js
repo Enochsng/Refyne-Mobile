@@ -23,10 +23,25 @@ export function startAppForegroundListener() {
 
     if (!cameFromBackground) return;
 
+    let sessionTimeoutId;
     try {
-      await supabase.auth.getSession();
+      const sessionTimeoutMs = 8000;
+      await Promise.race([
+        supabase.auth.getSession(),
+        new Promise((_, reject) => {
+          sessionTimeoutId = setTimeout(
+            () => reject(new Error('Foreground session check timeout')),
+            sessionTimeoutMs
+          );
+        }),
+      ]);
     } catch (error) {
-      console.log('Session check on app foreground failed (non-critical):', error?.message);
+      console.warn(
+        'Session check on app foreground failed (non-critical):',
+        error?.message
+      );
+    } finally {
+      clearTimeout(sessionTimeoutId);
     }
 
     DeviceEventEmitter.emit(APP_FOREGROUND_EVENT);

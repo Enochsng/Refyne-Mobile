@@ -105,7 +105,7 @@ class APIService {
         }
         throw error;
       }
-    });
+    }, 0, { waitForWindow: false });
   }
 
   /**

@@ -8,7 +8,7 @@ import CoachesMessagesScreen from '../screens/coaches/CoachesMessagesScreen';
 import CoachesTutorialsScreen from '../screens/coaches/CoachesTutorialsScreen';
 import CoachesEarningsScreen from '../screens/coaches/CoachesEarningsScreen';
 import CoachesProfileScreen from '../screens/coaches/CoachesProfileScreen';
-import { getConversations } from '../services/conversationService';
+import { getUnreadMessageCount } from '../services/conversationService';
 import { supabase } from '../supabaseClient';
 import { subscribeToAppForeground } from '../utils/appForeground';
 
@@ -47,13 +47,9 @@ export default function CoachNavigator() {
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError || !user || cancelled) return;
 
-        const conversations = await getConversations(user.id, 'coach');
+        const total = await getUnreadMessageCount(user.id, 'coach');
         if (cancelled) return;
 
-        const total = conversations.reduce(
-          (sum, conv) => sum + (conv.coach_unread_count || 0),
-          0
-        );
         setMessagesBadge(formatUnreadBadge(total));
       } catch (error) {
         console.warn('Failed to fetch unread message count for tab badge:', error.message);

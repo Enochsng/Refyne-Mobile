@@ -228,15 +228,21 @@ export const checkBackendHealth = async () => {
 const conversationsInFlight = new Map();
 
 /**
- * Get conversations for a user (player or coach)
+ * Get conversations for a user (player or coach).
+ * Concurrent callers (list screen + tab badge) share one in-flight promise
+ * for the same userId/userType so we don't issue two list GETs at once.
  * @param {Object} [options]
  * @param {boolean} [options.forceRefresh=false] - Skip in-flight dedup so callers get a fresh request (rate limiting still applies)
  */
-export const getConversations = async (userId, userType, options = {}) => {
+export const getConversations = (userId, userType, options = {}) => {
   const { forceRefresh = false } = options;
   const cacheKey = `${userId}/${userType}`;
-  if (!forceRefresh && conversationsInFlight.has(cacheKey)) {
-    return conversationsInFlight.get(cacheKey);
+  if (!forceRefresh) {
+    const inFlight = conversationsInFlight.get(cacheKey);
+    if (inFlight) {
+      console.log(`🔁 Reusing in-flight getConversations for ${userType}: ${userId}`);
+      return inFlight;
+    }
   }
 
   const request = (async () => {
@@ -250,6 +256,7 @@ export const getConversations = async (userId, userType, options = {}) => {
       return data.conversations || [];
     } catch (error) {
       if (
+        error.rateLimited ||
         error.status === 429 ||
         error.message?.includes('429') ||
         error.message?.includes('Rate limit exceeded')
@@ -284,6 +291,16 @@ export const getConversations = async (userId, userType, options = {}) => {
 
   conversationsInFlight.set(cacheKey, request);
   return request;
+};
+
+/**
+ * Unread total for a player or coach. Goes through getConversations so it
+ * joins the same in-flight list GET instead of hitting the endpoint again.
+ */
+export const getUnreadMessageCount = async (userId, userType) => {
+  const conversations = await getConversations(userId, userType);
+  const countKey = userType === 'player' ? 'player_unread_count' : 'coach_unread_count';
+  return conversations.reduce((sum, conv) => sum + (conv[countKey] || 0), 0);
 };
 
 /**

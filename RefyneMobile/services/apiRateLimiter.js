@@ -2,6 +2,16 @@
 // This service manages API request throttling and rate limiting on the client side
 // to prevent hitting the backend's rate limits (100 requests per 15 minutes)
 
+export class RateLimitedError extends Error {
+  constructor(endpoint, waitMs = 0) {
+    super(`Rate limit exceeded for ${endpoint}`);
+    this.name = 'RateLimitedError';
+    this.rateLimited = true;
+    this.endpoint = endpoint;
+    this.waitMs = waitMs;
+  }
+}
+
 class APIRateLimiter {
   constructor() {
     this.requestQueue = new Map(); // Track requests by endpoint
@@ -41,6 +51,21 @@ class APIRateLimiter {
   }
 
   /**
+   * Atomically check-and-reserve a slot for this endpoint.
+   * Concurrent callers cannot both pass: the first records immediately,
+   * the second sees the updated count/timestamp.
+   * @param {string} endpoint - The API endpoint
+   * @returns {boolean} - Whether a slot was reserved
+   */
+  tryReserveSlot(endpoint) {
+    if (!this.canMakeRequest(endpoint)) {
+      return false;
+    }
+    this.recordRequest(endpoint);
+    return true;
+  }
+
+  /**
    * Record a request to the given endpoint
    * @param {string} endpoint - The API endpoint
    */
@@ -52,12 +77,17 @@ class APIRateLimiter {
     this.lastRequestTime.set(endpoint, now);
 
     // Reset counter when the one-minute window has elapsed, otherwise increment.
+    let count;
+    let elapsedForLog = windowElapsed;
     if (windowElapsed >= 60000) {
       this.requestWindowStart.set(endpoint, now);
       this.requestCounts.set(endpoint, 1);
+      count = 1;
+      elapsedForLog = 0;
     } else {
       const currentCount = this.requestCounts.get(endpoint) || 0;
-      this.requestCounts.set(endpoint, currentCount + 1);
+      count = currentCount + 1;
+      this.requestCounts.set(endpoint, count);
     }
   }
 
@@ -88,6 +118,36 @@ class APIRateLimiter {
   }
 
   /**
+   * Whether this endpoint is at the 10-requests-per-60s cap.
+   */
+  isWindowCapped(endpoint) {
+    const now = Date.now();
+    const requestCount = this.requestCounts.get(endpoint) || 0;
+    const windowStart = this.requestWindowStart.get(endpoint) || now;
+    const windowElapsed = now - windowStart;
+    return windowElapsed < 60000 && requestCount >= this.maxRequestsPerMinute;
+  }
+
+  createRateLimitedError(endpoint) {
+    const waitMs = this.getNextRequestDelay(endpoint);
+    console.log(`⏳ Rate limit: Too many requests to ${endpoint}. Skipping GET instead of waiting ${waitMs}ms`);
+    return new RateLimitedError(endpoint, waitMs);
+  }
+
+  /**
+   * Wait only for the per-endpoint minimum interval (not the 60s window).
+   */
+  async waitForMinInterval(endpoint) {
+    const now = Date.now();
+    const lastTime = this.lastRequestTime.get(endpoint) || 0;
+    const delay = Math.max(0, this.minInterval - (now - lastTime));
+    if (delay > 0) {
+      console.log(`⏳ Waiting ${delay}ms before next request to ${endpoint}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  /**
    * Wait for the appropriate delay before making a request
    * @param {string} endpoint - The API endpoint
    * @returns {Promise<void>}
@@ -105,24 +165,34 @@ class APIRateLimiter {
    * @param {string} endpoint - The API endpoint
    * @param {Function} requestFunction - The function that makes the actual request
    * @param {number} retryCount - Current retry count
+   * @param {Object} [options]
+   * @param {boolean} [options.waitForWindow=true] - If false (GET), throw RateLimitedError
+   *   when the 10/60s cap is hit instead of blocking up to 60s
    * @returns {Promise<any>} - The response from the request
    */
-  async makeRequest(endpoint, requestFunction, retryCount = 0) {
+  async makeRequest(endpoint, requestFunction, retryCount = 0, options = {}) {
+    const { waitForWindow = true } = options;
     try {
-      // Wait for rate limit if necessary
-      await this.waitForRateLimit(endpoint);
-      
-      // Check if we can make the request
-      if (!this.canMakeRequest(endpoint)) {
+      if (waitForWindow) {
+        await this.waitForRateLimit(endpoint);
+      } else if (this.isWindowCapped(endpoint)) {
+        throw this.createRateLimitedError(endpoint);
+      } else {
+        await this.waitForMinInterval(endpoint);
+      }
+
+      // Reserve the slot in the same turn as the check so concurrent callers
+      // cannot both pass canMakeRequest before either records.
+      if (!this.tryReserveSlot(endpoint)) {
+        if (!waitForWindow && this.isWindowCapped(endpoint)) {
+          throw this.createRateLimitedError(endpoint);
+        }
         const delay = this.getNextRequestDelay(endpoint);
         console.log(`⏳ Rate limited: Waiting ${delay}ms before retry for ${endpoint}`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this.makeRequest(endpoint, requestFunction, retryCount);
+        return this.makeRequest(endpoint, requestFunction, retryCount, options);
       }
-      
-      // Record the request
-      this.recordRequest(endpoint);
-      
+
       console.log(`📡 Making rate-limited request to ${endpoint}`);
       
       // Make the actual request
@@ -132,6 +202,10 @@ class APIRateLimiter {
       return result;
       
     } catch (error) {
+      if (error instanceof RateLimitedError || error.rateLimited) {
+        throw error;
+      }
+
       // Don't log 404 errors as console errors if they're expected (like missing coach accounts)
       if (error.status === 404) {
         console.log(`🔍 Request returned 404 for ${endpoint}: ${error.message}`);
@@ -146,7 +220,7 @@ class APIRateLimiter {
         
         if (retryCount < this.retryDelays.length) {
           await new Promise(resolve => setTimeout(resolve, retryDelay));
-          return this.makeRequest(endpoint, requestFunction, retryCount + 1);
+          return this.makeRequest(endpoint, requestFunction, retryCount + 1, options);
         } else {
           throw new Error('Rate limit exceeded. Please try again later.');
         }

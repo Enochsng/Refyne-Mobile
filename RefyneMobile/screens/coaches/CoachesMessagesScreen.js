@@ -16,6 +16,7 @@ import {
   Keyboard,
   Modal,
   PanResponder,
+  AppState,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +90,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const hasCachedConversationsRef = useRef(false);
   const conversationsRef = useRef([]);
   const selectedConversationRef = useRef(null);
+  const markedReadRef = useRef(new Set());
+  const lastBackgroundedAtRef = useRef(0);
+  const hasMountedConversationsRef = useRef(false);
+  const isMountedRef = useRef(true);
   
   // ScrollView ref for auto-scrolling
   const scrollViewRef = useRef(null);
@@ -306,32 +311,37 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     navigation.setParams({ hideTabBar: Boolean(selectedConversation) });
   }, [navigation, selectedConversation]);
 
-  // Mark conversation as read when messages are loaded
+  // Mark conversation as read once per conversation per session (not on every new message)
   useEffect(() => {
-    if (selectedConversation && messages.length > 0) {
-      const markAsReadWhenViewing = async () => {
-        try {
-          const { markConversationAsRead } = await import('../../services/conversationService');
-          await markConversationAsRead(selectedConversation.id, 'coach');
-          
-          // Update local state to remove unread count
-          setConversations(prev => 
-            prev.map(conv => 
-              conv.id === selectedConversation.id 
-                ? { ...conv, unreadCount: 0 }
-                : conv
-            )
-          );
-          
-          console.log('Conversation marked as read when viewing messages');
-        } catch (error) {
-          console.error('Error marking conversation as read when viewing:', error);
-        }
-      };
-      
-      markAsReadWhenViewing();
+    const conversationId = selectedConversation?.id;
+    if (!conversationId || markedReadRef.current.has(conversationId)) {
+      return;
     }
-  }, [selectedConversation, messages.length]);
+
+    markedReadRef.current.add(conversationId);
+
+    const markAsReadWhenViewing = async () => {
+      try {
+        const { markConversationAsRead } = await import('../../services/conversationService');
+        await markConversationAsRead(conversationId, 'coach');
+
+        setConversations(prev =>
+          prev.map(conv =>
+            conv.id === conversationId
+              ? { ...conv, unreadCount: 0 }
+              : conv
+          )
+        );
+
+        console.log('Conversation marked as read when viewing messages');
+      } catch (error) {
+        markedReadRef.current.delete(conversationId);
+        console.error('Error marking conversation as read when viewing:', error);
+      }
+    };
+
+    markAsReadWhenViewing();
+  }, [selectedConversation?.id]);
 
   // Keep a ref of conversations for soft-refresh / stale-request checks
   useEffect(() => {
@@ -341,12 +351,17 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
   }, [conversations]);
 
-  // Load conversations on component mount and when tab regains focus
-  const loadConversations = useCallback(async () => {
-    const requestId = ++loadConversationsRequestIdRef.current;
-    const isLatest = () => requestId === loadConversationsRequestIdRef.current;
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
+  // Load conversations on component mount and when tab regains focus
+  const loadConversations = useCallback(async ({ trigger = 'manual' } = {}) => {
     const SOFT_REFRESH_WINDOW_MS = 15000;
+    const FOREGROUND_SKIP_MAX_BACKGROUND_MS = 30000;
     const LOAD_TIMEOUT_MS = 25000;
 
     const hasCached =
@@ -354,6 +369,28 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     const recentlyLoaded =
       lastSuccessfulConversationsLoadAtRef.current > 0 &&
       Date.now() - lastSuccessfulConversationsLoadAtRef.current < SOFT_REFRESH_WINDOW_MS;
+
+    const backgroundedForMs = lastBackgroundedAtRef.current
+      ? Date.now() - lastBackgroundedAtRef.current
+      : Number.POSITIVE_INFINITY;
+    const isSoftSkip =
+      hasCached &&
+      recentlyLoaded &&
+      (trigger === 'focus' ||
+        (trigger === 'foreground' &&
+          backgroundedForMs < FOREGROUND_SKIP_MAX_BACKGROUND_MS));
+
+    if (isSoftSkip) {
+      console.log(
+        `[loadConversations] skip GET trigger=${trigger} recentlyLoaded=true` +
+          (trigger === 'foreground' ? ` backgroundedFor=${backgroundedForMs}ms` : '')
+      );
+      return conversationsRef.current;
+    }
+
+    const requestId = ++loadConversationsRequestIdRef.current;
+    const isLatest = () => requestId === loadConversationsRequestIdRef.current;
+    const isActive = () => isMountedRef.current && isLatest();
     const showLoader = !hasCached || !recentlyLoaded;
 
     if (showLoader) {
@@ -361,7 +398,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     }
 
     const timeoutId = setTimeout(() => {
-      if (isLatest() && showLoader) {
+      if (isActive() && showLoader) {
         console.warn(
           '⚠️ Conversations load timed out — clearing spinner and keeping cached list'
         );
@@ -371,14 +408,24 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
     try {
       const authPromise = supabase.auth.getUser();
-      const authTimeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Authentication timeout')), 15000)
-      );
+      let authTimeoutId;
+      const authTimeoutPromise = new Promise((_, reject) => {
+        authTimeoutId = setTimeout(
+          () => reject(new Error('Authentication timeout')),
+          15000
+        );
+      });
 
-      const { data: { user }, error: authError } = await Promise.race([
-        authPromise,
-        authTimeoutPromise,
-      ]);
+      let user;
+      let authError;
+      try {
+        ({ data: { user }, error: authError } = await Promise.race([
+          authPromise,
+          authTimeoutPromise,
+        ]));
+      } finally {
+        clearTimeout(authTimeoutId);
+      }
 
       if (authError) {
         console.error('Authentication error:', authError);
@@ -387,7 +434,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
       if (!user) {
         console.error('No authenticated user found');
-        if (isLatest() && showLoader) {
+        if (isActive() && showLoader) {
           Alert.alert(
             'Authentication Error',
             'Please sign in to view your conversations.'
@@ -396,14 +443,14 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         return [];
       }
 
-      if (!isLatest()) return [];
+      if (!isActive()) return [];
 
       const currentCoachId = user.id;
       setCoachId(currentCoachId);
       console.log('Loading conversations for authenticated coach:', currentCoachId);
 
       const conversationsData = await getConversations(currentCoachId, 'coach');
-      if (!isLatest()) return [];
+      if (!isActive()) return [];
 
       console.log('Coach conversations data:', conversationsData);
       console.log('[loadConversations] raw API sessionStatus:', conversationsData.map((conv) => ({
@@ -459,7 +506,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         })
       );
 
-      if (!isLatest()) return [];
+      if (!isActive()) return [];
 
       console.log('Formatted conversations:', formattedConversations);
       setConversations(formattedConversations);
@@ -468,16 +515,31 @@ export default function CoachesMessagesScreen({ navigation, route }) {
       lastSuccessfulConversationsLoadAtRef.current = Date.now();
       return formattedConversations;
     } catch (error) {
-      if (!isLatest()) {
+      if (!isActive()) {
         return conversationsRef.current;
       }
 
-      console.error('Error loading conversations:', error);
+      const isRateLimited = error.rateLimited === true;
+
+      if (isRateLimited) {
+        console.warn('⚠️ Conversations rate limited — keeping cached list');
+      } else {
+        console.error(
+          `Error loading conversations (requestId=${requestId}):`,
+          error
+        );
+      }
 
       // Soft refresh failures: keep cached list, avoid noisy alerts
       if (!showLoader && hasCached) {
-        console.warn('⚠️ Soft conversation refresh failed — keeping cached list');
+        if (!isRateLimited) {
+          console.warn('⚠️ Soft conversation refresh failed — keeping cached list');
+        }
         return conversationsRef.current;
+      }
+
+      if (isRateLimited) {
+        return conversationsRef.current.length > 0 ? conversationsRef.current : [];
       }
 
       if (error.message === 'Authentication timeout') {
@@ -486,7 +548,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
           'The connection is taking longer than expected. This might be due to network issues. Would you like to try again?',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Retry', onPress: () => loadConversations() }
+            { text: 'Retry', onPress: () => loadConversations({ trigger: 'manual' }) }
           ]
         );
       } else if (error.message?.includes('Authentication')) {
@@ -499,34 +561,30 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             }}
           ]
         );
-      } else if (
-        error.rateLimited ||
-        error.message?.includes('rate limited') ||
-        error.message?.includes('Rate limit')
-      ) {
-        console.warn('⚠️ Conversations rate limited — keeping cached list');
       } else {
         Alert.alert(
           'Error',
           'Failed to load conversations. Please check your internet connection and try again.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Retry', onPress: () => loadConversations() }
+            { text: 'Retry', onPress: () => loadConversations({ trigger: 'manual' }) }
           ]
         );
       }
       return conversationsRef.current.length > 0 ? conversationsRef.current : [];
     } finally {
       clearTimeout(timeoutId);
-      // Only the latest request may clear the spinner it owns
-      if (isLatest() && showLoader) {
+      // Only the latest request on a mounted instance may clear the spinner it owns
+      if (isActive() && showLoader) {
         setLoading(false);
       }
     }
   }, []);
 
   useEffect(() => {
-    loadConversations();
+    const trigger = hasMountedConversationsRef.current ? 'manual' : 'mount';
+    hasMountedConversationsRef.current = true;
+    loadConversations({ trigger });
   }, [loadConversations, route?.params?.coachId]);
 
   useFocusEffect(
@@ -536,10 +594,19 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         return;
       }
       if (!selectedConversation) {
-        loadConversations();
+        loadConversations({ trigger: 'focus' });
       }
     }, [loadConversations, selectedConversation])
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'background') {
+        lastBackgroundedAtRef.current = Date.now();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
@@ -618,7 +685,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   useAppForeground(() => {
     const activeConversation = selectedConversationRef.current;
     if (!activeConversation) {
-      loadConversations();
+      loadConversations({ trigger: 'foreground' });
       return;
     }
     loadMessages(activeConversation.id, { resetReveal: false });
@@ -752,17 +819,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
         contentStableRef.current = true;
         tryRevealIfReady();
       }
-      
-      // Mark conversation as read after messages are loaded and displayed
-      // This ensures the user has actually seen the messages
-      setTimeout(async () => {
-        try {
-          await markAsRead(conversationId);
-        } catch (error) {
-          console.error('Error marking conversation as read after loading messages:', error);
-        }
-      }, 1000); // Longer delay to ensure user has time to see the messages
-      
     } catch (error) {
       console.error('Error loading messages:', error);
       setMessages([]);
@@ -864,7 +920,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     setIsOtherUserBlocked(false);
     setBlockRecordId(null);
     navigation.setParams({ conversationId: undefined, hideTabBar: false });
-    loadConversations();
+    loadConversations({ trigger: 'manual' });
   };
 
   const openProfileSheet = async () => {
@@ -1034,7 +1090,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
             // Refresh so archivedAt matches server (cleared only when pair is fully unblocked).
             try {
-              const refreshed = await loadConversations();
+              const refreshed = await loadConversations({ trigger: 'manual' });
               if (conversationId && Array.isArray(refreshed)) {
                 const match = refreshed.find((conv) => conv.id === conversationId);
                 if (match) {
