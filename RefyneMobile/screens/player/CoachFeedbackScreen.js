@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppForeground } from '../../utils/appForeground';
+import { setOpenConversationId, useLiveSyncCatchUp } from '../../services/liveSync';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
@@ -77,6 +78,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   const isLoadingConversationsRef = useRef(false);
   const selectedConversationIdRef = useRef(null);
   const selectedConversationRef = useRef(null);
+  const listStaleRef = useRef(false);
   const clipsRequestIdRef = useRef(0);
   const dailyMessagesRequestIdRef = useRef(0);
   const clipsInFlightRef = useRef(new Map());
@@ -439,6 +441,23 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     }
   };
 
+  const consumeStale = useLiveSyncCatchUp(() => {
+    const activeConversation = selectedConversationRef.current;
+    if (!activeConversation) {
+      listStaleRef.current = false;
+      loadConversations({
+        force: true,
+        showLoader: false,
+        preserveSelectedConversation: true,
+      });
+      return;
+    }
+
+    listStaleRef.current = true;
+    loadRemainingClips(activeConversation.id);
+    loadRemainingDailyMessages(activeConversation.id);
+  });
+
   // Handle route params when screen comes into focus (for tab navigator)
   useFocusEffect(
     React.useCallback(() => {
@@ -450,6 +469,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
         // A new purchase should trigger one refresh, then clear the param to prevent focus loops.
         if (isNewSession) {
           console.log('🔄 New session detected - reloading conversations once');
+          consumeStale();
           await loadConversations({ force: true });
 
           if (isActive) {
@@ -458,14 +478,21 @@ export default function CoachFeedbackScreen({ navigation, route }) {
           return;
         }
 
+        const stale = consumeStale();
         const activeConversation = selectedConversationRef.current;
         if (!activeConversation) {
+          listStaleRef.current = false;
           await loadConversations({
             // Keep the previous list visible on tab returns; refresh silently.
+            force: stale,
             showLoader: conversationsRef.current.length === 0,
             preserveSelectedConversation: true
           });
           return;
+        }
+
+        if (stale) {
+          listStaleRef.current = true;
         }
 
         // If user is actively in chat, refresh counters when screen regains focus.
@@ -478,7 +505,7 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       return () => {
         isActive = false;
       };
-    }, [navigation])
+    }, [navigation, consumeStale])
   );
 
   useAppForeground(() => {
@@ -489,23 +516,17 @@ export default function CoachFeedbackScreen({ navigation, route }) {
       conversationId: activeConversation?.id ?? null,
     });
     if (!activeConversation) {
-      loadConversations({
-        force: true,
-        showLoader: false,
-        preserveSelectedConversation: true,
-      });
       return;
     }
 
     loadMessages(activeConversation.id, { resetReveal: false });
-    loadRemainingClips(activeConversation.id);
-    loadRemainingDailyMessages(activeConversation.id);
   });
 
   // Refresh clip counter and daily messages when selected conversation changes
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
     selectedConversationIdRef.current = selectedConversation?.id || null;
+    setOpenConversationId(selectedConversation?.id || null);
     if (selectedConversation?.id) {
       const cached = countersCacheRef.current.get(selectedConversation.id);
       if (cached) {
@@ -672,14 +693,6 @@ export default function CoachFeedbackScreen({ navigation, route }) {
   useEffect(() => {
     navigation.setParams({ hideTabBar: Boolean(selectedConversation) });
   }, [navigation, selectedConversation]);
-
-  // Keep tab badge in sync with local unread counts (clears when a conversation is opened/read)
-  useEffect(() => {
-    const total = conversations.reduce((sum, conv) => sum + (conv.unreadCount || 0), 0);
-    navigation.setOptions({
-      tabBarBadge: total > 0 ? (total > 99 ? '99+' : total) : undefined,
-    });
-  }, [conversations, navigation]);
 
   // Helper function to check if chat is expired
   // IMPORTANT: Once a chat expires, players CANNOT send any messages (text or video)
@@ -1394,7 +1407,13 @@ export default function CoachFeedbackScreen({ navigation, route }) {
     setIsOtherUserBlocked(false);
     setBlockRecordId(null);
     navigation.setParams({ conversationId: undefined, isNewSession: undefined, hideTabBar: false });
-    loadConversations({ preserveSelectedConversation: false, showLoader: false });
+    const stale = listStaleRef.current;
+    listStaleRef.current = false;
+    loadConversations({
+      force: stale,
+      preserveSelectedConversation: false,
+      showLoader: false,
+    });
   };
 
   const openProfileSheet = async () => {
@@ -1725,7 +1744,13 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               // Clear route params to prevent auto-selection when navigating back
               navigation.setParams({ conversationId: undefined, isNewSession: undefined, hideTabBar: false });
               // Keep cards visible instantly; refresh list silently in the background.
-              loadConversations({ preserveSelectedConversation: false, showLoader: false });
+              const stale = listStaleRef.current;
+              listStaleRef.current = false;
+              loadConversations({
+                force: stale,
+                preserveSelectedConversation: false,
+                showLoader: false,
+              });
             }}
           >
             <Ionicons name="arrow-back" size={24} color="#0C295C" />

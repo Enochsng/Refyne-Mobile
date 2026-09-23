@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
@@ -8,9 +8,7 @@ import CoachesMessagesScreen from '../screens/coaches/CoachesMessagesScreen';
 import CoachesTutorialsScreen from '../screens/coaches/CoachesTutorialsScreen';
 import CoachesEarningsScreen from '../screens/coaches/CoachesEarningsScreen';
 import CoachesProfileScreen from '../screens/coaches/CoachesProfileScreen';
-import { getUnreadMessageCount } from '../services/conversationService';
-import { supabase } from '../supabaseClient';
-import { subscribeToAppForeground } from '../utils/appForeground';
+import { useUnreadBadge } from '../services/liveSync';
 
 const Tab = createBottomTabNavigator();
 const { width } = Dimensions.get('window');
@@ -37,33 +35,7 @@ function formatUnreadBadge(total) {
 }
 
 export default function CoachNavigator() {
-  const [messagesBadge, setMessagesBadge] = useState(undefined);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchUnreadCount = async () => {
-      try {
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError || !user || cancelled) return;
-
-        const total = await getUnreadMessageCount(user.id, 'coach');
-        if (cancelled) return;
-
-        setMessagesBadge(formatUnreadBadge(total));
-      } catch (error) {
-        console.warn('Failed to fetch unread message count for tab badge:', error.message);
-      }
-    };
-
-    fetchUnreadCount();
-    const unsubscribeForeground = subscribeToAppForeground(fetchUnreadCount);
-
-    return () => {
-      cancelled = true;
-      unsubscribeForeground();
-    };
-  }, []);
+  const messagesBadge = formatUnreadBadge(useUnreadBadge());
 
   return (
     <Tab.Navigator

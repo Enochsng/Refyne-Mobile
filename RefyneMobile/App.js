@@ -18,6 +18,7 @@ import {
   Manrope_700Bold,
 } from '@expo-google-fonts/manrope';
 import { supabase } from './supabaseClient';
+import { startLiveSync, stopLiveSync } from './services/liveSync';
 import AuthScreen from './screens/AuthScreen';
 import PlayerNavigator from './navigation/PlayerNavigator';
 import CoachNavigator from './navigation/CoachNavigator';
@@ -52,6 +53,7 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState('player'); // Default to player, can be 'player' or 'coach'
+  const [roleConfirmed, setRoleConfirmed] = useState(false);
   const [onboardingCompleted, setOnboardingCompleted] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showSplash, setShowSplash] = useState(true);
@@ -137,6 +139,7 @@ export default function App() {
       }
       
       setUserRole(userRole);
+      setRoleConfirmed(Boolean(session?.user));
       
       // Check onboarding completion status
       let isOnboardingCompleted = false;
@@ -208,6 +211,7 @@ export default function App() {
       }
       
       setUserRole(userRole);
+      setRoleConfirmed(Boolean(session?.user));
       
       // Check onboarding completion status
       let isOnboardingCompleted = false;
@@ -309,6 +313,7 @@ export default function App() {
       // User signed out, clear onboarding status
       setOnboardingCompleted(false);
       setUserRole('player');
+      setRoleConfirmed(false);
       // Clear AsyncStorage
       AsyncStorage.removeItem('onboarding_completed');
       AsyncStorage.removeItem('onboarding_data');
@@ -318,6 +323,19 @@ export default function App() {
       console.log('User signed out, cleared onboarding status and all flags');
     }
   }, [session]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || !roleConfirmed) {
+      stopLiveSync();
+      return undefined;
+    }
+
+    startLiveSync(userId, userRole);
+    return () => {
+      stopLiveSync();
+    };
+  }, [session?.user?.id, userRole, roleConfirmed]);
 
   // Show splash screen first
   if (showSplash) {

@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAppForeground } from '../../utils/appForeground';
+import { useLiveSyncCatchUp } from '../../services/liveSync';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../supabaseClient';
@@ -94,7 +94,23 @@ const capitalizeSport = (sport) => {
   return sport.charAt(0).toUpperCase() + sport.slice(1).toLowerCase();
 };
 
-const buildFeedbackItem = async (conv) => {
+const loadCounterWithRetry = async (loader) => {
+  try {
+    return { ok: true, data: await loader() };
+  } catch {
+    try {
+      return { ok: true, data: await loader() };
+    } catch (retryError) {
+      console.log(
+        'Counter request failed after retry:',
+        retryError?.message || retryError
+      );
+      return { ok: false, data: null };
+    }
+  }
+};
+
+const buildFeedbackItem = async (conv, previousItem) => {
   const formattedConversation = await formatConversationForDisplay(conv, 'player');
 
   const chatNotExpired =
@@ -115,14 +131,26 @@ const buildFeedbackItem = async (conv) => {
         })
     : Promise.resolve(null);
 
-  const [session, clipInfo, dailyInfo] = await Promise.all([
+  const [session, clipResult, dailyResult] = await Promise.all([
     sessionPromise,
-    getRemainingClips(formattedConversation.id).catch(() => null),
-    chatNotExpired ? getRemainingDailyMessages(formattedConversation.id).catch(() => null) : Promise.resolve(null),
+    loadCounterWithRetry(() => getRemainingClips(formattedConversation.id)),
+    chatNotExpired
+      ? loadCounterWithRetry(() => getRemainingDailyMessages(formattedConversation.id))
+      : Promise.resolve({ ok: true, skipped: true, data: null }),
   ]);
 
-  const clipsSent = clipInfo?.used ?? 0;
-  const clipsTotal = clipInfo?.total ?? 0;
+  let clipsSent;
+  let clipsTotal;
+  if (clipResult.ok) {
+    clipsSent = clipResult.data?.used ?? 0;
+    clipsTotal = clipResult.data?.total ?? 0;
+  } else if (previousItem?.clipsSent != null && previousItem?.clipsTotal != null) {
+    clipsSent = previousItem.clipsSent;
+    clipsTotal = previousItem.clipsTotal;
+  } else {
+    clipsSent = 0;
+    clipsTotal = 0;
+  }
 
   const sport = capitalizeSport(formattedConversation.sport || session?.sport || '');
 
@@ -173,8 +201,12 @@ const buildFeedbackItem = async (conv) => {
   }
 
   let messagesToday = null;
-  if (status === 'Active' && dailyInfo && typeof dailyInfo.remaining === 'number') {
-    messagesToday = dailyInfo.remaining;
+  if (status === 'Active') {
+    if (!dailyResult.skipped && dailyResult.ok && typeof dailyResult.data?.remaining === 'number') {
+      messagesToday = dailyResult.data.remaining;
+    } else if (!dailyResult.ok && previousItem?.messagesToday != null) {
+      messagesToday = previousItem.messagesToday;
+    }
   }
 
   let avatarUrl = formattedConversation.avatar;
@@ -235,6 +267,8 @@ export default function HomeScreen({ navigation }) {
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const lastRecentFeedbackLoadAtRef = useRef(0);
   const loadRecentFeedbackRef = useRef(null);
+  const recentFeedbackRef = useRef([]);
+  const recentFeedbackRequestIdRef = useRef(0);
 
   // Get user's name from Supabase
   const getUserName = async () => {
@@ -279,12 +313,22 @@ export default function HomeScreen({ navigation }) {
     }
     lastRecentFeedbackLoadAtRef.current = now;
 
+    const requestId = ++recentFeedbackRequestIdRef.current;
+    const isLatest = () => requestId === recentFeedbackRequestIdRef.current;
+
+    const applyRecentFeedback = (items) => {
+      if (!isLatest()) return;
+      recentFeedbackRef.current = items;
+      setRecentFeedback(items);
+      setHasFeedback(items.length > 0);
+    };
+
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (!isLatest()) return;
       if (!user) {
         console.log('No authenticated user found');
-        setHasFeedback(false);
-        setRecentFeedback([]);
+        applyRecentFeedback([]);
         return;
       }
 
@@ -297,43 +341,44 @@ export default function HomeScreen({ navigation }) {
         conversationsData = await getConversations(playerId, 'player', { forceRefresh });
         console.log('Retrieved conversations data:', conversationsData);
       } catch (conversationError) {
+        if (!isLatest()) return;
         if (conversationError?.rateLimited) {
           console.log('⏳ Rate limited loading recent feedback - keeping current state');
           return;
         }
-        // Handle backend connection errors gracefully
         const errorMessage = conversationError?.message || '';
-        const isBackendConnectionError = 
+        const isBackendConnectionError =
           errorMessage.includes('No working backend URL found') ||
           errorMessage.includes('Network request failed') ||
           errorMessage.includes('Unable to connect') ||
           errorMessage.includes('Unable to reach');
-        
-        if (isBackendConnectionError) {
-          // Backend is not available - silently handle this case
-          if (__DEV__) {
-            console.log('⚠️ Backend server not available. Recent feedback will not be displayed.');
-            console.log('   This is normal if the backend server is not running.');
-            console.log('   To enable feedback: cd backend && node server.js');
-          }
-          setHasFeedback(false);
-          setRecentFeedback([]);
-          return;
-        }
-        // Re-throw other errors
-        throw conversationError;
-      }
 
-      if (!conversationsData || conversationsData.length === 0) {
-        console.log('No conversations found for player');
-        setHasFeedback(false);
-        setRecentFeedback([]);
+        if (isBackendConnectionError && __DEV__) {
+          console.log('⚠️ Backend server not available. Keeping recent feedback already on screen.');
+          console.log('   This is normal if the backend server is not running.');
+          console.log('   To enable feedback: cd backend && node server.js');
+        } else {
+          console.warn('⚠️ Error loading conversations for recent feedback — keeping current cards:', errorMessage);
+        }
         return;
       }
 
-      const feedbackItems = await Promise.all(
-        conversationsData.map((conv) => buildFeedbackItem(conv))
+      if (!isLatest()) return;
+
+      if (!conversationsData || conversationsData.length === 0) {
+        console.log('No conversations found for player');
+        applyRecentFeedback([]);
+        return;
+      }
+
+      const previousById = new Map(
+        recentFeedbackRef.current.map((item) => [item.conversationId || item.id, item])
       );
+      const feedbackItems = await Promise.all(
+        conversationsData.map((conv) => buildFeedbackItem(conv, previousById.get(conv.id)))
+      );
+
+      if (!isLatest()) return;
 
       const visibleFeedbackItems = feedbackItems.filter(shouldShowInRecentFeedback);
 
@@ -347,27 +392,21 @@ export default function HomeScreen({ navigation }) {
       const limitedFeedbackItems = visibleFeedbackItems.slice(0, RECENT_FEEDBACK_LIST_LIMIT);
 
       console.log('Loaded recent feedback:', limitedFeedbackItems);
-      setRecentFeedback(limitedFeedbackItems);
-      setHasFeedback(limitedFeedbackItems.length > 0);
+      applyRecentFeedback(limitedFeedbackItems);
     } catch (error) {
-      // Only log non-backend-connection errors
+      if (!isLatest()) return;
       const errorMessage = error?.message || '';
-      const isBackendConnectionError = 
+      const isBackendConnectionError =
         errorMessage.includes('No working backend URL found') ||
         errorMessage.includes('Network request failed') ||
         errorMessage.includes('Unable to connect') ||
         errorMessage.includes('Unable to reach');
-      
+
       if (!isBackendConnectionError) {
-        // Log unexpected errors
-        console.error('Error loading recent feedback:', error);
+        console.error('Error loading recent feedback — keeping current cards:', error);
       } else if (__DEV__) {
-        // In development, log backend connection issues but don't show error overlay
-        console.log('⚠️ Backend connection issue (handled gracefully):', errorMessage);
+        console.log('⚠️ Backend connection issue (keeping current cards):', errorMessage);
       }
-      
-      setHasFeedback(false);
-      setRecentFeedback([]);
     }
   }, []);
 
@@ -444,20 +483,22 @@ export default function HomeScreen({ navigation }) {
     ]).start();
   }, []);
 
+  const consumeStale = useLiveSyncCatchUp(() => {
+    loadRecentFeedbackRef.current?.({ forceRefresh: true, skipDebounce: true });
+  });
+
   // Load user name, coach counts, and recent feedback when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       getUserName();
       loadCoachCounts();
-      loadRecentFeedbackRef.current?.({ forceRefresh: false });
-    }, [])
+      const stale = consumeStale();
+      loadRecentFeedbackRef.current?.({
+        forceRefresh: stale,
+        skipDebounce: stale,
+      });
+    }, [consumeStale])
   );
-
-  useAppForeground(() => {
-    getUserName();
-    loadCoachCounts();
-    loadRecentFeedbackRef.current?.({ forceRefresh: true, skipDebounce: true });
-  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

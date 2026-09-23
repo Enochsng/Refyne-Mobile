@@ -23,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAppForeground } from '../../utils/appForeground';
+import { setOpenConversationId, useLiveSyncCatchUp } from '../../services/liveSync';
 import * as Clipboard from 'expo-clipboard';
 import { getConversations, formatConversationForDisplay, hideConversationForCoach } from '../../services/conversationService';
 import { blockUser, listBlocks, unblockUser } from '../../services/safetyService';
@@ -90,6 +91,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   const hasCachedConversationsRef = useRef(false);
   const conversationsRef = useRef([]);
   const selectedConversationRef = useRef(null);
+  const listStaleRef = useRef(false);
   const markedReadRef = useRef(new Set());
   const lastBackgroundedAtRef = useRef(0);
   const hasMountedConversationsRef = useRef(false);
@@ -587,16 +589,31 @@ export default function CoachesMessagesScreen({ navigation, route }) {
     loadConversations({ trigger });
   }, [loadConversations, route?.params?.coachId]);
 
+  const consumeStale = useLiveSyncCatchUp(() => {
+    const activeConversation = selectedConversationRef.current;
+    if (!activeConversation) {
+      listStaleRef.current = false;
+      loadConversations({ trigger: 'manual' });
+      return;
+    }
+    listStaleRef.current = true;
+  });
+
   useFocusEffect(
     useCallback(() => {
       if (isFirstFocus.current) {
         isFirstFocus.current = false;
+        consumeStale();
         return;
       }
+      const stale = consumeStale();
       if (!selectedConversation) {
-        loadConversations({ trigger: 'focus' });
+        listStaleRef.current = false;
+        loadConversations({ trigger: stale ? 'manual' : 'focus' });
+      } else if (stale) {
+        listStaleRef.current = true;
       }
-    }, [loadConversations, selectedConversation])
+    }, [consumeStale, loadConversations, selectedConversation])
   );
 
   useEffect(() => {
@@ -610,6 +627,7 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
   useEffect(() => {
     selectedConversationRef.current = selectedConversation;
+    setOpenConversationId(selectedConversation?.id || null);
   }, [selectedConversation]);
 
   // Live INSERT events for the open thread. Own sends are already in local state.
@@ -685,7 +703,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
   useAppForeground(() => {
     const activeConversation = selectedConversationRef.current;
     if (!activeConversation) {
-      loadConversations({ trigger: 'foreground' });
       return;
     }
     loadMessages(activeConversation.id, { resetReveal: false });
@@ -761,13 +778,6 @@ export default function CoachesMessagesScreen({ navigation, route }) {
 
     setFilteredConversations(result);
   }, [searchQuery, conversations, listFilter]);
-
-  useEffect(() => {
-    const total = conversations.reduce((sum, conv) => sum + conv.unreadCount, 0);
-    navigation.setOptions({
-      tabBarBadge: total > 0 ? (total > 99 ? '99+' : total) : undefined,
-    });
-  }, [conversations, navigation]);
 
   // Auto-select conversation if conversationId is passed via route params
   useEffect(() => {
@@ -1463,6 +1473,10 @@ export default function CoachesMessagesScreen({ navigation, route }) {
               setBlockRecordId(null);
               // Clear route params to prevent auto-selection when navigating back
               navigation.setParams({ conversationId: undefined, hideTabBar: false });
+              if (listStaleRef.current) {
+                listStaleRef.current = false;
+                loadConversations({ trigger: 'manual' });
+              }
             }}
             activeOpacity={0.7}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

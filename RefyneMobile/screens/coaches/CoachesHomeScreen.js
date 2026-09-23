@@ -12,7 +12,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useAppForeground } from '../../utils/appForeground';
+import { useLiveSyncCatchUp } from '../../services/liveSync';
 import { supabase } from '../../supabaseClient';
 import { getPlayerProfilePhoto, getRemainingClips } from '../../services/conversationService';
 
@@ -215,9 +215,14 @@ export default function CoachesHomeScreen({ navigation }) {
     ]).start();
   }, []);
 
+  const consumeStale = useLiveSyncCatchUp(() => {
+    loadRecentActivity();
+  });
+
   // Refresh coach name and recent activity when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
+      consumeStale();
       // Add a small delay to ensure any recent updates have propagated
       const timer = setTimeout(() => {
         getCoachName();
@@ -225,13 +230,8 @@ export default function CoachesHomeScreen({ navigation }) {
       }, 500);
       
       return () => clearTimeout(timer);
-    }, [])
+    }, [consumeStale])
   );
-
-  useAppForeground(() => {
-    getCoachName();
-    loadRecentActivity();
-  });
 
   const handleReviewClips = () => {
     navigation.navigate('Messages');
