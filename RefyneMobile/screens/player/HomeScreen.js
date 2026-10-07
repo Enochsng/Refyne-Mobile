@@ -434,6 +434,7 @@ export default function HomeScreen({ navigation }) {
     navigation.navigate('ExploreSports', {
       screen: 'Coaches',
       params: { sport: sport.name },
+      initial: false,
     });
   };
 

@@ -1182,7 +1182,9 @@ export default function CoachesMessagesScreen({ navigation, route }) {
             tutorial.videoName || `tutorial-${Date.now()}.mp4`
           );
         } catch (uploadErr) {
-          console.warn('Tutorial upload failed, sending local URI:', uploadErr.message);
+          console.warn('Tutorial upload failed:', uploadErr.message);
+          Alert.alert('Upload failed', uploadErr.message || 'Unknown error');
+          return;
         }
       }
 

@@ -1309,12 +1309,13 @@ export default function CoachFeedbackScreen({ navigation, route }) {
               video.fileName || `video-${Date.now()}.mp4`
             );
           } catch (uploadErr) {
-            console.warn('Chat media upload failed, sending local URI:', uploadErr.message);
-            // Fallback: still send local URI (will only work until app reload)
+            console.warn('Chat media upload failed:', uploadErr.message);
+            Alert.alert('Upload failed', uploadErr.message || 'Unknown error');
+            return;
           }
         }
 
-        // Send video message with permanent URL (or fallback local URI)
+        // Send video message with permanent URL
         try {
           const response = await sendMessageToConversation(
             selectedConversation.id,
